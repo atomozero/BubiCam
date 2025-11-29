@@ -17,6 +17,9 @@
 #include <BufferGroup.h>
 #include <ObjectList.h>
 
+class VideoConsumer;
+class AudioConsumer;
+
 // Video format information
 struct VideoFormat {
 	int32		width;
@@ -82,9 +85,9 @@ public:
 	bool				IsCapturing() const { return fIsCapturing; }
 
 	// Capture statistics
-	uint32				FramesCaptured() const { return fFramesCaptured; }
-	uint32				FramesDropped() const { return fFramesDropped; }
-	float				CurrentFPS() const { return fCurrentFPS; }
+	uint32				FramesCaptured() const;
+	uint32				FramesDropped() const;
+	float				CurrentFPS() const;
 
 	// Information gathering
 	status_t			GatherDeviceInfo();
@@ -94,8 +97,10 @@ private:
 	void				_GatherDriverInfo();
 	void				_GatherVideoFormats();
 	void				_GatherAudioInfo();
-	static int32		_CaptureThread(void* data);
-	void				_CaptureLoop();
+
+	status_t			_SetupVideoConnection();
+	status_t			_SetupAudioConnection();
+	void				_TeardownConnections();
 
 	// Device identification
 	BString				fName;
@@ -128,21 +133,27 @@ private:
 	int32				fAudioChannels;
 	int32				fAudioBitsPerSample;
 
-	// Media Kit
+	// Media Kit - Producer
 	media_node			fMediaNode;
 	int32				fMediaNodeID;
 	dormant_node_info	fDormantInfo;
+	bool				fNodeInstantiated;
+
+	// Media Kit - Consumers
+	VideoConsumer*		fVideoConsumer;
+	AudioConsumer*		fAudioConsumer;
+
+	// Media Kit - Connections
+	media_output		fVideoOutput;
+	media_input			fVideoInput;
+	media_output		fAudioOutput;
+	media_input			fAudioInput;
+	bool				fVideoConnected;
+	bool				fAudioConnected;
 
 	// Capture state
 	bool				fIsCapturing;
-	thread_id			fCaptureThread;
 	BLooper*			fTarget;
-
-	// Statistics
-	uint32				fFramesCaptured;
-	uint32				fFramesDropped;
-	float				fCurrentFPS;
-	bigtime_t			fLastFrameTime;
 };
 
 #endif // WEBCAM_DEVICE_H

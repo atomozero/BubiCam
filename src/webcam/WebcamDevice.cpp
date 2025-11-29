@@ -5,6 +5,8 @@
  */
 
 #include "WebcamDevice.h"
+#include "VideoConsumer.h"
+#include "AudioConsumer.h"
 #include "MainWindow.h"
 
 #include <MediaRoster.h>
@@ -40,16 +42,21 @@ WebcamDevice::WebcamDevice(const media_node& node, const dormant_node_info& info
 	fMediaNode(node),
 	fMediaNodeID(node.node),
 	fDormantInfo(info),
+	fNodeInstantiated(false),
+	fVideoConsumer(NULL),
+	fAudioConsumer(NULL),
+	fVideoConnected(false),
+	fAudioConnected(false),
 	fIsCapturing(false),
-	fCaptureThread(-1),
-	fTarget(NULL),
-	fFramesCaptured(0),
-	fFramesDropped(0),
-	fCurrentFPS(0.0f),
-	fLastFrameTime(0)
+	fTarget(NULL)
 {
 	fName = info.name;
 	fSupportedFormats.MakeEmpty();
+
+	memset(&fVideoOutput, 0, sizeof(fVideoOutput));
+	memset(&fVideoInput, 0, sizeof(fVideoInput));
+	memset(&fAudioOutput, 0, sizeof(fAudioOutput));
+	memset(&fAudioInput, 0, sizeof(fAudioInput));
 }
 
 
@@ -61,6 +68,33 @@ WebcamDevice::~WebcamDevice()
 	for (int32 i = 0; i < fSupportedFormats.CountItems(); i++)
 		delete fSupportedFormats.ItemAt(i);
 	fSupportedFormats.MakeEmpty();
+}
+
+
+uint32
+WebcamDevice::FramesCaptured() const
+{
+	if (fVideoConsumer != NULL)
+		return fVideoConsumer->FramesReceived();
+	return 0;
+}
+
+
+uint32
+WebcamDevice::FramesDropped() const
+{
+	if (fVideoConsumer != NULL)
+		return fVideoConsumer->FramesDropped();
+	return 0;
+}
+
+
+float
+WebcamDevice::CurrentFPS() const
+{
+	if (fVideoConsumer != NULL)
+		return fVideoConsumer->CurrentFPS();
+	return 0.0f;
 }
 
 
@@ -82,12 +116,6 @@ WebcamDevice::_GatherUSBInfo()
 	// Try to get USB information by examining the USB device roster
 	BUSBRoster roster;
 
-	// The USB information may be encoded in the node name or
-	// we need to correlate with USB devices
-	// For now, we'll try to parse common naming conventions
-
-	// Try to extract VID/PID from node name if present
-	// Format might be: "USB Video (VID:PID)" or similar
 	BString name(fName);
 
 	// Look for USB devices that match video class
@@ -148,15 +176,12 @@ void
 WebcamDevice::_GatherDriverInfo()
 {
 	// Try to determine driver information
-	// In Haiku, webcam drivers are typically in /dev/video/usb/
-
 	BDirectory devDir("/dev/video");
 	if (devDir.InitCheck() == B_OK) {
 		BEntry entry;
 		while (devDir.GetNextEntry(&entry) == B_OK) {
 			BPath path;
 			entry.GetPath(&path);
-			// Check if this matches our device
 			if (strstr(fName.String(), path.Leaf()) != NULL) {
 				fDriverPath = path.Path();
 				break;
@@ -190,27 +215,21 @@ WebcamDevice::_GatherVideoFormats()
 	if (roster == NULL)
 		return;
 
-	// Get output formats from the video producer
 	media_format format;
 	memset(&format, 0, sizeof(format));
 	format.type = B_MEDIA_RAW_VIDEO;
-
-	int32 formatCount = 20;
-	media_format formats[20];
 
 	status_t status = roster->GetFormatFor(fMediaNode, &format,
 		B_MEDIA_OUTPUT);
 	if (status != B_OK)
 		return;
 
-	// Add discovered format
 	if (format.type == B_MEDIA_RAW_VIDEO) {
 		VideoFormat* vf = new VideoFormat();
 		vf->width = format.u.raw_video.display.line_width;
 		vf->height = format.u.raw_video.display.line_count;
 		vf->frameRate = format.u.raw_video.field_rate;
 
-		// Color space name
 		switch (format.u.raw_video.display.format) {
 			case B_RGB32:
 				strcpy(vf->colorSpace, "RGB32");
@@ -235,27 +254,13 @@ WebcamDevice::_GatherVideoFormats()
 		fCurrentFormat = *vf;
 	}
 
-	// Common webcam resolutions to test
-	struct Resolution {
-		int32 width;
-		int32 height;
-	} commonRes[] = {
-		{640, 480},
-		{320, 240},
-		{800, 600},
-		{1280, 720},
-		{1920, 1080}
-	};
-
 	// Try to enumerate more formats using ParameterWeb
 	BParameterWeb* web = NULL;
 	if (roster->GetParameterWebFor(fMediaNode, &web) == B_OK && web != NULL) {
-		// Look for resolution/format parameters
 		for (int32 i = 0; i < web->CountParameters(); i++) {
 			BParameter* param = web->ParameterAt(i);
 			if (param != NULL) {
 				// Log parameter info for debugging
-				// This helps us understand what the driver exposes
 			}
 		}
 		delete web;
@@ -271,39 +276,35 @@ WebcamDevice::_GatherAudioInfo()
 		return;
 
 	// Check if node has audio output
-	int32 inputCount, outputCount;
-	if (roster->GetFreeInputsFor(fMediaNode, NULL, 0, &inputCount,
-			B_MEDIA_RAW_AUDIO) == B_OK && inputCount > 0) {
+	int32 outputCount = 0;
+	media_output outputs[10];
+	status_t status = roster->GetFreeOutputsFor(fMediaNode, outputs, 10,
+		&outputCount, B_MEDIA_RAW_AUDIO);
+
+	if (status == B_OK && outputCount > 0) {
 		fSupportsAudio = true;
-	}
 
-	media_format format;
-	memset(&format, 0, sizeof(format));
-	format.type = B_MEDIA_RAW_AUDIO;
+		media_format format = outputs[0].format;
+		if (format.type == B_MEDIA_RAW_AUDIO) {
+			fAudioSampleRate = format.u.raw_audio.frame_rate;
+			fAudioChannels = format.u.raw_audio.channel_count;
 
-	status_t status = roster->GetFormatFor(fMediaNode, &format,
-		B_MEDIA_OUTPUT);
-
-	if (status == B_OK && format.type == B_MEDIA_RAW_AUDIO) {
-		fSupportsAudio = true;
-		fAudioSampleRate = format.u.raw_audio.frame_rate;
-		fAudioChannels = format.u.raw_audio.channel_count;
-
-		switch (format.u.raw_audio.format) {
-			case media_raw_audio_format::B_AUDIO_UCHAR:
-				fAudioBitsPerSample = 8;
-				break;
-			case media_raw_audio_format::B_AUDIO_SHORT:
-				fAudioBitsPerSample = 16;
-				break;
-			case media_raw_audio_format::B_AUDIO_INT:
-				fAudioBitsPerSample = 32;
-				break;
-			case media_raw_audio_format::B_AUDIO_FLOAT:
-				fAudioBitsPerSample = 32;
-				break;
-			default:
-				fAudioBitsPerSample = 16;
+			switch (format.u.raw_audio.format) {
+				case media_raw_audio_format::B_AUDIO_UCHAR:
+					fAudioBitsPerSample = 8;
+					break;
+				case media_raw_audio_format::B_AUDIO_SHORT:
+					fAudioBitsPerSample = 16;
+					break;
+				case media_raw_audio_format::B_AUDIO_INT:
+					fAudioBitsPerSample = 32;
+					break;
+				case media_raw_audio_format::B_AUDIO_FLOAT:
+					fAudioBitsPerSample = 32;
+					break;
+				default:
+					fAudioBitsPerSample = 16;
+			}
 		}
 	}
 }
@@ -316,34 +317,91 @@ WebcamDevice::StartCapture(BLooper* target)
 		return B_BUSY;
 
 	fTarget = target;
-	fFramesCaptured = 0;
-	fFramesDropped = 0;
-	fCurrentFPS = 0.0f;
-	fLastFrameTime = system_time();
-	fIsCapturing = true;
 
 	BMediaRoster* roster = BMediaRoster::Roster();
 	if (roster == NULL)
 		return B_ERROR;
 
-	// Start the media node
-	status_t status = roster->StartNode(fMediaNode, 0);
+	status_t status;
+
+	// Instantiate the dormant node if needed
+	if (!fNodeInstantiated) {
+		status = roster->InstantiateDormantNode(fDormantInfo, &fMediaNode,
+			B_FLAVOR_IS_GLOBAL);
+		if (status != B_OK) {
+			fprintf(stderr, "Failed to instantiate node: %s\n",
+				strerror(status));
+			return status;
+		}
+		fNodeInstantiated = true;
+		fMediaNodeID = fMediaNode.node;
+	}
+
+	// Set up video connection
+	status = _SetupVideoConnection();
 	if (status != B_OK) {
-		fIsCapturing = false;
+		fprintf(stderr, "Failed to set up video connection: %s\n",
+			strerror(status));
+		_TeardownConnections();
 		return status;
 	}
 
-	// Start capture thread
-	fCaptureThread = spawn_thread(_CaptureThread, "webcam_capture",
-		B_NORMAL_PRIORITY, this);
-
-	if (fCaptureThread < 0) {
-		roster->StopNode(fMediaNode, 0, true);
-		fIsCapturing = false;
-		return fCaptureThread;
+	// Set up audio connection if available
+	if (fSupportsAudio) {
+		status = _SetupAudioConnection();
+		if (status != B_OK) {
+			fprintf(stderr, "Note: Audio connection failed: %s\n",
+				strerror(status));
+			// Continue without audio
+		}
 	}
 
-	resume_thread(fCaptureThread);
+	// Get the time source
+	media_node timeSource;
+	status = roster->GetTimeSource(&timeSource);
+	if (status != B_OK) {
+		fprintf(stderr, "Failed to get time source: %s\n", strerror(status));
+		_TeardownConnections();
+		return status;
+	}
+
+	// Set time source for all nodes
+	roster->SetTimeSourceFor(fMediaNode.node, timeSource.node);
+	if (fVideoConsumer != NULL)
+		roster->SetTimeSourceFor(fVideoConsumer->Node().node, timeSource.node);
+	if (fAudioConsumer != NULL)
+		roster->SetTimeSourceFor(fAudioConsumer->Node().node, timeSource.node);
+
+	// Get performance time
+	BTimeSource* ts = roster->MakeTimeSourceFor(timeSource);
+	bigtime_t startTime = ts->Now() + 50000;  // Start in 50ms
+	ts->Release();
+
+	// Start nodes
+	status = roster->StartNode(fMediaNode, startTime);
+	if (status != B_OK) {
+		fprintf(stderr, "Failed to start producer: %s\n", strerror(status));
+		_TeardownConnections();
+		return status;
+	}
+
+	if (fVideoConsumer != NULL) {
+		status = roster->StartNode(fVideoConsumer->Node(), startTime);
+		if (status != B_OK) {
+			fprintf(stderr, "Failed to start video consumer: %s\n",
+				strerror(status));
+		}
+	}
+
+	if (fAudioConsumer != NULL) {
+		status = roster->StartNode(fAudioConsumer->Node(), startTime);
+		if (status != B_OK) {
+			fprintf(stderr, "Failed to start audio consumer: %s\n",
+				strerror(status));
+		}
+	}
+
+	fIsCapturing = true;
 	return B_OK;
 }
 
@@ -356,118 +414,219 @@ WebcamDevice::StopCapture()
 
 	fIsCapturing = false;
 
-	if (fCaptureThread >= 0) {
-		status_t result;
-		wait_for_thread(fCaptureThread, &result);
-		fCaptureThread = -1;
-	}
-
 	BMediaRoster* roster = BMediaRoster::Roster();
 	if (roster != NULL) {
+		// Stop nodes
 		roster->StopNode(fMediaNode, 0, true);
+
+		if (fVideoConsumer != NULL)
+			roster->StopNode(fVideoConsumer->Node(), 0, true);
+
+		if (fAudioConsumer != NULL)
+			roster->StopNode(fAudioConsumer->Node(), 0, true);
 	}
+
+	_TeardownConnections();
 
 	fTarget = NULL;
 }
 
 
-int32
-WebcamDevice::_CaptureThread(void* data)
+status_t
+WebcamDevice::_SetupVideoConnection()
 {
-	WebcamDevice* device = static_cast<WebcamDevice*>(data);
-	device->_CaptureLoop();
-	return 0;
+	BMediaRoster* roster = BMediaRoster::Roster();
+	if (roster == NULL)
+		return B_ERROR;
+
+	status_t status;
+
+	// Create video consumer
+	fVideoConsumer = new VideoConsumer("BubiCam Video", fTarget,
+		MSG_FRAME_RECEIVED, MSG_AUDIO_LEVEL);
+
+	// Register consumer
+	status = roster->RegisterNode(fVideoConsumer);
+	if (status != B_OK) {
+		fprintf(stderr, "Failed to register video consumer: %s\n",
+			strerror(status));
+		delete fVideoConsumer;
+		fVideoConsumer = NULL;
+		return status;
+	}
+
+	// Get free video outputs from producer
+	int32 outputCount = 0;
+	media_output outputs[10];
+	status = roster->GetFreeOutputsFor(fMediaNode, outputs, 10, &outputCount,
+		B_MEDIA_RAW_VIDEO);
+
+	if (status != B_OK || outputCount == 0) {
+		fprintf(stderr, "No video outputs available\n");
+		return B_ERROR;
+	}
+
+	fVideoOutput = outputs[0];
+
+	// Get consumer input
+	int32 inputCount = 0;
+	media_input inputs[1];
+	status = roster->GetFreeInputsFor(fVideoConsumer->Node(), inputs, 1,
+		&inputCount, B_MEDIA_RAW_VIDEO);
+
+	if (status != B_OK || inputCount == 0) {
+		fprintf(stderr, "No video inputs available on consumer\n");
+		return B_ERROR;
+	}
+
+	fVideoInput = inputs[0];
+
+	// Connect producer to consumer
+	media_format format;
+	memset(&format, 0, sizeof(format));
+	format.type = B_MEDIA_RAW_VIDEO;
+	format.u.raw_video = media_raw_video_format::wildcard;
+
+	status = roster->Connect(fVideoOutput.source, fVideoInput.destination,
+		&format, &fVideoOutput, &fVideoInput);
+
+	if (status != B_OK) {
+		fprintf(stderr, "Failed to connect video: %s\n", strerror(status));
+		return status;
+	}
+
+	fVideoConnected = true;
+
+	// Update format info
+	if (format.type == B_MEDIA_RAW_VIDEO) {
+		fCurrentFormat.width = format.u.raw_video.display.line_width;
+		fCurrentFormat.height = format.u.raw_video.display.line_count;
+		fCurrentFormat.frameRate = format.u.raw_video.field_rate;
+	}
+
+	return B_OK;
+}
+
+
+status_t
+WebcamDevice::_SetupAudioConnection()
+{
+	BMediaRoster* roster = BMediaRoster::Roster();
+	if (roster == NULL)
+		return B_ERROR;
+
+	status_t status;
+
+	// Create audio consumer
+	fAudioConsumer = new AudioConsumer("BubiCam Audio", fTarget,
+		MSG_AUDIO_LEVEL);
+
+	// Register consumer
+	status = roster->RegisterNode(fAudioConsumer);
+	if (status != B_OK) {
+		fprintf(stderr, "Failed to register audio consumer: %s\n",
+			strerror(status));
+		delete fAudioConsumer;
+		fAudioConsumer = NULL;
+		return status;
+	}
+
+	// Get free audio outputs from producer
+	int32 outputCount = 0;
+	media_output outputs[10];
+	status = roster->GetFreeOutputsFor(fMediaNode, outputs, 10, &outputCount,
+		B_MEDIA_RAW_AUDIO);
+
+	if (status != B_OK || outputCount == 0) {
+		fprintf(stderr, "No audio outputs available\n");
+		roster->UnregisterNode(fAudioConsumer);
+		delete fAudioConsumer;
+		fAudioConsumer = NULL;
+		return B_ERROR;
+	}
+
+	fAudioOutput = outputs[0];
+
+	// Get consumer input
+	int32 inputCount = 0;
+	media_input inputs[1];
+	status = roster->GetFreeInputsFor(fAudioConsumer->Node(), inputs, 1,
+		&inputCount, B_MEDIA_RAW_AUDIO);
+
+	if (status != B_OK || inputCount == 0) {
+		fprintf(stderr, "No audio inputs available on consumer\n");
+		roster->UnregisterNode(fAudioConsumer);
+		delete fAudioConsumer;
+		fAudioConsumer = NULL;
+		return B_ERROR;
+	}
+
+	fAudioInput = inputs[0];
+
+	// Connect producer to consumer
+	media_format format;
+	memset(&format, 0, sizeof(format));
+	format.type = B_MEDIA_RAW_AUDIO;
+	format.u.raw_audio = media_raw_audio_format::wildcard;
+
+	status = roster->Connect(fAudioOutput.source, fAudioInput.destination,
+		&format, &fAudioOutput, &fAudioInput);
+
+	if (status != B_OK) {
+		fprintf(stderr, "Failed to connect audio: %s\n", strerror(status));
+		roster->UnregisterNode(fAudioConsumer);
+		delete fAudioConsumer;
+		fAudioConsumer = NULL;
+		return status;
+	}
+
+	fAudioConnected = true;
+
+	// Update audio info
+	if (format.type == B_MEDIA_RAW_AUDIO) {
+		fAudioSampleRate = format.u.raw_audio.frame_rate;
+		fAudioChannels = format.u.raw_audio.channel_count;
+	}
+
+	return B_OK;
 }
 
 
 void
-WebcamDevice::_CaptureLoop()
+WebcamDevice::_TeardownConnections()
 {
 	BMediaRoster* roster = BMediaRoster::Roster();
 	if (roster == NULL)
 		return;
 
-	// Create a buffer for receiving video frames
-	// This is a simplified capture loop - in a real implementation
-	// you would use BBufferConsumer or similar
-
-	int32 width = fCurrentFormat.width > 0 ? fCurrentFormat.width : 640;
-	int32 height = fCurrentFormat.height > 0 ? fCurrentFormat.height : 480;
-
-	BBitmap* bitmap = new BBitmap(BRect(0, 0, width - 1, height - 1),
-		B_RGB32);
-
-	bigtime_t frameInterval = 33333;  // ~30 fps
-	if (fCurrentFormat.frameRate > 0)
-		frameInterval = (bigtime_t)(1000000.0f / fCurrentFormat.frameRate);
-
-	while (fIsCapturing) {
-		bigtime_t now = system_time();
-
-		// In a real implementation, this would receive actual video data
-		// from the media node. For now, we generate a test pattern.
-
-		// Generate test pattern (checkerboard with timestamp)
-		uint32* bits = (uint32*)bitmap->Bits();
-		int32 bpr = bitmap->BytesPerRow() / 4;
-
-		for (int32 y = 0; y < height; y++) {
-			for (int32 x = 0; x < width; x++) {
-				int32 checkX = x / 32;
-				int32 checkY = y / 32;
-				bool isWhite = ((checkX + checkY) % 2) == 0;
-
-				// Add some animation
-				int32 offset = (now / 100000) % 64;
-				if (((x + offset) / 32 + (y + offset) / 32) % 2 == 0)
-					isWhite = !isWhite;
-
-				bits[y * bpr + x] = isWhite ? 0xFFCCCCCC : 0xFF333333;
-			}
-		}
-
-		// Add center circle to show it's working
-		int32 cx = width / 2;
-		int32 cy = height / 2;
-		int32 radius = 50 + (int32)(20 * sin((double)now / 200000.0));
-
-		for (int32 y = cy - radius; y <= cy + radius; y++) {
-			for (int32 x = cx - radius; x <= cx + radius; x++) {
-				if (x >= 0 && x < width && y >= 0 && y < height) {
-					int32 dx = x - cx;
-					int32 dy = y - cy;
-					if (dx * dx + dy * dy <= radius * radius) {
-						bits[y * bpr + x] = 0xFF00AA00;  // Green circle
-					}
-				}
-			}
-		}
-
-		// Calculate FPS
-		bigtime_t elapsed = now - fLastFrameTime;
-		if (elapsed > 0) {
-			fCurrentFPS = fCurrentFPS * 0.9f + (1000000.0f / elapsed) * 0.1f;
-		}
-		fLastFrameTime = now;
-		fFramesCaptured++;
-
-		// Send frame to target
-		if (fTarget != NULL) {
-			BMessage msg(MSG_FRAME_RECEIVED);
-			msg.AddPointer("bitmap", bitmap);
-			fTarget->PostMessage(&msg);
-
-			// Also send simulated audio level
-			float audioLevel = 0.3f + 0.3f * sin((double)now / 500000.0);
-			BMessage audioMsg(MSG_AUDIO_LEVEL);
-			audioMsg.AddFloat("left", audioLevel);
-			audioMsg.AddFloat("right", audioLevel * 0.9f);
-			fTarget->PostMessage(&audioMsg);
-		}
-
-		// Wait for next frame
-		snooze(frameInterval);
+	// Disconnect and unregister video consumer
+	if (fVideoConnected) {
+		roster->Disconnect(fVideoOutput.node.node, fVideoOutput.source,
+			fVideoInput.node.node, fVideoInput.destination);
+		fVideoConnected = false;
 	}
 
-	delete bitmap;
+	if (fVideoConsumer != NULL) {
+		roster->UnregisterNode(fVideoConsumer);
+		// Consumer will be deleted when it quits
+		fVideoConsumer = NULL;
+	}
+
+	// Disconnect and unregister audio consumer
+	if (fAudioConnected) {
+		roster->Disconnect(fAudioOutput.node.node, fAudioOutput.source,
+			fAudioInput.node.node, fAudioInput.destination);
+		fAudioConnected = false;
+	}
+
+	if (fAudioConsumer != NULL) {
+		roster->UnregisterNode(fAudioConsumer);
+		fAudioConsumer = NULL;
+	}
+
+	// Release the producer node
+	if (fNodeInstantiated) {
+		roster->ReleaseNode(fMediaNode);
+		fNodeInstantiated = false;
+	}
 }

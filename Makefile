@@ -15,6 +15,8 @@ SRCS = \
 	src/views/WebcamControlsView.cpp \
 	src/webcam/WebcamRoster.cpp \
 	src/webcam/WebcamDevice.cpp \
+	src/webcam/VideoConsumer.cpp \
+	src/webcam/AudioConsumer.cpp \
 	src/utils/ExportUtils.cpp
 
 RDEFS = resources/BubiCam.rdef
