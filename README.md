@@ -12,8 +12,12 @@ A native Haiku OS application for testing and debugging USB webcam drivers.
   - Audio capabilities
   - Media Kit registration status
 - **Syslog Monitor**: Real-time filtering and display of webcam/USB related syslog entries
-- **Audio VU Meter**: Visual indicator for webcam microphone levels
+- **Audio VU Meter**: Visual stereo indicator for webcam microphone levels with peak hold
 - **Multiple Webcam Support**: Switch between different connected webcams
+- **Webcam Controls**: Adjust brightness, contrast, saturation, and other parameters
+- **Screenshot**: Capture and save video frames as PNG images
+- **Export**: Save driver information as text or JSON for debugging
+- **Format Selection**: Choose between available video formats and resolutions
 
 ## Building
 
@@ -43,15 +47,21 @@ Or manually copy the `BubiCam` binary to `/boot/system/apps/` or `~/config/apps/
 1. Launch BubiCam from the Applications menu or Terminal
 2. Select a webcam from the **Webcam** menu
 3. Use **Control > Start Preview** to begin video capture
-4. View driver information in the right panel
-5. Monitor syslog for USB/webcam related messages
-6. Check the VU meter for microphone activity
+4. View driver information in the **Driver Info** tab
+5. Adjust webcam settings in the **Controls** tab
+6. Monitor syslog for USB/webcam related messages in the **Syslog** tab
+7. Check the VU meter for microphone activity
 
 ### Keyboard Shortcuts
 
 - `Cmd+R`: Refresh device list
 - `Cmd+S`: Start preview
 - `Cmd+T`: Stop preview
+- `Cmd+P`: Take screenshot
+- `Cmd+E`: Export driver info as text
+- `Cmd+Shift+E`: Export driver info as JSON
+- `Cmd+K`: Show controls panel
+- `Cmd+L`: Clear syslog
 - `Cmd+Q`: Quit application
 
 ## Architecture
@@ -59,18 +69,21 @@ Or manually copy the `BubiCam` binary to `/boot/system/apps/` or `~/config/apps/
 ```
 BubiCam/
 ├── src/
-│   ├── BubiCamApp.cpp/h      # Application entry point
-│   ├── MainWindow.cpp/h      # Main window and layout
+│   ├── BubiCamApp.cpp/h        # Application entry point
+│   ├── MainWindow.cpp/h        # Main window and layout
 │   ├── views/
-│   │   ├── VideoPreviewView  # Video display widget
-│   │   ├── DriverInfoView    # Driver information text view
-│   │   ├── SyslogView        # Syslog monitoring view
-│   │   └── VUMeterView       # Audio level meter
-│   └── webcam/
-│       ├── WebcamRoster      # Device enumeration
-│       └── WebcamDevice      # Individual device management
+│   │   ├── VideoPreviewView    # Video display widget
+│   │   ├── DriverInfoView      # Driver information text view
+│   │   ├── SyslogView          # Syslog monitoring view
+│   │   ├── VUMeterView         # Audio level meter
+│   │   └── WebcamControlsView  # Webcam parameter controls
+│   ├── webcam/
+│   │   ├── WebcamRoster        # Device enumeration
+│   │   └── WebcamDevice        # Individual device management
+│   └── utils/
+│       └── ExportUtils         # Screenshot and export utilities
 ├── resources/
-│   └── BubiCam.rdef          # Application resources
+│   └── BubiCam.rdef            # Application resources
 ├── Makefile
 ├── LICENSE
 └── README.md
@@ -84,6 +97,7 @@ BubiCam uses Haiku's Media Kit to:
 - Enumerate video producer nodes
 - Query device capabilities and formats
 - Receive video frames from webcams
+- Access webcam parameter controls via BParameterWeb
 
 ### USB Device Information
 
@@ -98,6 +112,12 @@ The syslog monitor:
 - Watches `/var/log/syslog` for changes
 - Filters for USB, video, media, and camera-related entries
 - Color-codes entries by type (errors in red, USB in green, media in blue)
+
+### Export Formats
+
+Driver information can be exported in two formats:
+- **Text**: Human-readable report with all device details
+- **JSON**: Machine-readable format for scripting and automation
 
 ## Troubleshooting
 
@@ -119,6 +139,12 @@ The syslog monitor:
 1. Verify the webcam has a built-in microphone
 2. Check Media preferences for audio input devices
 3. Some webcams expose audio as separate devices
+
+### Controls not working
+
+1. Not all webcam drivers expose adjustable parameters
+2. Check if parameters are available in Media preferences
+3. Some parameters may only work during active capture
 
 ## Contributing
 

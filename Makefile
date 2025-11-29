@@ -12,8 +12,10 @@ SRCS = \
 	src/views/DriverInfoView.cpp \
 	src/views/SyslogView.cpp \
 	src/views/VUMeterView.cpp \
+	src/views/WebcamControlsView.cpp \
 	src/webcam/WebcamRoster.cpp \
-	src/webcam/WebcamDevice.cpp
+	src/webcam/WebcamDevice.cpp \
+	src/utils/ExportUtils.cpp
 
 RDEFS = resources/BubiCam.rdef
 
@@ -23,7 +25,7 @@ LIBPATHS =
 
 SYSTEM_INCLUDE_PATHS =
 
-LOCAL_INCLUDE_PATHS = src src/views src/webcam
+LOCAL_INCLUDE_PATHS = src src/views src/webcam src/utils
 
 OPTIMIZE := FULL
 
