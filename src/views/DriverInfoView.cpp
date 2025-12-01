@@ -6,6 +6,7 @@
 
 #include "DriverInfoView.h"
 #include "WebcamDevice.h"
+#include "USBVideoParser.h"
 
 #include <stdio.h>
 
@@ -22,6 +23,8 @@ DriverInfoView::DriverInfoView(const char* name)
 	fSectionColor = make_color(70, 130, 180);  // Steel blue
 	fLabelColor = make_color(100, 100, 100);   // Gray
 	fValueColor = make_color(0, 0, 0);         // Black
+	fWarningColor = make_color(204, 102, 0);   // Orange
+	fErrorColor = make_color(180, 0, 0);       // Red
 }
 
 
@@ -62,6 +65,42 @@ DriverInfoView::SetDevice(WebcamDevice* device, bool isCapturing)
 	_AppendField("Device Path", device->DevicePath());
 	_AppendNewLine();
 
+	// Media Kit Status Section
+	_AppendSection("MEDIA KIT STATUS");
+	_AppendField("Registered", device->IsRegisteredWithMediaKit() ? "Yes" : "No");
+
+	const dormant_node_info& dormant = device->DormantInfo();
+	BString addonInfo;
+	addonInfo.SetToFormat("%ld (flavor: %ld)", dormant.addon, dormant.flavor_id);
+	_AppendField("Add-on ID", addonInfo.String());
+
+	if (device->IsNodeInstantiated()) {
+		_AppendField("Node Status", "Instantiated successfully");
+		_AppendField("Node ID", device->MediaNodeID());
+	} else {
+		status_t err = device->InstantiateError();
+		BString errStr;
+		switch (err) {
+			case B_TIMED_OUT:
+				errStr = "TIMEOUT - Driver not responding";
+				break;
+			case B_BUSY:
+				errStr = "BUSY - Device in use";
+				break;
+			case B_NO_MEMORY:
+				errStr = "NO MEMORY";
+				break;
+			case B_MEDIA_SYSTEM_FAILURE:
+				errStr = "MEDIA SYSTEM FAILURE";
+				break;
+			default:
+				errStr.SetToFormat("Error 0x%08lx (%ld)", err, err);
+		}
+		_AppendField("Node Status", "FAILED TO INSTANTIATE");
+		_AppendField("Error", errStr.String());
+	}
+	_AppendNewLine();
+
 	// USB Information Section
 	_AppendSection("USB INFORMATION");
 	_AppendField("Vendor ID", device->VendorID(), true);
@@ -80,6 +119,18 @@ DriverInfoView::SetDevice(WebcamDevice* device, bool isCapturing)
 	_AppendField("Driver Name", device->DriverName());
 	_AppendField("Driver Path", device->DriverPath());
 	_AppendField("Driver Version", device->DriverVersion());
+
+	// Check if this is a USB webcam driver that may have shutdown issues
+	BString driverName(device->DriverName());
+	driverName.ToLower();
+	if (driverName.FindFirst("uvc") >= 0 || driverName.FindFirst("webcam") >= 0 ||
+		driverName.FindFirst("usb") >= 0) {
+		_AppendNewLine();
+		_AppendWarning("Note: This driver may not properly release its BUSBRoster");
+		_AppendWarning("during shutdown. BubiCam handles this gracefully, but if");
+		_AppendWarning("you experience crashes on exit, please report the issue");
+		_AppendWarning("to dev.haiku-os.org with VID:PID of your webcam.");
+	}
 	_AppendNewLine();
 
 	// Video Capabilities Section
@@ -113,8 +164,80 @@ DriverInfoView::SetDevice(WebcamDevice* device, bool isCapturing)
 			currentFormat.width, currentFormat.height,
 			currentFormat.frameRate, currentFormat.colorSpace);
 		_AppendField("Current Format", currentStr.String());
+	} else {
+		_AppendField("Current Format", "Not available (0x0)");
 	}
 	_AppendNewLine();
+
+	// Driver Diagnostics Section - show issues detected during format negotiation
+	if (device->HasDriverWarnings() || (currentFormat.width == 0 && currentFormat.height == 0)) {
+		_AppendSection("DRIVER DIAGNOSTICS");
+
+		// Show warnings collected during format negotiation
+		if (device->HasDriverWarnings()) {
+			_AppendError("Driver Issues Detected:");
+			_AppendNewLine();
+
+			// Split warnings by newline and show each
+			BString warnings(device->GetDriverWarnings());
+			int32 pos = 0;
+			while (pos < warnings.Length()) {
+				int32 nextLine = warnings.FindFirst('\n', pos);
+				if (nextLine < 0)
+					nextLine = warnings.Length();
+
+				BString line;
+				warnings.CopyInto(line, pos, nextLine - pos);
+				if (line.Length() > 0)
+					_AppendWarning(line.String());
+				pos = nextLine + 1;
+			}
+			_AppendNewLine();
+		}
+
+		// Add context if format is 0x0
+		if (currentFormat.width == 0 && currentFormat.height == 0) {
+			_AppendError("Video format not available from driver");
+			_AppendWarning("The driver's FormatProposal() rejected all format attempts.");
+			_AppendNewLine();
+
+			_AppendField("Root Cause Analysis",
+				"The UVC driver reports 0x0 dimensions, indicating it failed\n"
+				"  to parse USB Video Class frame descriptors. Without valid\n"
+				"  frame descriptors, the driver cannot accept any format proposal.");
+			_AppendNewLine();
+
+			_AppendField("Technical Details",
+				"1. Driver's GetFreeOutputsFor() returns format with 0x0 dimensions\n"
+				"  2. BMediaRoster::Connect() fails at FormatProposal stage\n"
+				"  3. Both wildcard and specific formats are rejected\n"
+				"  4. CodyCam exhibits the same failure pattern");
+			_AppendNewLine();
+
+			_AppendField("Driver Code to Check",
+				"src/add-ons/media/media-add-ons/usb_webcam/\n"
+				"  - UVCCamDevice.cpp: _ParseVideoStreamingDescriptors()\n"
+				"  - UVCCamDevice.cpp: AcceptVideoFrame()\n"
+				"  - UVCCamDevice.cpp: FormatProposal()\n"
+				"  Look for fUncompressedFrames list initialization");
+			_AppendNewLine();
+
+			_AppendField("Suggested Actions",
+				"1. Run: tail -f /var/log/syslog | grep -i uvc\n"
+				"  2. Look for 'Found X descriptors' messages\n"
+				"  3. Report bug at dev.haiku-os.org with device VID:PID\n"
+				"  4. Include the USB descriptor info shown above");
+			_AppendNewLine();
+		}
+	}
+
+	// Format Negotiation Log Section - useful for driver debugging
+	const char* formatLog = device->GetFormatNegotiationLog();
+	if (formatLog != NULL && strlen(formatLog) > 0) {
+		_AppendSection("FORMAT NEGOTIATION LOG");
+		_AppendField("Details", formatLog);
+		_AppendNewLine();
+	}
 
 	// Audio Capabilities Section
 	_AppendSection("AUDIO CAPABILITIES");
@@ -125,6 +248,76 @@ DriverInfoView::SetDevice(WebcamDevice* device, bool isCapturing)
 		_AppendField("Bits per Sample", (int32)device->AudioBitsPerSample());
 	}
 	_AppendNewLine();
+
+	// USB Video Class Descriptors Section
+	const USBVideoInfo& usbInfo = device->GetUSBVideoInfo();
+	if (usbInfo.found) {
+		_AppendSection("USB VIDEO CLASS DESCRIPTORS");
+
+		BString uvcVer;
+		uvcVer.SetToFormat("%d.%d", usbInfo.uvcVersion >> 8, usbInfo.uvcVersion & 0xFF);
+		_AppendField("UVC Version", uvcVer.String());
+
+		BString clockFreq;
+		clockFreq.SetToFormat("%.2f MHz", usbInfo.clockFrequency / 1000000.0);
+		_AppendField("Clock Frequency", clockFreq.String());
+
+		_AppendField("Formats Found", (int32)usbInfo.formats.CountItems());
+
+		// Display each format and its frames
+		for (int32 f = 0; f < usbInfo.formats.CountItems(); f++) {
+			USBVideoFormat* format = (USBVideoFormat*)usbInfo.formats.ItemAt(f);
+			if (format == NULL)
+				continue;
+
+			_AppendNewLine();
+			BString formatTitle;
+			formatTitle.SetToFormat("FORMAT %d: %s", format->formatIndex,
+				format->formatName.String());
+			_AppendSection(formatTitle.String());
+
+			if (format->bitsPerPixel > 0)
+				_AppendField("Bits per Pixel", (int32)format->bitsPerPixel);
+
+			for (int32 fr = 0; fr < format->frames.CountItems(); fr++) {
+				USBVideoFrame* frame = (USBVideoFrame*)format->frames.ItemAt(fr);
+				if (frame == NULL)
+					continue;
+
+				BString frameInfo;
+				frameInfo.SetToFormat("%dx%d", frame->width, frame->height);
+				BString fpsInfo;
+				if (frame->frameRates.CountItems() > 0) {
+					fpsInfo << " @ ";
+					for (int32 r = 0; r < frame->frameRates.CountItems(); r++) {
+						float* fps = (float*)frame->frameRates.ItemAt(r);
+						if (fps != NULL) {
+							if (r > 0)
+								fpsInfo << ", ";
+							fpsInfo << BString().SetToFormat("%.1f", *fps);
+						}
+					}
+					fpsInfo << " fps";
+				} else if (frame->defaultFrameRate > 0) {
+					fpsInfo << " @ " << BString().SetToFormat("%.1f fps", frame->defaultFrameRate);
+				}
+				frameInfo << fpsInfo;
+
+				BString label;
+				label.SetToFormat("  Resolution %d", fr + 1);
+				_AppendField(label.String(), frameInfo.String());
+			}
+		}
+
+		// Show diagnostic info if available
+		if (usbInfo.diagnosticInfo.Length() > 0) {
+			_AppendNewLine();
+			_AppendSection("USB DESCRIPTOR DETAILS");
+			_AppendField("Raw Details", usbInfo.diagnosticInfo.String());
+		}
+
+		_AppendNewLine();
+	}
 
 	// Media Kit Information Section
 	_AppendSection("MEDIA KIT STATUS");
@@ -222,4 +415,28 @@ void
 DriverInfoView::_AppendNewLine()
 {
 	Insert(TextLength(), "\n", 1);
+}
+
+
+void
+DriverInfoView::_AppendWarning(const char* text)
+{
+	int32 start = TextLength();
+	Insert(TextLength(), text, strlen(text));
+	Insert(TextLength(), "\n", 1);
+	int32 end = TextLength() - 1;
+
+	SetFontAndColor(start, end, &fNormalFont, B_FONT_ALL, &fWarningColor);
+}
+
+
+void
+DriverInfoView::_AppendError(const char* text)
+{
+	int32 start = TextLength();
+	Insert(TextLength(), text, strlen(text));
+	Insert(TextLength(), "\n", 1);
+	int32 end = TextLength() - 1;
+
+	SetFontAndColor(start, end, &fBoldFont, B_FONT_ALL, &fErrorColor);
 }

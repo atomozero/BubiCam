@@ -26,8 +26,12 @@
 #include <Alert.h>
 #include <Path.h>
 #include <Entry.h>
+#include <Screen.h>
+#include <MediaRoster.h>
+#include <Roster.h>
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #undef B_TRANSLATION_CONTEXT
@@ -36,8 +40,8 @@
 
 MainWindow::MainWindow()
 	:
-	BWindow(BRect(100, 100, 1200, 800), "BubiCam - Webcam Driver Tester",
-		B_TITLED_WINDOW, B_ASYNCHRONOUS_CONTROLS | B_AUTO_UPDATE_SIZE_LIMITS),
+	BWindow(BRect(100, 100, 900, 600), "BubiCam - Webcam Driver Tester",
+		B_TITLED_WINDOW, B_ASYNCHRONOUS_CONTROLS),
 	fMenuBar(NULL),
 	fWebcamMenu(NULL),
 	fControlMenu(NULL),
@@ -50,6 +54,15 @@ MainWindow::MainWindow()
 	fWebcamControls(NULL),
 	fStatusBar(NULL),
 	fRightTabView(NULL),
+	fToolbar(NULL),
+	fStartButton(NULL),
+	fStopButton(NULL),
+	fScreenshotButton(NULL),
+	fRefreshButton(NULL),
+	fStatsResolution(NULL),
+	fStatsFPS(NULL),
+	fStatsFrames(NULL),
+	fStatsDropped(NULL),
 	fWebcamRoster(NULL),
 	fCurrentWebcam(NULL),
 	fCurrentWebcamIndex(-1),
@@ -64,6 +77,11 @@ MainWindow::MainWindow()
 	_BuildLayout();
 	_PopulateWebcamMenu();
 
+	// Allow window to be resized freely
+	BScreen screen(this);
+	BRect screenFrame = screen.Frame();
+	SetSizeLimits(600, screenFrame.Width(), 400, screenFrame.Height());
+
 	// Start syslog monitoring
 	fSyslogView->StartMonitoring();
 }
@@ -71,11 +89,18 @@ MainWindow::MainWindow()
 
 MainWindow::~MainWindow()
 {
+	// Note: Primary Media Kit cleanup is done in QuitRequested() to ensure
+	// resources are released BEFORE process shutdown begins. This destructor
+	// handles remaining cleanup for edge cases (e.g., window closed without
+	// going through QuitRequested).
+
 	_StopPreview();
 
 	if (fSyslogView != NULL)
 		fSyslogView->StopMonitoring();
 
+	// fWebcamRoster->Clear() was already called in QuitRequested(),
+	// but delete is still needed to free the roster object itself
 	delete fWebcamRoster;
 	delete fSavePanel;
 	delete fLastFrame;
@@ -130,35 +155,117 @@ MainWindow::_BuildMenu()
 	fToolsMenu = new BMenu("Tools");
 	fToolsMenu->AddItem(new BMenuItem("Clear Syslog",
 		new BMessage(MSG_CLEAR_SYSLOG), 'L'));
+	fToolsMenu->AddSeparatorItem();
+	fToolsMenu->AddItem(new BMenuItem("Restart Media Services" B_UTF8_ELLIPSIS,
+		new BMessage(MSG_RESTART_MEDIA), 'M', B_SHIFT_KEY));
 	fMenuBar->AddItem(fToolsMenu);
+}
+
+
+void
+MainWindow::_BuildToolbar()
+{
+	fToolbar = new BView("toolbar", B_WILL_DRAW);
+	fToolbar->SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
+	fToolbar->SetExplicitMinSize(BSize(B_SIZE_UNSET, 32));
+	fToolbar->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, 32));
+
+	// Create buttons
+	fRefreshButton = new BButton("refresh", "Refresh",
+		new BMessage(MSG_REFRESH_DEVICES));
+	fRefreshButton->SetToolTip("Refresh webcam list (Cmd+R)");
+
+	fStartButton = new BButton("start", "Start",
+		new BMessage(MSG_WEBCAM_START));
+	fStartButton->SetToolTip("Start video preview (Cmd+S)");
+
+	fStopButton = new BButton("stop", "Stop",
+		new BMessage(MSG_WEBCAM_STOP));
+	fStopButton->SetToolTip("Stop video preview (Cmd+T)");
+	fStopButton->SetEnabled(false);
+
+	fScreenshotButton = new BButton("screenshot", "Screenshot",
+		new BMessage(MSG_SCREENSHOT));
+	fScreenshotButton->SetToolTip("Take screenshot (Cmd+P)");
+	fScreenshotButton->SetEnabled(false);
+
+	// Layout toolbar
+	BLayoutBuilder::Group<>(fToolbar, B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
+		.SetInsets(B_USE_HALF_ITEM_INSETS)
+		.Add(fRefreshButton)
+		.AddGlue()
+		.Add(fStartButton)
+		.Add(fStopButton)
+		.AddGlue()
+		.Add(fScreenshotButton)
+		.End();
 }
 
 
 void
 MainWindow::_BuildLayout()
 {
+	// Build toolbar first
+	_BuildToolbar();
+
 	// Create views
 	fVideoPreview = new VideoPreviewView("videoPreview");
+	fVideoPreview->SetExplicitPreferredSize(BSize(320, 240));
+	fVideoPreview->SetShowStats(false);  // Disable overlay, use stats bar instead
+
 	fDriverInfo = new DriverInfoView("driverInfo");
 	fSyslogView = new SyslogView("syslogView");
 	fVUMeter = new VUMeterView("vuMeter");
 	fWebcamControls = new WebcamControlsView("webcamControls");
 
-	// Status bar
+	// Status bar (bottom)
 	fStatusBar = new BStringView("statusBar", "No webcam selected");
 	fStatusBar->SetExplicitMinSize(BSize(B_SIZE_UNSET, 20));
 
-	// Create boxes for organization
+	// Video stats bar (under video preview)
+	BView* statsBar = new BView("statsBar", B_WILL_DRAW);
+	statsBar->SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
+	statsBar->SetExplicitMinSize(BSize(B_SIZE_UNSET, 22));
+	statsBar->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, 22));
+
+	fStatsResolution = new BStringView("statsRes", "---");
+	fStatsResolution->SetAlignment(B_ALIGN_CENTER);
+	fStatsFPS = new BStringView("statsFPS", "--- fps");
+	fStatsFPS->SetAlignment(B_ALIGN_CENTER);
+	fStatsFrames = new BStringView("statsFrames", "0 frames");
+	fStatsFrames->SetAlignment(B_ALIGN_CENTER);
+	fStatsDropped = new BStringView("statsDropped", "0 dropped");
+	fStatsDropped->SetAlignment(B_ALIGN_CENTER);
+
+	// Set font for stats
+	BFont smallFont(be_plain_font);
+	smallFont.SetSize(10);
+	fStatsResolution->SetFont(&smallFont);
+	fStatsFPS->SetFont(&smallFont);
+	fStatsFrames->SetFont(&smallFont);
+	fStatsDropped->SetFont(&smallFont);
+
+	BLayoutBuilder::Group<>(statsBar, B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
+		.SetInsets(B_USE_SMALL_INSETS, 2, B_USE_SMALL_INSETS, 2)
+		.Add(fStatsResolution)
+		.Add(fStatsFPS)
+		.Add(fStatsFrames)
+		.Add(fStatsDropped)
+		.End();
+
+	// Create video box with toolbar, video, and stats bar inside
 	BBox* videoBox = new BBox("videoBox");
 	videoBox->SetLabel("Video Preview");
-	videoBox->AddChild(BLayoutBuilder::Group<>(B_VERTICAL, 0)
+	videoBox->AddChild(BLayoutBuilder::Group<>(B_VERTICAL, 2)
+		.Add(fToolbar)
 		.Add(fVideoPreview)
+		.Add(statsBar)
 		.SetInsets(B_USE_SMALL_INSETS)
 		.View());
 
-	// VU Meter box
+	// VU Meter box (more compact)
 	BBox* vuBox = new BBox("vuBox");
-	vuBox->SetLabel("Microphone Level");
+	vuBox->SetLabel("Mic Level");
 	vuBox->AddChild(BLayoutBuilder::Group<>(B_VERTICAL, 0)
 		.Add(fVUMeter)
 		.SetInsets(B_USE_SMALL_INSETS)
@@ -168,10 +275,11 @@ MainWindow::_BuildLayout()
 	BSplitView* leftSplit = new BSplitView(B_VERTICAL);
 	leftSplit->AddChild(videoBox);
 	leftSplit->AddChild(vuBox);
-	leftSplit->SetItemWeight(0, 0.85f, true);
-	leftSplit->SetItemWeight(1, 0.15f, true);
+	leftSplit->SetItemWeight(0, 0.88f, true);
+	leftSplit->SetItemWeight(1, 0.12f, true);
+	leftSplit->SetExplicitMaxSize(BSize(420, B_SIZE_UNLIMITED));
 
-	// Create tab view for right panel
+	// Create tab view for right panel (Driver Info + Controls)
 	fRightTabView = new BTabView("rightTabs");
 
 	// Driver Info tab
@@ -180,36 +288,42 @@ MainWindow::_BuildLayout()
 	fRightTabView->AddTab(infoScroll, new BTab());
 	fRightTabView->TabAt(0)->SetLabel("Driver Info");
 
-	// Syslog tab
-	BScrollView* syslogScroll = new BScrollView("syslogScroll", fSyslogView,
-		0, false, true);
-	fRightTabView->AddTab(syslogScroll, new BTab());
-	fRightTabView->TabAt(1)->SetLabel("Syslog");
-
 	// Controls tab
 	BScrollView* controlsScroll = new BScrollView("controlsScroll",
 		fWebcamControls, 0, false, true);
 	fRightTabView->AddTab(controlsScroll, new BTab());
-	fRightTabView->TabAt(2)->SetLabel("Controls");
+	fRightTabView->TabAt(1)->SetLabel("Controls");
 
-	// Main horizontal split: left side on left, tabs on right
+	// Syslog box
+	BBox* syslogBox = new BBox("syslogBox");
+	syslogBox->SetLabel("Syslog");
+	BScrollView* syslogScroll = new BScrollView("syslogScroll", fSyslogView,
+		0, false, true, B_FANCY_BORDER);
+	syslogBox->AddChild(BLayoutBuilder::Group<>(B_VERTICAL, 0)
+		.Add(syslogScroll)
+		.SetInsets(B_USE_SMALL_INSETS)
+		.View());
+
+	// Right side: Tab view on top, Syslog on bottom
+	BSplitView* rightSplit = new BSplitView(B_VERTICAL);
+	rightSplit->AddChild(fRightTabView);
+	rightSplit->AddChild(syslogBox);
+	rightSplit->SetItemWeight(0, 0.50f, true);
+	rightSplit->SetItemWeight(1, 0.50f, true);
+
+	// Main horizontal split
 	BSplitView* mainSplit = new BSplitView(B_HORIZONTAL);
 	mainSplit->AddChild(leftSplit);
-	mainSplit->AddChild(fRightTabView);
-	mainSplit->SetItemWeight(0, 0.55f, true);
-	mainSplit->SetItemWeight(1, 0.45f, true);
+	mainSplit->AddChild(rightSplit);
+	mainSplit->SetItemWeight(0, 0.35f, true);
+	mainSplit->SetItemWeight(1, 0.65f, true);
 
-	// Main layout
+	// Main layout (toolbar is now inside videoBox)
 	BLayoutBuilder::Group<>(this, B_VERTICAL, 0)
 		.Add(fMenuBar)
 		.Add(mainSplit)
 		.Add(fStatusBar)
 		.SetInsets(0, 0, 0, 0);
-
-	// Set minimum sizes
-	videoBox->SetExplicitMinSize(BSize(400, 300));
-	vuBox->SetExplicitMinSize(BSize(400, 80));
-	fRightTabView->SetExplicitMinSize(BSize(350, 400));
 }
 
 
@@ -310,15 +424,16 @@ MainWindow::_SelectWebcam(int32 index)
 			item->SetMarked(i - 2 == index);
 	}
 
+	// Start preview FIRST - this instantiates the media node
+	// which is required before we can access parameters
+	_StartPreview();
+
+	// Now that the node is instantiated, update UI
 	_UpdateDriverInfo();
 	_PopulateFormatMenu();
 
-	// Update controls panel
+	// Update controls panel (requires instantiated node for GetParameterWebFor)
 	fWebcamControls->SetDevice(device);
-
-	BString status;
-	status.SetToFormat("Selected: %s", device->Name());
-	fStatusBar->SetText(status.String());
 }
 
 
@@ -362,8 +477,43 @@ MainWindow::_StartPreview()
 
 	status_t status = fCurrentWebcam->StartCapture(this);
 	if (status != B_OK) {
+		// Check if this is a "node already in use" error
+		if (status == B_NAME_NOT_FOUND) {
+			BAlert* alert = new BAlert("Webcam Blocked",
+				"The webcam appears to be blocked by a previous session.\n\n"
+				"This usually happens when an application didn't release "
+				"the webcam properly.\n\n"
+				"Would you like to restart the Media Services to fix this?",
+				"Cancel", "Restart Media Services", NULL,
+				B_WIDTH_AS_USUAL, B_WARNING_ALERT);
+			alert->SetShortcut(0, B_ESCAPE);
+
+			if (alert->Go() == 1) {
+				// Save the webcam name before restart (device will be destroyed)
+				BString webcamName;
+				if (fCurrentWebcam != NULL)
+					webcamName = fCurrentWebcam->Name();
+
+				_DoRestartMediaServices(false);  // No confirmation needed, user already confirmed
+
+				// After restart, find the webcam by name (index may have changed)
+				if (webcamName.Length() > 0) {
+					for (int32 i = 0; i < fWebcamRoster->CountDevices(); i++) {
+						WebcamDevice* device = fWebcamRoster->DeviceAt(i);
+						if (device != NULL && webcamName == device->Name()) {
+							_SelectWebcam(i);
+							break;
+						}
+					}
+				}
+			}
+			return;
+		}
+
+		// Other errors
 		BString error;
-		error.SetToFormat("Failed to start capture: %s", strerror(status));
+		error.SetToFormat("Failed to start capture: %s (0x%08x)",
+			strerror(status), status);
 		BAlert* alert = new BAlert("Error", error.String(), "OK");
 		alert->Go();
 		return;
@@ -372,7 +522,8 @@ MainWindow::_StartPreview()
 	fIsPreviewActive = true;
 	fStatusBar->SetText("Preview active");
 
-	// Update driver info with capture state
+	// Update toolbar and driver info
+	_UpdateToolbarState();
 	_UpdateDriverInfo();
 }
 
@@ -385,6 +536,16 @@ MainWindow::_StopPreview()
 		fIsPreviewActive = false;
 		fVideoPreview->ClearFrame();
 		fVUMeter->SetLevel(0.0f, 0.0f);
+
+		// Reset stats bar
+		fStatsResolution->SetText("---");
+		fStatsFPS->SetText("--- fps");
+		fStatsFrames->SetText("0 frames");
+		fStatsDropped->SetText("0 dropped");
+		fStatsDropped->SetHighUIColor(B_PANEL_TEXT_COLOR);
+
+		// Update toolbar
+		_UpdateToolbarState();
 
 		if (fCurrentWebcam != NULL) {
 			BString status;
@@ -402,6 +563,68 @@ MainWindow::_UpdateDriverInfo()
 		return;
 
 	fDriverInfo->SetDevice(fCurrentWebcam, fIsPreviewActive);
+}
+
+
+void
+MainWindow::_UpdateStatsBar()
+{
+	if (fVideoPreview == NULL)
+		return;
+
+	// Resolution
+	int32 width = fVideoPreview->VideoWidth();
+	int32 height = fVideoPreview->VideoHeight();
+	BString resStr;
+	if (width > 0 && height > 0)
+		resStr.SetToFormat("%dx%d", (int)width, (int)height);
+	else
+		resStr = "---";
+	fStatsResolution->SetText(resStr.String());
+
+	// FPS with color coding
+	float fps = fVideoPreview->CurrentFPS();
+	BString fpsStr;
+	fpsStr.SetToFormat("%.1f fps", fps);
+	fStatsFPS->SetText(fpsStr.String());
+
+	if (fps >= 25.0f)
+		fStatsFPS->SetHighColor(0, 180, 0);  // Green
+	else if (fps >= 15.0f)
+		fStatsFPS->SetHighColor(180, 180, 0);  // Yellow
+	else if (fps > 0)
+		fStatsFPS->SetHighColor(200, 80, 80);  // Red
+	else
+		fStatsFPS->SetHighUIColor(B_PANEL_TEXT_COLOR);
+
+	// Frames received
+	uint32 received = fVideoPreview->FramesReceived();
+	BString framesStr;
+	framesStr.SetToFormat("%u frames", (unsigned)received);
+	fStatsFrames->SetText(framesStr.String());
+
+	// Frames dropped with color coding
+	uint32 dropped = fVideoPreview->FramesDropped();
+	BString droppedStr;
+	droppedStr.SetToFormat("%u dropped", (unsigned)dropped);
+	fStatsDropped->SetText(droppedStr.String());
+
+	if (dropped > 0)
+		fStatsDropped->SetHighColor(200, 80, 80);  // Red
+	else
+		fStatsDropped->SetHighUIColor(B_PANEL_TEXT_COLOR);
+}
+
+
+void
+MainWindow::_UpdateToolbarState()
+{
+	bool hasWebcam = (fCurrentWebcam != NULL);
+	bool isActive = fIsPreviewActive;
+
+	fStartButton->SetEnabled(hasWebcam && !isActive);
+	fStopButton->SetEnabled(hasWebcam && isActive);
+	fScreenshotButton->SetEnabled(isActive && fLastFrame != NULL);
 }
 
 
@@ -551,12 +774,31 @@ MainWindow::MessageReceived(BMessage* message)
 			if (message->FindPointer("bitmap", (void**)&bitmap) == B_OK) {
 				fVideoPreview->SetFrame(bitmap);
 
+				// Update resolution info
+				BRect bitmapBounds = bitmap->Bounds();
+				fVideoPreview->SetResolution(
+					(int32)(bitmapBounds.Width() + 1),
+					(int32)(bitmapBounds.Height() + 1));
+
+				// Update stats from consumer
+				if (fCurrentWebcam != NULL) {
+					fVideoPreview->UpdateStats(
+						fCurrentWebcam->CurrentFPS(),
+						fCurrentWebcam->FramesCaptured(),
+						fCurrentWebcam->FramesDropped());
+				}
+
+				// Update stats bar (every frame)
+				_UpdateStatsBar();
+
 				// Keep a copy for screenshots
 				if (fLastFrame == NULL ||
 					fLastFrame->Bounds() != bitmap->Bounds()) {
 					delete fLastFrame;
 					fLastFrame = new BBitmap(bitmap->Bounds(),
 						bitmap->ColorSpace());
+					// Enable screenshot button now that we have a frame
+					_UpdateToolbarState();
 				}
 				memcpy(fLastFrame->Bits(), bitmap->Bits(),
 					bitmap->BitsLength());
@@ -629,7 +871,11 @@ MainWindow::MessageReceived(BMessage* message)
 
 		case MSG_TOGGLE_CONTROLS:
 			// Switch to controls tab
-			fRightTabView->Select(2);
+			fRightTabView->Select(1);
+			break;
+
+		case MSG_RESTART_MEDIA:
+			_RestartMediaServices();
 			break;
 
 		default:
@@ -639,10 +885,91 @@ MainWindow::MessageReceived(BMessage* message)
 }
 
 
+void
+MainWindow::_RestartMediaServices()
+{
+	_DoRestartMediaServices(true);  // With confirmation
+}
+
+
+void
+MainWindow::_DoRestartMediaServices(bool askConfirmation)
+{
+	if (askConfirmation) {
+		// Confirm with user
+		BAlert* alert = new BAlert("Restart Media Services",
+			"This will restart the media_server and media_addon_server.\n\n"
+			"Use this if you get 'Name not found' errors when selecting a webcam.\n\n"
+			"The application will refresh after restart.",
+			"Cancel", "Restart", NULL,
+			B_WIDTH_AS_USUAL, B_WARNING_ALERT);
+		alert->SetShortcut(0, B_ESCAPE);
+
+		if (alert->Go() != 1)
+			return;
+	}
+
+	// Stop preview first if active
+	_StopPreview();
+
+	fStatusBar->SetText("Restarting media services...");
+	UpdateIfNeeded();
+
+	// First, try the clean Haiku way
+	status_t status = shutdown_media_server(5000000);  // 5 second timeout
+
+	if (status != B_OK) {
+		// Clean shutdown failed, try force killing
+		// Find and kill media_server and media_addon_server by reading /proc-like info
+		fprintf(stderr, "Clean shutdown failed, force killing media services...\n");
+
+
+		// Fallback: use system() with a more reliable command
+		system("hey media_addon_server quit 2>/dev/null");
+		system("hey media_server quit 2>/dev/null");
+		snooze(500000);  // Wait 500ms
+
+		// If still running, force kill
+		system("kill -9 `pidof media_addon_server` 2>/dev/null");
+		system("kill -9 `pidof media_server` 2>/dev/null");
+		snooze(500000);
+	}
+
+	// Wait for media_server to restart automatically
+	fStatusBar->SetText("Waiting for media services...");
+	UpdateIfNeeded();
+	snooze(2000000);  // 2 seconds
+
+	// Refresh device list
+	_PopulateWebcamMenu();
+
+	fStatusBar->SetText("Media services restarted - select a webcam");
+}
+
+
 bool
 MainWindow::QuitRequested()
 {
+	// IMPORTANT: Clean up Media Kit resources BEFORE application shutdown begins.
+	// This is critical because the BMediaRoster singleton gets destroyed during
+	// process exit, and some webcam drivers (like aukey_webcam) don't handle
+	// their node cleanup properly - they try to access already-destroyed objects
+	// in their BUSBRoster when the media add-on is unloaded.
+	// By releasing all nodes here, we ensure they're freed while the Media Kit
+	// is still fully functional.
+
 	_StopPreview();
+
+	// Release all webcam devices (and their Media Kit nodes) now
+	if (fWebcamRoster != NULL) {
+		fprintf(stderr, "MainWindow::QuitRequested() - Clearing webcam roster before shutdown\n");
+		fWebcamRoster->Clear();
+	}
+
+	// Give Media Kit time to complete async cleanup operations
+	// This helps avoid race conditions with the driver's internal state
+	snooze(100000);  // 100ms
+
 	be_app->PostMessage(B_QUIT_REQUESTED);
 	return true;
 }
