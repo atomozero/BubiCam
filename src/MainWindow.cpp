@@ -262,7 +262,7 @@ MainWindow::_BuildLayout()
 		.Add(fToolbar)
 		.Add(fVideoPreview)
 		.Add(statsBar)
-		.SetInsets(6, 16, 6, 6)  // Extra top margin for label spacing
+		.SetInsets(6, 26, 6, 6)  // Extra top margin for label spacing
 		.View());
 
 	// VU Meter box (more compact)
@@ -319,9 +319,10 @@ MainWindow::_BuildLayout()
 	mainSplit->SetItemWeight(0, 0.42f, true);
 	mainSplit->SetItemWeight(1, 0.58f, true);
 
-	// Main layout
+	// Main layout with top margin below menu
 	BLayoutBuilder::Group<>(this, B_VERTICAL, 0)
 		.Add(fMenuBar)
+		.AddStrut(8)
 		.Add(mainSplit)
 		.Add(fStatusBar)
 		.SetInsets(0, 0, 0, 0);
