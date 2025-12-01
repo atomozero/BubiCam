@@ -262,7 +262,7 @@ MainWindow::_BuildLayout()
 		.Add(fToolbar)
 		.Add(fVideoPreview)
 		.Add(statsBar)
-		.SetInsets(6, 26, 6, 6)  // Extra top margin for label spacing
+		.SetInsets(6, 6, 6, 6)
 		.View());
 
 	// VU Meter box (more compact)
@@ -277,8 +277,8 @@ MainWindow::_BuildLayout()
 	BSplitView* leftSplit = new BSplitView(B_VERTICAL);
 	leftSplit->AddChild(videoBox);
 	leftSplit->AddChild(vuBox);
-	leftSplit->SetItemWeight(0, 0.85f, true);
-	leftSplit->SetItemWeight(1, 0.15f, true);
+	leftSplit->SetItemWeight(0, 0.82f, true);
+	leftSplit->SetItemWeight(1, 0.18f, true);
 
 	// Create tab view for right panel (Driver Info + Controls)
 	fRightTabView = new BTabView("rightTabs");
