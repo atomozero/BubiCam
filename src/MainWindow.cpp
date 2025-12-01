@@ -48,7 +48,7 @@
 
 MainWindow::MainWindow()
 	:
-	BWindow(BRect(100, 50, 1150, 750), "BubiCam - Webcam Driver Tester",
+	BWindow(BRect(50, 50, 1300, 800), "BubiCam - Webcam Driver Tester",
 		B_TITLED_WINDOW, B_ASYNCHRONOUS_CONTROLS),
 	fMenuBar(NULL),
 	fWebcamMenu(NULL),
@@ -210,8 +210,8 @@ MainWindow::_BuildLayout()
 
 	// Create views
 	fVideoPreview = new VideoPreviewView("videoPreview");
-	fVideoPreview->SetExplicitMinSize(BSize(400, 300));
-	fVideoPreview->SetExplicitPreferredSize(BSize(480, 360));
+	fVideoPreview->SetExplicitMinSize(BSize(280, 210));
+	fVideoPreview->SetExplicitPreferredSize(BSize(360, 270));
 	fVideoPreview->SetShowStats(false);  // Disable overlay, use stats bar instead
 
 	fDriverInfo = new DriverInfoView("driverInfo");
@@ -279,6 +279,7 @@ MainWindow::_BuildLayout()
 	leftSplit->AddChild(vuBox);
 	leftSplit->SetItemWeight(0, 0.82f, true);
 	leftSplit->SetItemWeight(1, 0.18f, true);
+	leftSplit->SetExplicitMaxSize(BSize(400, B_SIZE_UNLIMITED));
 
 	// Create tab view for right panel (Driver Info + Controls)
 	fRightTabView = new BTabView("rightTabs");
@@ -316,8 +317,8 @@ MainWindow::_BuildLayout()
 	BSplitView* mainSplit = new BSplitView(B_HORIZONTAL);
 	mainSplit->AddChild(leftSplit);
 	mainSplit->AddChild(rightSplit);
-	mainSplit->SetItemWeight(0, 0.42f, true);
-	mainSplit->SetItemWeight(1, 0.58f, true);
+	mainSplit->SetItemWeight(0, 0.25f, true);
+	mainSplit->SetItemWeight(1, 0.75f, true);
 
 	// Main layout with top margin below menu
 	BLayoutBuilder::Group<>(this, B_VERTICAL, 0)
