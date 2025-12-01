@@ -6,6 +6,7 @@
 
 #include "VUMeterView.h"
 
+#include <Autolock.h>
 #include <stdio.h>
 #include <math.h>
 

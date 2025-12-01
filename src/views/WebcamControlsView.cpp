@@ -38,10 +38,10 @@ WebcamControlsView::WebcamControlsView(const char* name)
 		"No controls available.\nSelect a webcam to see its controls.");
 	fNoControlsLabel->SetAlignment(B_ALIGN_CENTER);
 
-	// Reset button
+	// Control buttons
 	BButton* resetButton = new BButton("resetButton", "Reset All",
 		new BMessage(MSG_CONTROL_RESET));
-	BButton* refreshButton = new BButton("refreshButton", "Refresh",
+	BButton* refreshButton = new BButton("refreshButton", "Load Controls",
 		new BMessage(MSG_CONTROL_REFRESH));
 
 	BLayoutBuilder::Group<>(this, B_VERTICAL, B_USE_SMALL_SPACING)
@@ -114,7 +114,17 @@ void
 WebcamControlsView::SetDevice(WebcamDevice* device)
 {
 	fDevice = device;
-	_BuildControls();
+	// Don't automatically read controls - this can crash buggy drivers
+	// User must click "Load Controls" button manually
+	_ClearControls();
+	if (fDevice != NULL) {
+		fNoControlsLabel->SetText(
+			"Controls not loaded.\n"
+			"Click 'Load Controls' to read driver parameters.\n\n"
+			"WARNING: Some drivers may crash when reading parameters.");
+		fNoControlsLabel->Show();
+		fControlsContainer->Hide();
+	}
 }
 
 
@@ -142,6 +152,14 @@ WebcamControlsView::_BuildControls()
 
 	if (fDevice == NULL) {
 		fNoControlsLabel->SetText("No webcam selected.");
+		fNoControlsLabel->Show();
+		fControlsContainer->Hide();
+		return;
+	}
+
+	// Check if the node is instantiated - required for GetParameterWebFor
+	if (!fDevice->IsNodeInstantiated()) {
+		fNoControlsLabel->SetText("Webcam not active.\nStart preview to see controls.");
 		fNoControlsLabel->Show();
 		fControlsContainer->Hide();
 		return;
@@ -337,7 +355,7 @@ WebcamControlsView::_AddMenuControl(const char* label, const char* param,
 	}
 
 	BMenuField* field = new BMenuField(param, label, menu);
-	field->SetTarget(this);
+	menu->SetTargetForItems(this);
 
 	fControlsContainer->AddChild(field);
 

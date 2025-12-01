@@ -31,12 +31,16 @@ private:
 	void				_AppendField(const char* label, float value);
 	void				_AppendField(const char* label, bool value);
 	void				_AppendNewLine();
+	void				_AppendWarning(const char* text);
+	void				_AppendError(const char* text);
 
 	BFont				fBoldFont;
 	BFont				fNormalFont;
 	rgb_color			fSectionColor;
 	rgb_color			fLabelColor;
 	rgb_color			fValueColor;
+	rgb_color			fWarningColor;
+	rgb_color			fErrorColor;
 };
 
 #endif // DRIVER_INFO_VIEW_H
