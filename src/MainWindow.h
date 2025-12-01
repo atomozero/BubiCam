@@ -16,6 +16,7 @@
 #include <FilePanel.h>
 #include <Bitmap.h>
 #include <Button.h>
+#include <ToolBar.h>
 
 class VideoPreviewView;
 class DriverInfoView;
@@ -94,11 +95,7 @@ private:
 	BTabView*			fRightTabView;
 
 	// Toolbar
-	BView*				fToolbar;
-	BButton*			fStartButton;
-	BButton*			fStopButton;
-	BButton*			fScreenshotButton;
-	BButton*			fRefreshButton;
+	BToolBar*			fToolbar;
 
 	// Video stats bar
 	BStringView*		fStatsResolution;

@@ -17,15 +17,17 @@ SRCS = \
 	src/webcam/WebcamDevice.cpp \
 	src/webcam/VideoConsumer.cpp \
 	src/webcam/AudioConsumer.cpp \
-	src/utils/ExportUtils.cpp
+	src/webcam/USBVideoParser.cpp \
+	src/utils/ExportUtils.cpp \
+	src/utils/IconUtils.cpp
 
 RDEFS = resources/BubiCam.rdef
 
-LIBS = be media tracker translation localestub $(STDCPPLIBS)
+LIBS = be media tracker translation localestub device shared $(STDCPPLIBS)
 
 LIBPATHS =
 
-SYSTEM_INCLUDE_PATHS =
+SYSTEM_INCLUDE_PATHS = /boot/system/develop/headers/private/shared
 
 LOCAL_INCLUDE_PATHS = src src/views src/webcam src/utils
 

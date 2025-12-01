@@ -13,10 +13,12 @@
 #include "WebcamRoster.h"
 #include "WebcamDevice.h"
 #include "ExportUtils.h"
+#include "IconUtils.h"
 
 #include <Application.h>
 #include <LayoutBuilder.h>
 #include <SplitView.h>
+#include <ToolBar.h>
 #include <ScrollView.h>
 #include <GroupLayout.h>
 #include <GroupView.h>
@@ -46,7 +48,7 @@
 
 MainWindow::MainWindow()
 	:
-	BWindow(BRect(100, 100, 900, 600), "BubiCam - Webcam Driver Tester",
+	BWindow(BRect(100, 50, 1150, 750), "BubiCam - Webcam Driver Tester",
 		B_TITLED_WINDOW, B_ASYNCHRONOUS_CONTROLS),
 	fMenuBar(NULL),
 	fWebcamMenu(NULL),
@@ -61,10 +63,6 @@ MainWindow::MainWindow()
 	fStatusBar(NULL),
 	fRightTabView(NULL),
 	fToolbar(NULL),
-	fStartButton(NULL),
-	fStopButton(NULL),
-	fScreenshotButton(NULL),
-	fRefreshButton(NULL),
 	fStatsResolution(NULL),
 	fStatsFPS(NULL),
 	fStatsFrames(NULL),
@@ -86,7 +84,7 @@ MainWindow::MainWindow()
 	// Allow window to be resized freely
 	BScreen screen(this);
 	BRect screenFrame = screen.Frame();
-	SetSizeLimits(600, screenFrame.Width(), 400, screenFrame.Height());
+	SetSizeLimits(800, screenFrame.Width(), 550, screenFrame.Height());
 
 	// Start syslog monitoring
 	fSyslogView->StartMonitoring();
@@ -171,40 +169,36 @@ MainWindow::_BuildMenu()
 void
 MainWindow::_BuildToolbar()
 {
-	fToolbar = new BView("toolbar", B_WILL_DRAW);
-	fToolbar->SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
-	fToolbar->SetExplicitMinSize(BSize(B_SIZE_UNSET, 32));
-	fToolbar->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, 32));
+	fToolbar = new BToolBar();
 
-	// Create buttons
-	fRefreshButton = new BButton("refresh", "Refresh",
-		new BMessage(MSG_REFRESH_DEVICES));
-	fRefreshButton->SetToolTip("Refresh webcam list (Cmd+R)");
+	// Create icons
+	BBitmap* refreshIcon = IconUtils::CreateRefreshIcon(24);
+	BBitmap* startIcon = IconUtils::CreateStartIcon(24);
+	BBitmap* stopIcon = IconUtils::CreateStopIcon(24);
+	BBitmap* screenshotIcon = IconUtils::CreateScreenshotIcon(24);
 
-	fStartButton = new BButton("start", "Start",
-		new BMessage(MSG_WEBCAM_START));
-	fStartButton->SetToolTip("Start video preview (Cmd+S)");
+	// Add actions with icons
+	fToolbar->AddAction(MSG_REFRESH_DEVICES, this, refreshIcon,
+		"Refresh webcam list (Cmd+R)", "Refresh");
+	fToolbar->AddSeparator();
+	fToolbar->AddAction(MSG_WEBCAM_START, this, startIcon,
+		"Start video preview (Cmd+S)", "Start");
+	fToolbar->AddAction(MSG_WEBCAM_STOP, this, stopIcon,
+		"Stop video preview (Cmd+T)", "Stop");
+	fToolbar->AddSeparator();
+	fToolbar->AddAction(MSG_SCREENSHOT, this, screenshotIcon,
+		"Take screenshot (Cmd+P)", "Screenshot");
+	fToolbar->AddGlue();
 
-	fStopButton = new BButton("stop", "Stop",
-		new BMessage(MSG_WEBCAM_STOP));
-	fStopButton->SetToolTip("Stop video preview (Cmd+T)");
-	fStopButton->SetEnabled(false);
+	// Initial state
+	fToolbar->SetActionEnabled(MSG_WEBCAM_STOP, false);
+	fToolbar->SetActionEnabled(MSG_SCREENSHOT, false);
 
-	fScreenshotButton = new BButton("screenshot", "Screenshot",
-		new BMessage(MSG_SCREENSHOT));
-	fScreenshotButton->SetToolTip("Take screenshot (Cmd+P)");
-	fScreenshotButton->SetEnabled(false);
-
-	// Layout toolbar
-	BLayoutBuilder::Group<>(fToolbar, B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
-		.SetInsets(B_USE_HALF_ITEM_INSETS)
-		.Add(fRefreshButton)
-		.AddGlue()
-		.Add(fStartButton)
-		.Add(fStopButton)
-		.AddGlue()
-		.Add(fScreenshotButton)
-		.End();
+	// Clean up icons (BToolBar makes copies)
+	delete refreshIcon;
+	delete startIcon;
+	delete stopIcon;
+	delete screenshotIcon;
 }
 
 
@@ -216,12 +210,14 @@ MainWindow::_BuildLayout()
 
 	// Create views
 	fVideoPreview = new VideoPreviewView("videoPreview");
-	fVideoPreview->SetExplicitPreferredSize(BSize(320, 240));
+	fVideoPreview->SetExplicitMinSize(BSize(400, 300));
+	fVideoPreview->SetExplicitPreferredSize(BSize(480, 360));
 	fVideoPreview->SetShowStats(false);  // Disable overlay, use stats bar instead
 
 	fDriverInfo = new DriverInfoView("driverInfo");
 	fSyslogView = new SyslogView("syslogView");
 	fVUMeter = new VUMeterView("vuMeter");
+	fVUMeter->SetExplicitMinSize(BSize(B_SIZE_UNSET, 55));
 	fWebcamControls = new WebcamControlsView("webcamControls");
 
 	// Status bar (bottom)
@@ -259,14 +255,14 @@ MainWindow::_BuildLayout()
 		.Add(fStatsDropped)
 		.End();
 
-	// Create video box with toolbar, video, and stats bar inside
+	// Create video box with toolbar, video and stats bar inside
 	BBox* videoBox = new BBox("videoBox");
 	videoBox->SetLabel("Video Preview");
 	videoBox->AddChild(BLayoutBuilder::Group<>(B_VERTICAL, 2)
 		.Add(fToolbar)
 		.Add(fVideoPreview)
 		.Add(statsBar)
-		.SetInsets(B_USE_SMALL_INSETS)
+		.SetInsets(6, 16, 6, 6)  // Extra top margin for label spacing
 		.View());
 
 	// VU Meter box (more compact)
@@ -277,13 +273,12 @@ MainWindow::_BuildLayout()
 		.SetInsets(B_USE_SMALL_INSETS)
 		.View());
 
-	// Left side: video + VU meter
+	// Left side: video + VU meter (toolbar is inside video box)
 	BSplitView* leftSplit = new BSplitView(B_VERTICAL);
 	leftSplit->AddChild(videoBox);
 	leftSplit->AddChild(vuBox);
-	leftSplit->SetItemWeight(0, 0.88f, true);
-	leftSplit->SetItemWeight(1, 0.12f, true);
-	leftSplit->SetExplicitMaxSize(BSize(420, B_SIZE_UNLIMITED));
+	leftSplit->SetItemWeight(0, 0.85f, true);
+	leftSplit->SetItemWeight(1, 0.15f, true);
 
 	// Create tab view for right panel (Driver Info + Controls)
 	fRightTabView = new BTabView("rightTabs");
@@ -321,10 +316,10 @@ MainWindow::_BuildLayout()
 	BSplitView* mainSplit = new BSplitView(B_HORIZONTAL);
 	mainSplit->AddChild(leftSplit);
 	mainSplit->AddChild(rightSplit);
-	mainSplit->SetItemWeight(0, 0.35f, true);
-	mainSplit->SetItemWeight(1, 0.65f, true);
+	mainSplit->SetItemWeight(0, 0.42f, true);
+	mainSplit->SetItemWeight(1, 0.58f, true);
 
-	// Main layout (toolbar is now inside videoBox)
+	// Main layout
 	BLayoutBuilder::Group<>(this, B_VERTICAL, 0)
 		.Add(fMenuBar)
 		.Add(mainSplit)
@@ -628,9 +623,9 @@ MainWindow::_UpdateToolbarState()
 	bool hasWebcam = (fCurrentWebcam != NULL);
 	bool isActive = fIsPreviewActive;
 
-	fStartButton->SetEnabled(hasWebcam && !isActive);
-	fStopButton->SetEnabled(hasWebcam && isActive);
-	fScreenshotButton->SetEnabled(isActive && fLastFrame != NULL);
+	fToolbar->SetActionEnabled(MSG_WEBCAM_START, hasWebcam && !isActive);
+	fToolbar->SetActionEnabled(MSG_WEBCAM_STOP, hasWebcam && isActive);
+	fToolbar->SetActionEnabled(MSG_SCREENSHOT, isActive && fLastFrame != NULL);
 }
 
 
