@@ -30,7 +30,12 @@ public:
 	void				SetFilter(const char* filter);
 	const char*			Filter() const { return fFilter.String(); }
 
+	void				SetNoiseFilterEnabled(bool enabled);
+	bool				NoiseFilterEnabled() const { return fNoiseFilterEnabled; }
+
 private:
+	bool				_IsNoisy(const char* line);
+	bool				_IsDuplicate(const char* line);
 	static int32		_MonitorThread(void* data);
 	void				_MonitorLoop();
 	bool				_MatchesFilter(const char* line);
@@ -42,6 +47,10 @@ private:
 	BString				fFilter;
 	off_t				fLastPosition;
 	int32				fMaxLines;
+
+	bool				fNoiseFilterEnabled;
+	BString				fLastLine;
+	int32				fDuplicateCount;
 
 	rgb_color			fTimestampColor;
 	rgb_color			fUSBColor;

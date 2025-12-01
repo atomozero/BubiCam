@@ -6,6 +6,7 @@
 
 #include "SyslogView.h"
 
+#include <Autolock.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +16,19 @@
 const char* SyslogView::kSyslogPath = "/var/log/syslog";
 
 
+// Noisy patterns to filter out
+static const char* kNoisyPatterns[] = {
+	"SubmitIsochronous",
+	"Using ITD path",
+	"Using siTD path",
+	"EHCI: ######",
+	"OHCI: ######",
+	"UHCI: ######",
+	"xHCI: ######",
+	NULL
+};
+
+
 SyslogView::SyslogView(const char* name)
 	:
 	BTextView(name, B_WILL_DRAW),
@@ -22,7 +36,9 @@ SyslogView::SyslogView(const char* name)
 	fMonitoring(false),
 	fLock("syslog lock"),
 	fLastPosition(0),
-	fMaxLines(kMaxLines)
+	fMaxLines(kMaxLines),
+	fNoiseFilterEnabled(true),
+	fDuplicateCount(0)
 {
 	SetStylable(true);
 	MakeEditable(false);
@@ -199,6 +215,14 @@ SyslogView::_MatchesFilter(const char* line)
 void
 SyslogView::AddLine(const char* line)
 {
+	// Apply noise filter
+	if (_IsNoisy(line))
+		return;
+
+	// Check for duplicates
+	if (_IsDuplicate(line))
+		return;
+
 	if (!LockLooper())
 		return;
 
@@ -267,4 +291,45 @@ SyslogView::SetFilter(const char* filter)
 {
 	BAutolock lock(fLock);
 	fFilter = filter;
+}
+
+
+void
+SyslogView::SetNoiseFilterEnabled(bool enabled)
+{
+	BAutolock lock(fLock);
+	fNoiseFilterEnabled = enabled;
+	fLastLine.SetTo("");
+	fDuplicateCount = 0;
+}
+
+
+bool
+SyslogView::_IsNoisy(const char* line)
+{
+	if (!fNoiseFilterEnabled)
+		return false;
+
+	for (int i = 0; kNoisyPatterns[i] != NULL; i++) {
+		if (strstr(line, kNoisyPatterns[i]) != NULL)
+			return true;
+	}
+	return false;
+}
+
+
+bool
+SyslogView::_IsDuplicate(const char* line)
+{
+	if (!fNoiseFilterEnabled)
+		return false;
+
+	if (fLastLine == line) {
+		fDuplicateCount++;
+		return true;
+	}
+
+	fLastLine.SetTo(line);
+	fDuplicateCount = 0;
+	return false;
 }

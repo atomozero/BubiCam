@@ -45,7 +45,8 @@ enum {
 	MSG_FORMAT_SELECTED		= 'fmsl',
 	MSG_CLEAR_SYSLOG		= 'clsl',
 	MSG_TOGGLE_CONTROLS		= 'tgct',
-	MSG_RESTART_MEDIA		= 'rmed'
+	MSG_RESTART_MEDIA		= 'rmed',
+	MSG_TOGGLE_NOISE_FILTER	= 'tgnf'
 };
 
 

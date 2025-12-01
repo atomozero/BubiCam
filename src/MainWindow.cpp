@@ -159,6 +159,10 @@ MainWindow::_BuildMenu()
 	fToolsMenu = new BMenu("Tools");
 	fToolsMenu->AddItem(new BMenuItem("Clear Syslog",
 		new BMessage(MSG_CLEAR_SYSLOG), 'L'));
+	BMenuItem* noiseFilterItem = new BMenuItem("Filter Syslog Noise",
+		new BMessage(MSG_TOGGLE_NOISE_FILTER));
+	noiseFilterItem->SetMarked(true);
+	fToolsMenu->AddItem(noiseFilterItem);
 	fToolsMenu->AddSeparatorItem();
 	fToolsMenu->AddItem(new BMenuItem("Restart Media Services" B_UTF8_ELLIPSIS,
 		new BMessage(MSG_RESTART_MEDIA), 'M', B_SHIFT_KEY));
@@ -871,6 +875,16 @@ MainWindow::MessageReceived(BMessage* message)
 		case MSG_CLEAR_SYSLOG:
 			fSyslogView->Clear();
 			break;
+
+		case MSG_TOGGLE_NOISE_FILTER:
+		{
+			bool enabled = !fSyslogView->NoiseFilterEnabled();
+			fSyslogView->SetNoiseFilterEnabled(enabled);
+			BMenuItem* item = fToolsMenu->FindItem(MSG_TOGGLE_NOISE_FILTER);
+			if (item != NULL)
+				item->SetMarked(enabled);
+			break;
+		}
 
 		case MSG_TOGGLE_CONTROLS:
 			// Switch to controls tab
