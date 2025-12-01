@@ -15,6 +15,7 @@
 #include <StringView.h>
 #include <FilePanel.h>
 #include <Bitmap.h>
+#include <Button.h>
 
 class VideoPreviewView;
 class DriverInfoView;
@@ -42,7 +43,8 @@ enum {
 	MSG_EXPORT_SAVED		= 'exsv',
 	MSG_FORMAT_SELECTED		= 'fmsl',
 	MSG_CLEAR_SYSLOG		= 'clsl',
-	MSG_TOGGLE_CONTROLS		= 'tgct'
+	MSG_TOGGLE_CONTROLS		= 'tgct',
+	MSG_RESTART_MEDIA		= 'rmed'
 };
 
 
@@ -68,6 +70,14 @@ private:
 	void				_ExportDriverInfo(bool asJson);
 	void				_SaveScreenshot(const char* path);
 	void				_SaveExport(const char* path, bool asJson);
+	void				_BuildToolbar();
+	void				_UpdateStatsBar();
+	void				_UpdateToolbarState();
+	void				_RestartMediaServices();
+	void				_DoRestartMediaServices(bool askConfirmation);
+	bool				_HasKnownDriverBugs() const;
+	void				_WriteDriverBugReport() const;
+	BString				_GetDriverAddonPath() const;
 
 	BMenuBar*			fMenuBar;
 	BMenu*				fWebcamMenu;
@@ -82,6 +92,19 @@ private:
 	WebcamControlsView*	fWebcamControls;
 	BStringView*		fStatusBar;
 	BTabView*			fRightTabView;
+
+	// Toolbar
+	BView*				fToolbar;
+	BButton*			fStartButton;
+	BButton*			fStopButton;
+	BButton*			fScreenshotButton;
+	BButton*			fRefreshButton;
+
+	// Video stats bar
+	BStringView*		fStatsResolution;
+	BStringView*		fStatsFPS;
+	BStringView*		fStatsFrames;
+	BStringView*		fStatsDropped;
 
 	WebcamRoster*		fWebcamRoster;
 	WebcamDevice*		fCurrentWebcam;
