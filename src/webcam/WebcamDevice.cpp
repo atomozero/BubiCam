@@ -579,102 +579,130 @@ WebcamDevice::StopCapture()
 		return;
 
 	fprintf(stderr, "WebcamDevice::StopCapture() called\n");
-	fIsCapturing = false;
+
+	// CRITICAL FIX: Set fIsCapturing to false AFTER we've saved all local copies
+	// but BEFORE we start any cleanup. This prevents re-entry.
 
 	BMediaRoster* roster = BMediaRoster::Roster();
 	if (roster == NULL) {
 		fprintf(stderr, "  -> BMediaRoster is NULL, skipping cleanup\n");
+		fIsCapturing = false;
 		fTarget = NULL;
 		return;
 	}
 
-	// CRITICAL: Save local copies and immediately clear member pointers
-	// This prevents ANY other thread from accessing potentially stale pointers
+	// CRITICAL: Save ALL data needed for cleanup FIRST, BEFORE clearing anything.
+	// We must save the media_node info WHILE the consumer pointers are still valid,
+	// because after clearing fVideoConsumer/fAudioConsumer, another thread might
+	// delete the objects.
 	VideoConsumer* videoConsumer = fVideoConsumer;
 	AudioConsumer* audioConsumer = fAudioConsumer;
-	media_node producerNode = fMediaNode;
-	bool wasVideoConnected = fVideoConnected;
-	bool wasAudioConnected = fAudioConnected;
 
-	// Clear ALL member pointers and flags FIRST - no thread should access these after this
-	fVideoConsumer = NULL;
-	fAudioConsumer = NULL;
-	fVideoConnected = false;
-	fAudioConnected = false;
+	// Save node info IMMEDIATELY while pointers are definitely valid
+	// This is the FIX for the crash - we were calling videoConsumer->Node()
+	// AFTER clearing the member pointers, by which time another thread could
+	// have corrupted or deleted the object.
+	media_node videoConsumerNode = {};
+	media_node audioConsumerNode = {};
 
-	fprintf(stderr, "  -> Saved local copies: video=%p, audio=%p\n",
-		(void*)videoConsumer, (void*)audioConsumer);
-
-	// Validate pointers before use - check for obviously invalid addresses
-	// Valid heap pointers on Haiku are typically > 0x1000 and < 0x7fff...
+	// Validate pointers BEFORE dereferencing them
 	bool videoConsumerValid = (videoConsumer != NULL &&
 		(uintptr_t)videoConsumer > 0x10000 &&
-		((uintptr_t)videoConsumer & 0x3) == 0);  // Must be aligned
+		((uintptr_t)videoConsumer & 0x3) == 0);
 	bool audioConsumerValid = (audioConsumer != NULL &&
 		(uintptr_t)audioConsumer > 0x10000 &&
 		((uintptr_t)audioConsumer & 0x3) == 0);
 
-	if (!videoConsumerValid && videoConsumer != NULL) {
+	if (videoConsumerValid) {
+		videoConsumerNode = videoConsumer->Node();
+	} else if (videoConsumer != NULL) {
 		fprintf(stderr, "  -> WARNING: videoConsumer pointer looks invalid: %p\n",
 			(void*)videoConsumer);
 		videoConsumer = NULL;
 	}
-	if (!audioConsumerValid && audioConsumer != NULL) {
+
+	if (audioConsumerValid) {
+		audioConsumerNode = audioConsumer->Node();
+	} else if (audioConsumer != NULL) {
 		fprintf(stderr, "  -> WARNING: audioConsumer pointer looks invalid: %p\n",
 			(void*)audioConsumer);
 		audioConsumer = NULL;
 	}
 
-	// Stop the producer node first
-	// We ALWAYS call StopNode because we ALWAYS called StartNode (even on live nodes)
-	if (fNodeInstantiated) {
+	// Save other state
+	media_node producerNode = fMediaNode;
+	bool wasVideoConnected = fVideoConnected;
+	bool wasAudioConnected = fAudioConnected;
+	bool nodeWasInstantiated = fNodeInstantiated;
+	bool usedLiveNode = fUsedLiveNode;
+
+	// Save connection info for disconnect
+	media_output videoOutput = fVideoOutput;
+	media_input videoInput = fVideoInput;
+	media_output audioOutput = fAudioOutput;
+	media_input audioInput = fAudioInput;
+
+	fprintf(stderr, "  -> Saved local copies: video=%p (node=%d), audio=%p (node=%d)\n",
+		(void*)videoConsumer, videoConsumerNode.node,
+		(void*)audioConsumer, audioConsumerNode.node);
+
+	// NOW clear ALL member pointers and flags
+	// After this point, NO other thread should access these members
+	fIsCapturing = false;
+	fVideoConsumer = NULL;
+	fAudioConsumer = NULL;
+	fVideoConnected = false;
+	fAudioConnected = false;
+
+	// Stop the producer node first (using saved data only)
+	if (nodeWasInstantiated) {
 		fprintf(stderr, "  -> Stopping producer node %d%s...\n",
-			producerNode.node, fUsedLiveNode ? " (live node)" : "");
+			producerNode.node, usedLiveNode ? " (live node)" : "");
 		roster->StopNode(producerNode, 0, true);
 	}
 
-	// Stop consumers (using validated local copies)
-	if (videoConsumer != NULL) {
-		fprintf(stderr, "  -> Stopping video consumer...\n");
-		roster->StopNode(videoConsumer->Node(), 0, true);
+	// Stop consumers using SAVED node info - NO method calls on consumer objects!
+	if (videoConsumerNode.node > 0) {
+		fprintf(stderr, "  -> Stopping video consumer node %d...\n", videoConsumerNode.node);
+		roster->StopNode(videoConsumerNode, 0, true);
 	}
 
-	if (audioConsumer != NULL) {
-		fprintf(stderr, "  -> Stopping audio consumer...\n");
-		roster->StopNode(audioConsumer->Node(), 0, true);
+	if (audioConsumerNode.node > 0) {
+		fprintf(stderr, "  -> Stopping audio consumer node %d...\n", audioConsumerNode.node);
+		roster->StopNode(audioConsumerNode, 0, true);
 	}
 
-	// Disconnect video
+	// Disconnect video (using saved connection info)
 	if (wasVideoConnected) {
 		fprintf(stderr, "  -> Disconnecting video...\n");
-		roster->Disconnect(fVideoOutput.node.node, fVideoOutput.source,
-			fVideoInput.node.node, fVideoInput.destination);
+		roster->Disconnect(videoOutput.node.node, videoOutput.source,
+			videoInput.node.node, videoInput.destination);
 	}
 
-	// Disconnect audio
+	// Disconnect audio (using saved connection info)
 	if (wasAudioConnected) {
 		fprintf(stderr, "  -> Disconnecting audio...\n");
-		roster->Disconnect(fAudioOutput.node.node, fAudioOutput.source,
-			fAudioInput.node.node, fAudioInput.destination);
+		roster->Disconnect(audioOutput.node.node, audioOutput.source,
+			audioInput.node.node, audioInput.destination);
 	}
 
-	// Unregister consumers
-	if (videoConsumer != NULL) {
+	// Unregister consumers - these calls are safe because UnregisterNode
+	// takes a BMediaNode* and only accesses the node ID
+	if (videoConsumer != NULL && videoConsumerNode.node > 0) {
 		fprintf(stderr, "  -> Unregistering video consumer...\n");
 		roster->UnregisterNode(videoConsumer);
 	}
 
-	if (audioConsumer != NULL) {
+	if (audioConsumer != NULL && audioConsumerNode.node > 0) {
 		fprintf(stderr, "  -> Unregistering audio consumer...\n");
 		roster->UnregisterNode(audioConsumer);
 	}
 
 	// Release the producer node only if we instantiated it (not for live nodes)
-	// Live nodes are managed by the system and should not be released by us
-	if (fNodeInstantiated) {
-		if (!fUsedLiveNode) {
+	if (nodeWasInstantiated) {
+		if (!usedLiveNode) {
 			fprintf(stderr, "  -> Releasing producer node...\n");
-			roster->ReleaseNode(fMediaNode);
+			roster->ReleaseNode(producerNode);
 		} else {
 			fprintf(stderr, "  -> Not releasing producer (live node, system-managed)\n");
 		}
