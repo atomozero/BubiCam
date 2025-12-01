@@ -2,6 +2,9 @@
  * BubiCam - Webcam Driver Tester for Haiku OS
  * Copyright (c) 2024 BubiCam Contributors
  * MIT License
+ *
+ * VideoConsumer - Based on CodyCam's VideoConsumer implementation
+ * Key difference from original BubiCam: implements BBufferGroup for producer
  */
 
 #ifndef VIDEO_CONSUMER_H
@@ -9,18 +12,18 @@
 
 #include <BufferConsumer.h>
 #include <MediaEventLooper.h>
+#include <BufferGroup.h>
 #include <Bitmap.h>
 #include <Looper.h>
 #include <TimedEventQueue.h>
 
+// Number of buffers in the buffer group (like CodyCam uses 3)
+#define NUM_BUFFERS 3
+
 class VideoConsumer : public BMediaEventLooper, public BBufferConsumer {
 public:
 						VideoConsumer(const char* name, BLooper* target,
-							uint32 frameMessage, uint32
-
-
-
-							);
+							uint32 frameMessage, uint32 audioMessage);
 	virtual				~VideoConsumer();
 
 	// BMediaNode interface
@@ -72,25 +75,36 @@ public:
 	uint32				FramesDropped() const { return fFramesDropped; }
 	float				CurrentFPS() const { return fCurrentFPS; }
 
+	// Buffer management (CodyCam-style)
+	status_t			CreateBuffers(const media_format& format);
+	void				DeleteBuffers();
+
 private:
 	void				_HandleBuffer(BBuffer* buffer);
-	status_t			_CreateBufferBitmap(const media_format& format);
-	void				_ConvertBuffer(BBuffer* buffer);
+	void				_ConvertBuffer(BBuffer* buffer, BBitmap* destBitmap);
 	void				_ConvertYUV422ToBGRA(const uint8* src, uint8* dst,
 							int32 width, int32 height);
 	void				_ConvertYUV420ToBGRA(const uint8* src, uint8* dst,
 							int32 width, int32 height);
-	void				_SendFrameToTarget();
+	void				_SendFrameToTarget(BBitmap* bitmap);
 
 	BLooper*			fTarget;
 	uint32				fFrameMessage;
 	uint32				fAudioMessage;
 
 	media_input			fInput;
+	media_destination	fDestination;
 	bool				fConnected;
 	media_format		fFormat;
 
-	BBitmap*			fBitmap;
+	// CodyCam-style buffer group with bitmaps
+	// This is the CRITICAL piece that was missing!
+	BBufferGroup*		fBuffers;
+	BBitmap*			fBitmap[NUM_BUFFERS];
+	BBuffer*			fBufferMap[NUM_BUFFERS];
+
+	// Display bitmap (for format conversion if needed)
+	BBitmap*			fDisplayBitmap;
 	int32				fBitmapWidth;
 	int32				fBitmapHeight;
 	color_space			fBitmapColorSpace;
@@ -103,6 +117,9 @@ private:
 
 	// Latency
 	bigtime_t			fInternalLatency;
+
+	// Producer info
+	media_source		fProducerSource;
 };
 
 #endif // VIDEO_CONSUMER_H

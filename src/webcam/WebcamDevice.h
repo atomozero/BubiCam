@@ -17,6 +17,8 @@
 #include <BufferGroup.h>
 #include <ObjectList.h>
 
+#include "USBVideoParser.h"
+
 class VideoConsumer;
 class AudioConsumer;
 
@@ -39,6 +41,8 @@ class WebcamDevice {
 public:
 						WebcamDevice(const media_node& node,
 							const dormant_node_info& info);
+						WebcamDevice(const dormant_node_info& info,
+							status_t instantiateError);
 						~WebcamDevice();
 
 	// Device identification
@@ -78,6 +82,10 @@ public:
 							{ return fMediaNodeID >= 0; }
 	int32				MediaNodeID() const { return fMediaNodeID; }
 	const media_node&	MediaNode() const { return fMediaNode; }
+	bool				IsNodeInstantiated() const { return fNodeInstantiated; }
+	status_t			InstantiateError() const { return fInstantiateError; }
+	const dormant_node_info& DormantInfo() const { return fDormantInfo; }
+	void				MarkNodeReleased() { fNodeInstantiated = false; }
 
 	// Capture control
 	status_t			StartCapture(BLooper* target);
@@ -92,7 +100,18 @@ public:
 	// Information gathering
 	status_t			GatherDeviceInfo();
 
+	// USB Video Class information (parsed from USB descriptors)
+	const USBVideoInfo&	GetUSBVideoInfo() const { return fUSBVideoInfo; }
+	status_t			ParseUSBDescriptors();
+
+	// Driver diagnostics (for debugging driver issues)
+	const char*			GetDriverWarnings() const { return fDriverWarnings.String(); }
+	bool				HasDriverWarnings() const { return fDriverWarnings.Length() > 0; }
+	const char*			GetFormatNegotiationLog() const { return fFormatNegotiationLog.String(); }
+
 private:
+	void				_AddDriverWarning(const char* warning);
+	void				_LogFormatNegotiation(const char* message);
 	void				_GatherUSBInfo();
 	void				_GatherDriverInfo();
 	void				_GatherVideoFormats();
@@ -138,6 +157,7 @@ private:
 	int32				fMediaNodeID;
 	dormant_node_info	fDormantInfo;
 	bool				fNodeInstantiated;
+	status_t			fInstantiateError;
 
 	// Media Kit - Consumers
 	VideoConsumer*		fVideoConsumer;
@@ -154,6 +174,14 @@ private:
 	// Capture state
 	bool				fIsCapturing;
 	BLooper*			fTarget;
+	bool				fUsedLiveNode;	// True if we used an existing live node
+
+	// USB Video Class descriptor info
+	USBVideoInfo		fUSBVideoInfo;
+
+	// Driver diagnostics
+	BString				fDriverWarnings;
+	BString				fFormatNegotiationLog;
 };
 
 #endif // WEBCAM_DEVICE_H
