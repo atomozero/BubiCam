@@ -12,6 +12,7 @@
 #include "WebcamControlsView.h"
 #include "WebcamRoster.h"
 #include "WebcamDevice.h"
+#include "MCPServer.h"
 #include "ExportUtils.h"
 #include "IconUtils.h"
 
@@ -72,9 +73,14 @@ MainWindow::MainWindow()
 	fIsPreviewActive(false),
 	fSavePanel(NULL),
 	fLastFrame(NULL),
-	fSavingJson(false)
+	fSavingJson(false),
+	fMCPServer(NULL),
+	fMCPMenuItem(NULL)
 {
 	fWebcamRoster = new WebcamRoster();
+
+	// Create MCP server
+	fMCPServer = new MCPServer(BMessenger(this));
 
 	_BuildMenu();
 	_BuildLayout();
@@ -107,6 +113,13 @@ MainWindow::~MainWindow()
 	delete fWebcamRoster;
 	delete fSavePanel;
 	delete fLastFrame;
+
+	// Stop and delete MCP server
+	if (fMCPServer != NULL) {
+		fMCPServer->Stop();
+		fMCPServer->Lock();
+		fMCPServer->Quit();
+	}
 }
 
 
@@ -165,6 +178,10 @@ MainWindow::_BuildMenu()
 	fToolsMenu->AddSeparatorItem();
 	fToolsMenu->AddItem(new BMenuItem("Restart Media Services" B_UTF8_ELLIPSIS,
 		new BMessage(MSG_RESTART_MEDIA), 'M', B_SHIFT_KEY));
+	fToolsMenu->AddSeparatorItem();
+	fMCPMenuItem = new BMenuItem("Enable MCP Server (Port 9847)",
+		new BMessage(MSG_MCP_TOGGLE));
+	fToolsMenu->AddItem(fMCPMenuItem);
 	fMenuBar->AddItem(fToolsMenu);
 }
 
@@ -440,6 +457,10 @@ MainWindow::_SelectWebcam(int32 index)
 
 	// Update controls panel (requires instantiated node for GetParameterWebFor)
 	fWebcamControls->SetDevice(device);
+
+	// Update MCP server with new device
+	if (fMCPServer != NULL)
+		fMCPServer->SetWebcamDevice(device);
 }
 
 
@@ -906,6 +927,61 @@ MainWindow::MessageReceived(BMessage* message)
 
 		case MSG_RESTART_MEDIA:
 			_RestartMediaServices();
+			break;
+
+		case MSG_MCP_TOGGLE:
+		{
+			if (fMCPServer->IsRunning()) {
+				fMCPServer->Stop();
+				fMCPMenuItem->SetLabel("Enable MCP Server (Port 9847)");
+				fMCPMenuItem->SetMarked(false);
+				fStatusBar->SetText("MCP Server stopped");
+			} else {
+				fMCPServer->SetWebcamDevice(fCurrentWebcam);
+				if (fMCPServer->Start(9847) == B_OK) {
+					fMCPMenuItem->SetLabel("Disable MCP Server (Port 9847)");
+					fMCPMenuItem->SetMarked(true);
+					fStatusBar->SetText("MCP Server running on port 9847");
+				} else {
+					fStatusBar->SetText("Failed to start MCP Server");
+				}
+			}
+			break;
+		}
+
+		case MSG_MCP_STATUS:
+		{
+			bool running;
+			if (message->FindBool("running", &running) == B_OK) {
+				fMCPMenuItem->SetMarked(running);
+				if (running) {
+					int16 port;
+					message->FindInt16("port", &port);
+					BString status;
+					status.SetToFormat("MCP Server running on port %d", port);
+					fStatusBar->SetText(status.String());
+				}
+			}
+			break;
+		}
+
+		case MSG_MCP_LOG:
+		{
+			const char* logMessage;
+			if (message->FindString("message", &logMessage) == B_OK) {
+				BString syslogLine;
+				syslogLine.SetToFormat("[MCP] %s", logMessage);
+				fSyslogView->AddLine(syslogLine.String());
+			}
+			break;
+		}
+
+		case MSG_RESTART_PREVIEW:
+			// Called from MCP server when resolution is changed
+			if (fIsPreviewActive) {
+				_StopPreview();
+				_StartPreview();
+			}
 			break;
 
 		default:

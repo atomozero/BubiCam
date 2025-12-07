@@ -162,6 +162,16 @@ WebcamDevice::CurrentFPS() const
 }
 
 
+BBitmap*
+WebcamDevice::GetCurrentFrame() const
+{
+	VideoConsumer* consumer = fVideoConsumer;
+	if (IsValidPointer(consumer))
+		return consumer->GetCurrentFrame();
+	return NULL;
+}
+
+
 status_t
 WebcamDevice::GatherDeviceInfo()
 {

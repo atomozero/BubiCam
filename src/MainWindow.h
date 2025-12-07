@@ -25,6 +25,7 @@ class VUMeterView;
 class WebcamControlsView;
 class WebcamRoster;
 class WebcamDevice;
+class MCPServer;
 
 // Message constants
 enum {
@@ -46,7 +47,11 @@ enum {
 	MSG_CLEAR_SYSLOG		= 'clsl',
 	MSG_TOGGLE_CONTROLS		= 'tgct',
 	MSG_RESTART_MEDIA		= 'rmed',
-	MSG_TOGGLE_NOISE_FILTER	= 'tgnf'
+	MSG_TOGGLE_NOISE_FILTER	= 'tgnf',
+	MSG_MCP_TOGGLE			= 'mcpt',
+	MSG_MCP_STATUS			= 'mcpu',
+	MSG_MCP_LOG				= 'mcpl',
+	MSG_RESTART_PREVIEW		= 'rsrt'
 };
 
 
@@ -109,6 +114,10 @@ private:
 	BFilePanel*			fSavePanel;
 	BBitmap*			fLastFrame;
 	bool				fSavingJson;
+
+	// MCP Server
+	MCPServer*			fMCPServer;
+	BMenuItem*			fMCPMenuItem;
 };
 
 #endif // MAIN_WINDOW_H

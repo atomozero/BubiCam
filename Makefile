@@ -18,18 +18,19 @@ SRCS = \
 	src/webcam/VideoConsumer.cpp \
 	src/webcam/AudioConsumer.cpp \
 	src/webcam/USBVideoParser.cpp \
+	src/mcp/MCPServer.cpp \
 	src/utils/ExportUtils.cpp \
 	src/utils/IconUtils.cpp
 
 RDEFS = resources/BubiCam.rdef
 
-LIBS = be media tracker translation localestub device shared $(STDCPPLIBS)
+LIBS = be media tracker translation localestub device shared network $(STDCPPLIBS)
 
 LIBPATHS =
 
 SYSTEM_INCLUDE_PATHS = /boot/system/develop/headers/private/shared
 
-LOCAL_INCLUDE_PATHS = src src/views src/webcam src/utils
+LOCAL_INCLUDE_PATHS = src src/views src/webcam src/mcp src/utils
 
 OPTIMIZE := FULL
 

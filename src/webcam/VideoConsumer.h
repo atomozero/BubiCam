@@ -75,6 +75,9 @@ public:
 	uint32				FramesDropped() const { return fFramesDropped; }
 	float				CurrentFPS() const { return fCurrentFPS; }
 
+	// Frame access (for MCP server)
+	BBitmap*			GetCurrentFrame() const { return fDisplayBitmap; }
+
 	// Buffer management (CodyCam-style)
 	status_t			CreateBuffers(const media_format& format);
 	void				DeleteBuffers();

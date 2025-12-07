@@ -95,6 +95,9 @@ public:
 	void				StopCapture();
 	bool				IsCapturing() const { return fIsCapturing; }
 
+	// Frame access (for MCP server)
+	BBitmap*			GetCurrentFrame() const;
+
 	// Capture statistics
 	uint32				FramesCaptured() const;
 	uint32				FramesDropped() const;
