@@ -77,6 +77,7 @@ MainWindow::MainWindow()
 	fMCPServer(NULL),
 	fMCPMenuItem(NULL),
 	fDriverCrashed(false),
+	fWatchdogAlertShown(false),
 	fLastFrameReceived(0),
 	fWatchdogRunner(NULL)
 {
@@ -412,7 +413,7 @@ MainWindow::_PopulateFormatMenu()
 			VideoFormat* format = formats.ItemAt(i);
 			if (format != NULL) {
 				BString label;
-				label.SetToFormat("%ldx%ld @ %.1f fps (%s)",
+				label.SetToFormat("%dx%d @ %.1f fps (%s)",
 					format->width, format->height,
 					format->frameRate, format->colorSpace);
 
@@ -591,6 +592,9 @@ MainWindow::_StopPreview()
 	// Stop watchdog timer
 	delete fWatchdogRunner;
 	fWatchdogRunner = NULL;
+
+	// Reset watchdog alert state for next session
+	fWatchdogAlertShown = false;
 
 	if (fCurrentWebcam != NULL && fIsPreviewActive) {
 		fCurrentWebcam->StopCapture();
@@ -1022,9 +1026,8 @@ MainWindow::MessageReceived(BMessage* message)
 					fStatusBar->SetHighColor(200, 0, 0);  // Red text
 
 					// Show alert once
-					static bool alertShown = false;
-					if (!alertShown) {
-						alertShown = true;
+					if (!fWatchdogAlertShown) {
+						fWatchdogAlertShown = true;
 						BAlert* alert = new BAlert("Driver Frozen",
 							"The webcam driver appears to be frozen.\n\n"
 							"No video frames have been received for several seconds.\n\n"

@@ -31,8 +31,8 @@ AudioConsumer::AudioConsumer(const char* name, BLooper* target,
 	fInternalLatency(kAudioLatency),
 	fLastLevelTime(0)
 {
-	memset(&fInput, 0, sizeof(fInput));
-	memset(&fFormat, 0, sizeof(fFormat));
+	fInput = media_input();
+	fFormat = media_format();
 }
 
 
@@ -57,7 +57,7 @@ AudioConsumer::NodeRegistered()
 	fInput.destination.port = ControlPort();
 	fInput.destination.id = 0;
 	fInput.node = Node();
-	strcpy(fInput.name, "Audio Input");
+	strlcpy(fInput.name, "Audio Input", sizeof(fInput.name));
 
 	fInput.format.type = B_MEDIA_RAW_AUDIO;
 	fInput.format.u.raw_audio = media_raw_audio_format::wildcard;
@@ -241,11 +241,13 @@ AudioConsumer::_HandleBuffer(BBuffer* buffer)
 	float left = 0.0f, right = 0.0f;
 	_CalculateLevels(buffer->Data(), buffer->SizeUsed(), &left, &right);
 
-	// Send levels to target
-	BMessage msg(fLevelMessage);
-	msg.AddFloat("left", left);
-	msg.AddFloat("right", right);
-	fTarget->PostMessage(&msg);
+	// Send levels to target (with null check for race condition safety)
+	if (fTarget != NULL) {
+		BMessage msg(fLevelMessage);
+		msg.AddFloat("left", left);
+		msg.AddFloat("right", right);
+		fTarget->PostMessage(&msg);
+	}
 }
 
 

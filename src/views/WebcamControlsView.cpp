@@ -205,8 +205,8 @@ WebcamControlsView::_BuildControls()
 		for (int32 i = 0; i < web->CountParameters(); i++) {
 			BParameter* p = web->ParameterAt(i);
 			if (p != NULL) {
-				fprintf(stderr, "  Param %ld: name='%s', type=%d, id=%ld\n",
-					i, p->Name(), (int)p->Type(), (long)p->ID());
+				fprintf(stderr, "  Param %d: name='%s', type=%d, id=%ld\n",
+					(int)i, p->Name(), (int)p->Type(), (long)p->ID());
 				if (p->Type() == BParameter::B_DISCRETE_PARAMETER) {
 					BDiscreteParameter* disc = dynamic_cast<BDiscreteParameter*>(p);
 					if (disc != NULL) {
@@ -432,6 +432,10 @@ void
 WebcamControlsView::_ApplyControlValue(int32 paramId, float value)
 {
 	if (fDevice == NULL)
+		return;
+
+	// GetParameterWebFor only works on instantiated (non-dormant) nodes
+	if (!fDevice->IsNodeInstantiated())
 		return;
 
 	BMediaRoster* roster = BMediaRoster::Roster();

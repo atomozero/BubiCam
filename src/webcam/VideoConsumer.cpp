@@ -57,10 +57,10 @@ VideoConsumer::VideoConsumer(const char* name, BLooper* target,
 		fBufferMap[i] = NULL;
 	}
 
-	memset(&fInput, 0, sizeof(fInput));
-	memset(&fDestination, 0, sizeof(fDestination));
-	memset(&fFormat, 0, sizeof(fFormat));
-	memset(&fProducerSource, 0, sizeof(fProducerSource));
+	fInput = media_input();
+	fDestination = media_destination();
+	fFormat = media_format();
+	fProducerSource = media_source();
 
 	INFO("VideoConsumer created\n");
 }
@@ -249,7 +249,7 @@ VideoConsumer::NodeRegistered()
 	fInput.destination.id = 0;
 	fInput.node = Node();
 	fDestination = fInput.destination;
-	strcpy(fInput.name, "Video Input");
+	strlcpy(fInput.name, "Video Input", sizeof(fInput.name));
 
 	// Accept raw video with wildcard - let producer decide format
 	fInput.format.type = B_MEDIA_RAW_VIDEO;
@@ -488,7 +488,7 @@ VideoConsumer::Connected(const media_source& producer,
 	fInput.source = producer;
 	fInput.format = withFormat;
 	fInput.node = Node();
-	strcpy(fInput.name, "Video Consumer");
+	strlcpy(fInput.name, "Video Consumer", sizeof(fInput.name));
 	fProducerSource = producer;
 	fFormat = withFormat;
 

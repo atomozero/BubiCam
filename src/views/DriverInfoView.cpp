@@ -71,7 +71,7 @@ DriverInfoView::SetDevice(WebcamDevice* device, bool isCapturing)
 
 	const dormant_node_info& dormant = device->DormantInfo();
 	BString addonInfo;
-	addonInfo.SetToFormat("%ld (flavor: %ld)", dormant.addon, dormant.flavor_id);
+	addonInfo.SetToFormat("%d (flavor: %d)", dormant.addon, dormant.flavor_id);
 	_AppendField("Add-on ID", addonInfo.String());
 
 	if (device->IsNodeInstantiated()) {
@@ -94,7 +94,7 @@ DriverInfoView::SetDevice(WebcamDevice* device, bool isCapturing)
 				errStr = "MEDIA SYSTEM FAILURE";
 				break;
 			default:
-				errStr.SetToFormat("Error 0x%08lx (%ld)", err, err);
+				errStr.SetToFormat("Error 0x%08x (%d)", err, err);
 		}
 		_AppendField("Node Status", "FAILED TO INSTANTIATE");
 		_AppendField("Error", errStr.String());
@@ -144,7 +144,7 @@ DriverInfoView::SetDevice(WebcamDevice* device, bool isCapturing)
 			VideoFormat* format = formats.ItemAt(i);
 			if (format != NULL) {
 				BString formatLine;
-				formatLine.SetToFormat("  %ldx%ld @ %.1f fps (%s)",
+				formatLine.SetToFormat("  %dx%d @ %.1f fps (%s)",
 					format->width, format->height, format->frameRate,
 					format->colorSpace);
 				if (i > 0)
@@ -160,7 +160,7 @@ DriverInfoView::SetDevice(WebcamDevice* device, bool isCapturing)
 	VideoFormat currentFormat = device->CurrentFormat();
 	if (currentFormat.width > 0) {
 		BString currentStr;
-		currentStr.SetToFormat("%ldx%ld @ %.1f fps (%s)",
+		currentStr.SetToFormat("%dx%d @ %.1f fps (%s)",
 			currentFormat.width, currentFormat.height,
 			currentFormat.frameRate, currentFormat.colorSpace);
 		_AppendField("Current Format", currentStr.String());
@@ -378,7 +378,7 @@ void
 DriverInfoView::_AppendField(const char* label, int32 value)
 {
 	BString str;
-	str.SetToFormat("%ld", value);
+	str.SetToFormat("%d", value);
 	_AppendField(label, str.String());
 }
 
@@ -390,7 +390,7 @@ DriverInfoView::_AppendField(const char* label, uint32 value, bool hex)
 	if (hex)
 		str.SetToFormat("0x%04X", value);
 	else
-		str.SetToFormat("%lu", value);
+		str.SetToFormat("%u", value);
 	_AppendField(label, str.String());
 }
 

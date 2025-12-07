@@ -51,16 +51,16 @@ WebcamRoster::EnumerateDevices()
 	status_t status = roster->GetDormantNodes(dormantNodes, &dormantCount,
 		NULL, NULL, NULL, B_BUFFER_PRODUCER | B_PHYSICAL_INPUT, 0);
 
-	fprintf(stderr, "WebcamRoster: GetDormantNodes (PHYSICAL_INPUT) returned %ld, count=%ld\n",
-		status, dormantCount);
+	fprintf(stderr, "WebcamRoster: GetDormantNodes (PHYSICAL_INPUT) returned %d, count=%d\n",
+		(int)status, (int)dormantCount);
 
 	if (status != B_OK || dormantCount == 0) {
 		// Retry with just B_BUFFER_PRODUCER
 		dormantCount = kMaxNodes;
 		status = roster->GetDormantNodes(dormantNodes, &dormantCount,
 			NULL, NULL, NULL, B_BUFFER_PRODUCER, 0);
-		fprintf(stderr, "WebcamRoster: GetDormantNodes (BUFFER_PRODUCER) returned %ld, count=%ld\n",
-			status, dormantCount);
+		fprintf(stderr, "WebcamRoster: GetDormantNodes (BUFFER_PRODUCER) returned %d, count=%d\n",
+			(int)status, (int)dormantCount);
 	}
 
 	if (status != B_OK) {

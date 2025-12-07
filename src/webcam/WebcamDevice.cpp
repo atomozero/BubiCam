@@ -56,10 +56,10 @@ WebcamDevice::WebcamDevice(const media_node& node, const dormant_node_info& info
 	fName = info.name;
 	fSupportedFormats.MakeEmpty();
 
-	memset(&fVideoOutput, 0, sizeof(fVideoOutput));
-	memset(&fVideoInput, 0, sizeof(fVideoInput));
-	memset(&fAudioOutput, 0, sizeof(fAudioOutput));
-	memset(&fAudioInput, 0, sizeof(fAudioInput));
+	fVideoOutput = media_output();
+	fVideoInput = media_input();
+	fAudioOutput = media_output();
+	fAudioInput = media_input();
 }
 
 
@@ -91,11 +91,11 @@ WebcamDevice::WebcamDevice(const dormant_node_info& info, status_t instantiateEr
 	fName = info.name;
 	fSupportedFormats.MakeEmpty();
 
-	memset(&fMediaNode, 0, sizeof(fMediaNode));
-	memset(&fVideoOutput, 0, sizeof(fVideoOutput));
-	memset(&fVideoInput, 0, sizeof(fVideoInput));
-	memset(&fAudioOutput, 0, sizeof(fAudioOutput));
-	memset(&fAudioInput, 0, sizeof(fAudioInput));
+	fMediaNode = media_node();
+	fVideoOutput = media_output();
+	fVideoInput = media_input();
+	fAudioOutput = media_output();
+	fAudioInput = media_input();
 }
 
 
@@ -328,6 +328,12 @@ WebcamDevice::_GatherVideoFormats()
 	// First try to enumerate formats using ParameterWeb
 	// This works even when the node is already connected
 	// This is more reliable than USB parsing after the device has been used
+	// IMPORTANT: GetParameterWebFor only works on instantiated (non-dormant) nodes
+	if (!fNodeInstantiated) {
+		fprintf(stderr, "_GatherVideoFormats: node not instantiated, skipping ParameterWeb\n");
+		return;
+	}
+
 	BParameterWeb* web = NULL;
 	fprintf(stderr, "_GatherVideoFormats: getting ParameterWeb for node %d\n", fMediaNode.node);
 	status_t webStatus = roster->GetParameterWebFor(fMediaNode, &web);
@@ -372,7 +378,7 @@ WebcamDevice::_GatherVideoFormats()
 							vf->width = width;
 							vf->height = height;
 							vf->frameRate = 30.0f;  // Default
-							strcpy(vf->colorSpace, "YUY2");
+							strlcpy(vf->colorSpace, "YUY2", sizeof(vf->colorSpace));
 							fSupportedFormats.AddItem(vf);
 							fprintf(stderr, "  -> Added format: %dx%d\n", width, height);
 						}
@@ -404,22 +410,22 @@ WebcamDevice::_GatherVideoFormats()
 
 				switch (format.u.raw_video.display.format) {
 					case B_RGB32:
-						strcpy(vf->colorSpace, "RGB32");
+						strlcpy(vf->colorSpace, "RGB32", sizeof(vf->colorSpace));
 						break;
 					case B_RGB24:
-						strcpy(vf->colorSpace, "RGB24");
+						strlcpy(vf->colorSpace, "RGB24", sizeof(vf->colorSpace));
 						break;
 					case B_RGB16:
-						strcpy(vf->colorSpace, "RGB16");
+						strlcpy(vf->colorSpace, "RGB16", sizeof(vf->colorSpace));
 						break;
 					case B_YCbCr422:
-						strcpy(vf->colorSpace, "YCbCr422");
+						strlcpy(vf->colorSpace, "YCbCr422", sizeof(vf->colorSpace));
 						break;
 					case B_YCbCr420:
-						strcpy(vf->colorSpace, "YCbCr420");
+						strlcpy(vf->colorSpace, "YCbCr420", sizeof(vf->colorSpace));
 						break;
 					default:
-						strcpy(vf->colorSpace, "Unknown");
+						strlcpy(vf->colorSpace, "Unknown", sizeof(vf->colorSpace));
 				}
 
 				fSupportedFormats.AddItem(vf);
@@ -610,7 +616,7 @@ WebcamDevice::StartCapture(BLooper* target)
 			fprintf(stderr, "  -> Failed to start video consumer: %s\n",
 				strerror(status));
 		} else {
-			fprintf(stderr, "  -> Video consumer started at time %lld\n", startTime);
+			fprintf(stderr, "  -> Video consumer started at time %ld\n", startTime);
 			fprintf(stderr, "  -> Consumer connected=%s, node=%d, port=%d\n",
 				fVideoConsumer->IsConnected() ? "true" : "false",
 				fVideoConsumer->Node().node,
@@ -1017,7 +1023,7 @@ WebcamDevice::_SetupVideoConnection()
 			"Attempt -1: User-requested format (%dx%d)...",
 			(int)fRequestedFormat.width, (int)fRequestedFormat.height).String());
 
-		memset(&format, 0, sizeof(format));
+		format = media_format();
 		format.type = B_MEDIA_RAW_VIDEO;
 		format.u.raw_video.field_rate = fRequestedFormat.frameRate > 0 ? fRequestedFormat.frameRate : 30.0;
 		format.u.raw_video.interlace = 1;
@@ -1066,7 +1072,7 @@ WebcamDevice::_SetupVideoConnection()
 	// Create a FULLY SPECIFIED format like CodyCam does
 	// {field_rate, interlace, first_active, last_active, orientation,
 	//  pixel_width_aspect, pixel_height_aspect, display{format, line_width, line_count, bytes_per_row, ...}}
-	memset(&format, 0, sizeof(format));
+	format = media_format();
 	format.type = B_MEDIA_RAW_VIDEO;
 	media_raw_video_format vid_format = {
 		30.0,                    // field_rate (fps)
@@ -1126,7 +1132,7 @@ WebcamDevice::_SetupVideoConnection()
 
 	// ===== APPROACH 1: Pure wildcard format =====
 	_LogFormatNegotiation("Attempt 1: Pure wildcard format...");
-	memset(&format, 0, sizeof(format));
+	format = media_format();
 	format.type = B_MEDIA_RAW_VIDEO;
 	format.u.raw_video = media_raw_video_format::wildcard;
 
@@ -1158,7 +1164,7 @@ WebcamDevice::_SetupVideoConnection()
 
 	// ===== APPROACH 2: Try ENCODED_VIDEO (MJPEG) format =====
 	_LogFormatNegotiation("Attempt 2: Encoded video (MJPEG) format...");
-	memset(&format, 0, sizeof(format));
+	format = media_format();
 	format.type = B_MEDIA_ENCODED_VIDEO;
 	format.u.encoded_video = media_encoded_video_format::wildcard;
 
@@ -1181,7 +1187,7 @@ WebcamDevice::_SetupVideoConnection()
 
 	// ===== APPROACH 3: B_MEDIA_UNKNOWN_TYPE - fully permissive =====
 	_LogFormatNegotiation("Attempt 3: Unknown type (fully permissive)...");
-	memset(&format, 0, sizeof(format));
+	format = media_format();
 	format.type = B_MEDIA_UNKNOWN_TYPE;
 
 	status = roster->Connect(fVideoOutput.source, fVideoInput.destination,
@@ -1296,7 +1302,7 @@ WebcamDevice::_SetupVideoConnection()
 			attempt->source).String());
 
 		// Build format structure like CodyCam does
-		memset(&format, 0, sizeof(format));
+		format = media_format();
 		format.type = B_MEDIA_RAW_VIDEO;
 		// field_rate = 0 means let producer decide (like CodyCam)
 		format.u.raw_video.field_rate = 0;
@@ -1452,7 +1458,7 @@ WebcamDevice::_SetupAudioConnection()
 
 	// Connect producer to consumer
 	media_format format;
-	memset(&format, 0, sizeof(format));
+	format = media_format();
 	format.type = B_MEDIA_RAW_AUDIO;
 	format.u.raw_audio = media_raw_audio_format::wildcard;
 

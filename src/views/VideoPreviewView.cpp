@@ -127,21 +127,15 @@ VideoPreviewView::SetFrame(BBitmap* bitmap)
 	BAutolock lock(fFrameLock);
 
 	// Clone the bitmap if dimensions differ or no current frame
-	bool sizeChanged = false;
 	if (fCurrentFrame == NULL ||
 		fCurrentFrame->Bounds() != bitmap->Bounds() ||
 		fCurrentFrame->ColorSpace() != bitmap->ColorSpace()) {
 		delete fCurrentFrame;
 		fCurrentFrame = new BBitmap(bitmap->Bounds(), bitmap->ColorSpace());
-		sizeChanged = true;
 	}
 
 	// Copy bitmap data
 	memcpy(fCurrentFrame->Bits(), bitmap->Bits(), bitmap->BitsLength());
-
-	// Get video dimensions for sizing
-	float videoWidth = bitmap->Bounds().Width() + 1;
-	float videoHeight = bitmap->Bounds().Height() + 1;
 
 	lock.Unlock();
 
