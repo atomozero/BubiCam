@@ -35,6 +35,7 @@ WebcamDevice::WebcamDevice(const media_node& node, const dormant_node_info& info
 	fDeviceSubclass(0),
 	fDeviceProtocol(0),
 	fSupportsVideo(true),
+	fHasRequestedFormat(false),
 	fSupportsAudio(false),
 	fAudioSampleRate(0),
 	fAudioChannels(0),
@@ -70,6 +71,7 @@ WebcamDevice::WebcamDevice(const dormant_node_info& info, status_t instantiateEr
 	fDeviceSubclass(0),
 	fDeviceProtocol(0),
 	fSupportsVideo(true),
+	fHasRequestedFormat(false),
 	fSupportsAudio(false),
 	fAudioSampleRate(0),
 	fAudioChannels(0),
@@ -866,17 +868,67 @@ WebcamDevice::_SetupVideoConnection()
 		return B_ERROR;
 	}
 
+	// ===== FORMAT NEGOTIATION =====
+	_LogFormatNegotiation("\n=== FORMAT NEGOTIATION ===");
+
+	media_format format;
+
+	// ===== APPROACH -1: Try user-requested format first =====
+	if (fHasRequestedFormat && fRequestedFormat.width > 0 && fRequestedFormat.height > 0) {
+		_LogFormatNegotiation(BString().SetToFormat(
+			"Attempt -1: User-requested format (%dx%d)...",
+			(int)fRequestedFormat.width, (int)fRequestedFormat.height).String());
+
+		memset(&format, 0, sizeof(format));
+		format.type = B_MEDIA_RAW_VIDEO;
+		format.u.raw_video.field_rate = fRequestedFormat.frameRate > 0 ? fRequestedFormat.frameRate : 30.0;
+		format.u.raw_video.interlace = 1;
+		format.u.raw_video.first_active = 0;
+		format.u.raw_video.last_active = fRequestedFormat.height - 1;
+		format.u.raw_video.orientation = B_VIDEO_TOP_LEFT_RIGHT;
+		format.u.raw_video.pixel_width_aspect = 1;
+		format.u.raw_video.pixel_height_aspect = 1;
+		format.u.raw_video.display.format = B_RGB32;
+		format.u.raw_video.display.line_width = fRequestedFormat.width;
+		format.u.raw_video.display.line_count = fRequestedFormat.height;
+		format.u.raw_video.display.bytes_per_row = fRequestedFormat.width * 4;
+		format.u.raw_video.display.pixel_offset = 0;
+		format.u.raw_video.display.line_offset = 0;
+
+		status = roster->Connect(fVideoOutput.source, fVideoInput.destination,
+			&format, &fVideoOutput, &fVideoInput);
+
+		if (status == B_OK) {
+			_LogFormatNegotiation(BString().SetToFormat(
+				"\n=== CONNECTION SUCCESSFUL (user-requested format) ===\n"
+				"Final format: %dx%d, colorspace=0x%x, fps=%.2f",
+				(int)format.u.raw_video.display.line_width,
+				(int)format.u.raw_video.display.line_count,
+				(int)format.u.raw_video.display.format,
+				format.u.raw_video.field_rate).String());
+
+			fVideoConnected = true;
+			fCurrentFormat.width = format.u.raw_video.display.line_width;
+			fCurrentFormat.height = format.u.raw_video.display.line_count;
+			fCurrentFormat.frameRate = format.u.raw_video.field_rate;
+			return B_OK;
+		}
+
+		_LogFormatNegotiation(BString().SetToFormat(
+			"  -> REJECTED: %s (0x%08x), trying fallbacks...",
+			strerror(status), status).String());
+	}
+
 	// ===== APPROACH 0: Use CodyCam-style FULLY SPECIFIED format =====
 	// CodyCam creates a complete format structure with all fields filled in.
 	// This is critical because the USB webcam driver has a bug where it doesn't
 	// properly initialize its format, so we must pass a complete format.
-	_LogFormatNegotiation("\n=== FORMAT NEGOTIATION ===");
 	_LogFormatNegotiation("Attempt 0: CodyCam-style fully specified format (320x240 B_RGB32)...");
 
 	// Create a FULLY SPECIFIED format like CodyCam does
 	// {field_rate, interlace, first_active, last_active, orientation,
 	//  pixel_width_aspect, pixel_height_aspect, display{format, line_width, line_count, bytes_per_row, ...}}
-	media_format format;
+	memset(&format, 0, sizeof(format));
 	format.type = B_MEDIA_RAW_VIDEO;
 	media_raw_video_format vid_format = {
 		30.0,                    // field_rate (fps)

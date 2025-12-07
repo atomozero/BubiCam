@@ -70,6 +70,9 @@ public:
 	const BObjectList<VideoFormat>&	SupportedFormats() const
 							{ return fSupportedFormats; }
 	VideoFormat			CurrentFormat() const { return fCurrentFormat; }
+	void				SetRequestedFormat(const VideoFormat& format)
+							{ fRequestedFormat = format; fHasRequestedFormat = true; }
+	void				ClearRequestedFormat() { fHasRequestedFormat = false; }
 
 	// Audio capabilities
 	bool				SupportsAudio() const { return fSupportsAudio; }
@@ -145,6 +148,8 @@ private:
 	bool				fSupportsVideo;
 	BObjectList<VideoFormat> fSupportedFormats;
 	VideoFormat			fCurrentFormat;
+	VideoFormat			fRequestedFormat;
+	bool				fHasRequestedFormat;
 
 	// Audio capabilities
 	bool				fSupportsAudio;

@@ -88,9 +88,29 @@ WebcamControlsView::MessageReceived(BMessage* message)
 		{
 			int32 paramId;
 			float value;
-			if (message->FindInt32("param_id", &paramId) == B_OK &&
-				message->FindFloat("value", &value) == B_OK) {
-				_ApplyControlValue(paramId, value);
+			int32 index;
+			if (message->FindInt32("param_id", &paramId) == B_OK) {
+				// Menu items use "index", sliders use "be:value", checkboxes need special handling
+				if (message->FindInt32("index", &index) == B_OK) {
+					// Menu item selected
+					_ApplyControlValue(paramId, (float)index);
+				} else if (message->FindFloat("value", &value) == B_OK) {
+					// Slider value
+					_ApplyControlValue(paramId, value);
+				} else if (message->FindInt32("be:value", &index) == B_OK) {
+					// BSlider sends value as int32 in "be:value"
+					_ApplyControlValue(paramId, (float)index);
+				} else {
+					// Checkbox - get value from control (it's in fControlsContainer)
+					const char* paramName;
+					if (message->FindString("param_name", &paramName) == B_OK) {
+						BCheckBox* cb = dynamic_cast<BCheckBox*>(
+							fControlsContainer->FindView(paramName));
+						if (cb != NULL) {
+							_ApplyControlValue(paramId, cb->Value() ? 1.0f : 0.0f);
+						}
+					}
+				}
 			}
 			break;
 		}
@@ -176,6 +196,27 @@ WebcamControlsView::_BuildControls()
 	// Get parameter web from device
 	BParameterWeb* web = NULL;
 	status_t status = roster->GetParameterWebFor(fDevice->MediaNode(), &web);
+
+	fprintf(stderr, "WebcamControlsView: GetParameterWebFor returned %ld, web=%p\n",
+		(long)status, web);
+	if (web != NULL) {
+		fprintf(stderr, "WebcamControlsView: Parameter web has %ld parameters\n",
+			(long)web->CountParameters());
+		for (int32 i = 0; i < web->CountParameters(); i++) {
+			BParameter* p = web->ParameterAt(i);
+			if (p != NULL) {
+				fprintf(stderr, "  Param %ld: name='%s', type=%d, id=%ld\n",
+					i, p->Name(), (int)p->Type(), (long)p->ID());
+				if (p->Type() == BParameter::B_DISCRETE_PARAMETER) {
+					BDiscreteParameter* disc = dynamic_cast<BDiscreteParameter*>(p);
+					if (disc != NULL) {
+						fprintf(stderr, "    -> Discrete param with %ld items\n",
+							(long)disc->CountItems());
+					}
+				}
+			}
+		}
+	}
 
 	if (status != B_OK || web == NULL) {
 		// Add default controls that most webcams support

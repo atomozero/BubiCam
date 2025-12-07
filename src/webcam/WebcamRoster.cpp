@@ -139,26 +139,28 @@ WebcamRoster::_EnumerateDevVideoDevices()
 bool
 WebcamRoster::_IsVideoProducer(const dormant_node_info& info)
 {
-	// Check if this looks like a video input device
-	BString name(info.name);
-	name.ToLower();
+	BMediaRoster* roster = BMediaRoster::Roster();
+	if (roster == NULL)
+		return false;
 
-	// Keywords that suggest video input
-	if (name.FindFirst("video") >= 0 ||
-		name.FindFirst("camera") >= 0 ||
-		name.FindFirst("webcam") >= 0 ||
-		name.FindFirst("capture") >= 0 ||
-		name.FindFirst("uvc") >= 0 ||
-		name.FindFirst("usb") >= 0) {
+	dormant_flavor_info flavorInfo;
+	status_t status = roster->GetDormantFlavorInfoFor(info, &flavorInfo);
+	if (status != B_OK)
+		return false;
 
-		// Exclude known non-webcam video nodes
-		if (name.FindFirst("overlay") >= 0 ||
-			name.FindFirst("output") >= 0 ||
-			name.FindFirst("display") >= 0) {
-			return false;
+	// Check if this node produces raw video
+	for (int32 i = 0; i < flavorInfo.out_format_count; i++) {
+		if (flavorInfo.out_formats[i].type == B_MEDIA_RAW_VIDEO) {
+			// Exclude known non-webcam nodes (overlays, outputs, etc.)
+			BString name(info.name);
+			name.ToLower();
+			if (name.FindFirst("overlay") >= 0 ||
+				name.FindFirst("output") >= 0 ||
+				name.FindFirst("display") >= 0) {
+				return false;
+			}
+			return true;
 		}
-
-		return true;
 	}
 
 	return false;

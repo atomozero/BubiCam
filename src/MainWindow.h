@@ -77,9 +77,6 @@ private:
 	void				_UpdateToolbarState();
 	void				_RestartMediaServices();
 	void				_DoRestartMediaServices(bool askConfirmation);
-	bool				_HasKnownDriverBugs() const;
-	void				_WriteDriverBugReport() const;
-	BString				_GetDriverAddonPath() const;
 
 	BMenuBar*			fMenuBar;
 	BMenu*				fWebcamMenu;

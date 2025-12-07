@@ -40,7 +40,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <sys/utsname.h>
 
 #undef B_TRANSLATION_CONTEXT
 #define B_TRANSLATION_CONTEXT "MainWindow"
@@ -454,6 +453,10 @@ MainWindow::_SelectFormat(int32 index)
 	if (index < 0 || index >= formats.CountItems())
 		return;
 
+	VideoFormat* selectedFormat = formats.ItemAt(index);
+	if (selectedFormat == NULL)
+		return;
+
 	// Update menu checkmarks
 	for (int32 i = 0; i < fFormatMenu->CountItems(); i++) {
 		BMenuItem* item = fFormatMenu->ItemAt(i);
@@ -461,11 +464,18 @@ MainWindow::_SelectFormat(int32 index)
 			item->SetMarked(i == index);
 	}
 
-	// Note: Actual format change would require restarting capture
-	// with new parameters
-	BString status;
-	status.SetToFormat("Format selected (restart preview to apply)");
-	fStatusBar->SetText(status.String());
+	// Set the requested format
+	fCurrentWebcam->SetRequestedFormat(*selectedFormat);
+
+	// Restart preview to apply the new format
+	bool wasActive = fIsPreviewActive;
+	if (wasActive) {
+		fStatusBar->SetText("Changing resolution...");
+		UpdateIfNeeded();
+
+		_StopPreview();
+		_StartPreview();
+	}
 }
 
 
@@ -975,21 +985,6 @@ MainWindow::QuitRequested()
 	// By releasing all nodes here, we ensure they're freed while the Media Kit
 	// is still fully functional.
 
-	// Check for known driver bugs and warn user
-	if (_HasKnownDriverBugs()) {
-		_WriteDriverBugReport();
-
-		BAlert* alert = new BAlert("Driver Bug Warning",
-			"The webcam driver you used has a known bug that may cause\n"
-			"a crash after BubiCam exits. This is NOT a BubiCam bug.\n\n"
-			"A diagnostic report has been saved to your Desktop.\n"
-			"Please report this to the driver maintainer.\n\n"
-			"The crash (if it occurs) is harmless - your data is safe.",
-			"OK", NULL, NULL,
-			B_WIDTH_AS_USUAL, B_WARNING_ALERT);
-		alert->Go();
-	}
-
 	_StopPreview();
 
 	// Release all webcam devices (and their Media Kit nodes) now
@@ -1007,209 +1002,3 @@ MainWindow::QuitRequested()
 }
 
 
-BString
-MainWindow::_GetDriverAddonPath() const
-{
-	if (fCurrentWebcam == NULL)
-		return BString();
-
-	const dormant_node_info& info = fCurrentWebcam->DormantInfo();
-
-	// Query BMediaRoster for addon info
-	BMediaRoster* roster = BMediaRoster::Roster();
-	if (roster == NULL)
-		return BString();
-
-	dormant_flavor_info flavorInfo;
-	status_t status = roster->GetDormantFlavorInfoFor(info, &flavorInfo);
-	if (status != B_OK)
-		return BString();
-
-	// The addon path is not directly available, but we can construct it
-	// from the addon ID by searching known locations
-	BString addonPath;
-
-	// Check user add-ons first
-	BPath path;
-	if (find_directory(B_USER_NONPACKAGED_ADDONS_DIRECTORY, &path) == B_OK) {
-		path.Append("media");
-		BDirectory dir(path.Path());
-		if (dir.InitCheck() == B_OK) {
-			BEntry entry;
-			while (dir.GetNextEntry(&entry) == B_OK) {
-				char name[B_FILE_NAME_LENGTH];
-				entry.GetName(name);
-				// Check if this addon name matches the webcam name pattern
-				BString nameStr(name);
-				nameStr.ToLower();
-				BString webcamName(fCurrentWebcam->Name());
-				webcamName.ToLower();
-				if (nameStr.FindFirst("webcam") >= 0 ||
-					nameStr.FindFirst("uvc") >= 0 ||
-					nameStr.FindFirst("camera") >= 0) {
-					BPath addonFullPath;
-					entry.GetPath(&addonFullPath);
-					addonPath = addonFullPath.Path();
-					break;
-				}
-			}
-		}
-	}
-
-	// Check system add-ons
-	if (addonPath.Length() == 0 &&
-		find_directory(B_SYSTEM_ADDONS_DIRECTORY, &path) == B_OK) {
-		path.Append("media");
-		BDirectory dir(path.Path());
-		if (dir.InitCheck() == B_OK) {
-			BEntry entry;
-			while (dir.GetNextEntry(&entry) == B_OK) {
-				char name[B_FILE_NAME_LENGTH];
-				entry.GetName(name);
-				BString nameStr(name);
-				nameStr.ToLower();
-				if (nameStr.FindFirst("webcam") >= 0 ||
-					nameStr.FindFirst("uvc") >= 0 ||
-					nameStr.FindFirst("camera") >= 0) {
-					BPath addonFullPath;
-					entry.GetPath(&addonFullPath);
-					addonPath = addonFullPath.Path();
-					break;
-				}
-			}
-		}
-	}
-
-	return addonPath;
-}
-
-
-bool
-MainWindow::_HasKnownDriverBugs() const
-{
-	if (fCurrentWebcam == NULL)
-		return false;
-
-	// Get driver/addon name
-	BString addonPath = _GetDriverAddonPath();
-	BString webcamName(fCurrentWebcam->Name());
-	webcamName.ToLower();
-
-	// List of drivers with known BUSBRoster cleanup bugs
-	// These drivers crash in WatchedEntry::~WatchedEntry() when the
-	// media_addon is unloaded because they don't properly clean up
-	// their internal BUSBRoster before destruction
-	static const char* knownBuggyDrivers[] = {
-		"aukey_webcam",
-		"usb_webcam",
-		// Add more as discovered
-		NULL
-	};
-
-	for (int i = 0; knownBuggyDrivers[i] != NULL; i++) {
-		if (addonPath.IFindFirst(knownBuggyDrivers[i]) >= 0 ||
-			webcamName.IFindFirst(knownBuggyDrivers[i]) >= 0) {
-			return true;
-		}
-	}
-
-	// Also check if the webcam name suggests it's a USB webcam
-	// (which likely uses the buggy usb_webcam driver)
-	if (webcamName.FindFirst("usb") >= 0 &&
-		(webcamName.FindFirst("video") >= 0 ||
-		 webcamName.FindFirst("camera") >= 0 ||
-		 webcamName.FindFirst("webcam") >= 0)) {
-		return true;
-	}
-
-	return false;
-}
-
-
-void
-MainWindow::_WriteDriverBugReport() const
-{
-	if (fCurrentWebcam == NULL)
-		return;
-
-	// Create report file on Desktop
-	BPath desktopPath;
-	if (find_directory(B_DESKTOP_DIRECTORY, &desktopPath) != B_OK)
-		return;
-
-	// Generate filename with timestamp
-	time_t now = time(NULL);
-	struct tm* tm = localtime(&now);
-	char filename[128];
-	snprintf(filename, sizeof(filename),
-		"BubiCam_DriverBugReport_%04d%02d%02d_%02d%02d%02d.txt",
-		tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
-		tm->tm_hour, tm->tm_min, tm->tm_sec);
-
-	desktopPath.Append(filename);
-
-	BFile file(desktopPath.Path(), B_WRITE_ONLY | B_CREATE_FILE | B_ERASE_FILE);
-	if (file.InitCheck() != B_OK)
-		return;
-
-	BString report;
-	report << "=== BubiCam Driver Bug Report ===\n\n";
-
-	report << "Date: " << ctime(&now);
-	report << "\n";
-
-	report << "--- ISSUE DESCRIPTION ---\n";
-	report << "The webcam driver has a bug in its BUSBRoster cleanup code.\n";
-	report << "When the media_addon is unloaded during process shutdown,\n";
-	report << "the driver's destructor calls BUSBRoster::Stop() which tries\n";
-	report << "to destroy WatchedEntry objects containing BMessenger pointers\n";
-	report << "that are already corrupted or freed.\n\n";
-
-	report << "This causes a crash in:\n";
-	report << "  BMessenger::BMessenger(BMessenger const&)\n";
-	report << "  -> WatchedEntry::~WatchedEntry()\n";
-	report << "  -> RosterLooper::Stop()\n";
-	report << "  -> BUSBRoster::Stop()\n";
-	report << "  -> WebCamMediaAddOn::~WebCamMediaAddOn()\n\n";
-
-	report << "--- WEBCAM INFORMATION ---\n";
-	report << "Name: " << fCurrentWebcam->Name() << "\n";
-	report << "Vendor ID: 0x" << BString().SetToFormat("%04x", fCurrentWebcam->VendorID()) << "\n";
-	report << "Product ID: 0x" << BString().SetToFormat("%04x", fCurrentWebcam->ProductID()) << "\n";
-	report << "Vendor: " << fCurrentWebcam->VendorName() << "\n";
-	report << "Product: " << fCurrentWebcam->ProductName() << "\n";
-	report << "Driver: " << fCurrentWebcam->DriverName() << "\n";
-
-	BString addonPath = _GetDriverAddonPath();
-	if (addonPath.Length() > 0)
-		report << "Addon Path: " << addonPath << "\n";
-
-	const dormant_node_info& info = fCurrentWebcam->DormantInfo();
-	report << "Media Addon ID: " << info.addon << "\n";
-	report << "Flavor ID: " << info.flavor_id << "\n";
-	report << "\n";
-
-	report << "--- SUGGESTED FIX FOR DRIVER MAINTAINER ---\n";
-	report << "In WebCamMediaAddOn destructor, ensure the BUSBRoster\n";
-	report << "is properly stopped and all WatchedEntry objects have\n";
-	report << "valid BMessenger pointers before destruction.\n\n";
-	report << "The BMessenger in WatchedEntry should either be:\n";
-	report << "1. Properly invalidated before the target looper is destroyed\n";
-	report << "2. Not copied in the destructor (use move semantics or pointer)\n";
-	report << "3. Protected with validity checks before copy operations\n\n";
-
-	report << "--- SYSTEM INFORMATION ---\n";
-	utsname info_sys;
-	if (uname(&info_sys) == 0) {
-		report << "OS: " << info_sys.sysname << " " << info_sys.release << "\n";
-		report << "Version: " << info_sys.version << "\n";
-		report << "Machine: " << info_sys.machine << "\n";
-	}
-
-	report << "\n--- END OF REPORT ---\n";
-
-	file.Write(report.String(), report.Length());
-	file.Unset();
-
-	fprintf(stderr, "Driver bug report written to: %s\n", desktopPath.Path());
-}
