@@ -11,6 +11,7 @@
 #include <MenuBar.h>
 #include <Menu.h>
 #include <MenuItem.h>
+#include <MessageRunner.h>
 #include <TabView.h>
 #include <StringView.h>
 #include <FilePanel.h>
@@ -51,7 +52,9 @@ enum {
 	MSG_MCP_TOGGLE			= 'mcpt',
 	MSG_MCP_STATUS			= 'mcpu',
 	MSG_MCP_LOG				= 'mcpl',
-	MSG_RESTART_PREVIEW		= 'rsrt'
+	MSG_RESTART_PREVIEW		= 'rsrt',
+	MSG_WATCHDOG_CHECK		= 'wdck',
+	MSG_FORCE_STOP			= 'fstp'
 };
 
 
@@ -118,6 +121,11 @@ private:
 	// MCP Server
 	MCPServer*			fMCPServer;
 	BMenuItem*			fMCPMenuItem;
+
+	// Driver crash protection
+	bool				fDriverCrashed;
+	bigtime_t			fLastFrameReceived;
+	BMessageRunner*		fWatchdogRunner;
 };
 
 #endif // MAIN_WINDOW_H

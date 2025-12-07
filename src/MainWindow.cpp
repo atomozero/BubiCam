@@ -75,7 +75,10 @@ MainWindow::MainWindow()
 	fLastFrame(NULL),
 	fSavingJson(false),
 	fMCPServer(NULL),
-	fMCPMenuItem(NULL)
+	fMCPMenuItem(NULL),
+	fDriverCrashed(false),
+	fLastFrameReceived(0),
+	fWatchdogRunner(NULL)
 {
 	fWebcamRoster = new WebcamRoster();
 
@@ -102,6 +105,10 @@ MainWindow::~MainWindow()
 	// resources are released BEFORE process shutdown begins. This destructor
 	// handles remaining cleanup for edge cases (e.g., window closed without
 	// going through QuitRequested).
+
+	// Stop watchdog timer
+	delete fWatchdogRunner;
+	fWatchdogRunner = NULL;
 
 	_StopPreview();
 
@@ -162,6 +169,8 @@ MainWindow::_BuildMenu()
 		new BMessage(MSG_WEBCAM_START), 'S'));
 	fControlMenu->AddItem(new BMenuItem("Stop Preview",
 		new BMessage(MSG_WEBCAM_STOP), 'T'));
+	fControlMenu->AddItem(new BMenuItem("Force Stop (Driver Frozen)",
+		new BMessage(MSG_FORCE_STOP)));
 	fControlMenu->AddSeparatorItem();
 	fControlMenu->AddItem(new BMenuItem("Show Controls Panel",
 		new BMessage(MSG_TOGGLE_CONTROLS), 'K'));
@@ -558,7 +567,14 @@ MainWindow::_StartPreview()
 	}
 
 	fIsPreviewActive = true;
+	fLastFrameReceived = system_time();
+	fDriverCrashed = false;
 	fStatusBar->SetText("Preview active");
+
+	// Start watchdog timer (check every 2 seconds)
+	delete fWatchdogRunner;
+	fWatchdogRunner = new BMessageRunner(BMessenger(this),
+		new BMessage(MSG_WATCHDOG_CHECK), 2000000);  // 2 seconds
 
 	// Refresh Format menu now that ParameterWeb is available
 	_PopulateFormatMenu();
@@ -572,6 +588,10 @@ MainWindow::_StartPreview()
 void
 MainWindow::_StopPreview()
 {
+	// Stop watchdog timer
+	delete fWatchdogRunner;
+	fWatchdogRunner = NULL;
+
 	if (fCurrentWebcam != NULL && fIsPreviewActive) {
 		fCurrentWebcam->StopCapture();
 		fIsPreviewActive = false;
@@ -811,6 +831,10 @@ MainWindow::MessageReceived(BMessage* message)
 
 		case MSG_FRAME_RECEIVED:
 		{
+			// Update watchdog timestamp
+			fLastFrameReceived = system_time();
+			fDriverCrashed = false;
+
 			BBitmap* bitmap = NULL;
 			if (message->FindPointer("bitmap", (void**)&bitmap) == B_OK) {
 				fVideoPreview->SetFrame(bitmap);
@@ -984,6 +1008,70 @@ MainWindow::MessageReceived(BMessage* message)
 			}
 			break;
 
+		case MSG_WATCHDOG_CHECK:
+		{
+			// Check if driver appears frozen (no frames for 5+ seconds)
+			if (fIsPreviewActive && fLastFrameReceived > 0) {
+				bigtime_t timeSinceLastFrame = system_time() - fLastFrameReceived;
+				if (timeSinceLastFrame > 5000000) {  // 5 seconds
+					fDriverCrashed = true;
+					BString warning;
+					warning.SetToFormat("WARNING: No frames for %.0f seconds - driver may be frozen!",
+						timeSinceLastFrame / 1000000.0);
+					fStatusBar->SetText(warning.String());
+					fStatusBar->SetHighColor(200, 0, 0);  // Red text
+
+					// Show alert once
+					static bool alertShown = false;
+					if (!alertShown) {
+						alertShown = true;
+						BAlert* alert = new BAlert("Driver Frozen",
+							"The webcam driver appears to be frozen.\n\n"
+							"No video frames have been received for several seconds.\n\n"
+							"Use Control → Force Stop to safely stop the preview,\n"
+							"or close the application (it will exit cleanly).",
+							"OK", NULL, NULL, B_WIDTH_AS_USUAL, B_WARNING_ALERT);
+						alert->Go(NULL);  // Async alert, don't block
+					}
+				}
+			}
+			break;
+		}
+
+		case MSG_FORCE_STOP:
+		{
+			// Force stop without waiting for driver
+			fprintf(stderr, "MainWindow: Force stop requested\n");
+
+			// Stop watchdog
+			delete fWatchdogRunner;
+			fWatchdogRunner = NULL;
+
+			// Mark as crashed so QuitRequested skips cleanup
+			fDriverCrashed = true;
+			fIsPreviewActive = false;
+
+			// Clear UI
+			fVideoPreview->ClearFrame();
+			fVUMeter->SetLevel(0.0f, 0.0f);
+			fStatsResolution->SetText("---");
+			fStatsFPS->SetText("--- fps");
+			fStatsFrames->SetText("0 frames");
+			fStatsDropped->SetText("0 dropped");
+			fStatsDropped->SetHighUIColor(B_PANEL_TEXT_COLOR);
+
+			// Update toolbar
+			_UpdateToolbarState();
+
+			fStatusBar->SetText("Preview force-stopped (driver was frozen)");
+			fStatusBar->SetHighUIColor(B_PANEL_TEXT_COLOR);
+
+			// Note: We don't call fCurrentWebcam->StopCapture() because it would hang
+			// The webcam object is left in an inconsistent state, but we can still
+			// close the app cleanly
+			break;
+		}
+
 		default:
 			BWindow::MessageReceived(message);
 			break;
@@ -1061,9 +1149,38 @@ MainWindow::QuitRequested()
 	// process exit, and some webcam drivers (like aukey_webcam) don't handle
 	// their node cleanup properly - they try to access already-destroyed objects
 	// in their BUSBRoster when the media add-on is unloaded.
-	// By releasing all nodes here, we ensure they're freed while the Media Kit
-	// is still fully functional.
 
+	fprintf(stderr, "MainWindow::QuitRequested() - Starting shutdown...\n");
+
+	// Check if driver appears to be crashed/frozen
+	// If we haven't received a frame in 3+ seconds while capturing, driver is likely stuck
+	bool driverFrozen = false;
+	if (fIsPreviewActive && fLastFrameReceived > 0) {
+		bigtime_t timeSinceLastFrame = system_time() - fLastFrameReceived;
+		if (timeSinceLastFrame > 3000000) {  // 3 seconds
+			fprintf(stderr, "  WARNING: No frames received for %.1f seconds - driver may be frozen\n",
+				timeSinceLastFrame / 1000000.0);
+			driverFrozen = true;
+		}
+	}
+
+	if (driverFrozen || fDriverCrashed) {
+		// Driver is frozen/crashed - skip normal cleanup to avoid hanging
+		fprintf(stderr, "  Driver appears frozen/crashed - forcing immediate shutdown\n");
+		fprintf(stderr, "  Skipping Media Kit cleanup to avoid hang\n");
+
+		// Just mark as not capturing and let the OS clean up
+		fIsPreviewActive = false;
+		fCurrentWebcam = NULL;
+
+		// Don't try to clear the roster - it would call into the frozen driver
+		// The OS will clean up when the process exits
+
+		be_app->PostMessage(B_QUIT_REQUESTED);
+		return true;
+	}
+
+	// Normal shutdown path - driver is responding
 	_StopPreview();
 
 	// Release all webcam devices (and their Media Kit nodes) now
@@ -1076,6 +1193,7 @@ MainWindow::QuitRequested()
 	// This helps avoid race conditions with the driver's internal state
 	snooze(100000);  // 100ms
 
+	fprintf(stderr, "MainWindow::QuitRequested() - Shutdown complete\n");
 	be_app->PostMessage(B_QUIT_REQUESTED);
 	return true;
 }
