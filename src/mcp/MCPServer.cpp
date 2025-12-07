@@ -72,6 +72,7 @@ MCPServer::MCPServer(BMessenger target)
 	fTotalErrors(0)
 {
 	// Register available tools
+	// Note: fTools is BObjectList<MCPTool, true> - owns items, handles memory
 	MCPTool* tool;
 
 	tool = new MCPTool();

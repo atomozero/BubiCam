@@ -44,12 +44,13 @@ public:
 
 	virtual status_t DeviceAdded(BUSBDevice* device)
 	{
+		// Skip if we already found a video device (avoid duplicate enumeration)
+		if (fFoundDevice)
+			return B_OK;
+
 		fprintf(stderr, "USB DeviceAdded: VID=%04X PID=%04X Class=%02X '%s' '%s'\n",
 			device->VendorID(), device->ProductID(), device->Class(),
 			device->ManufacturerString(), device->ProductString());
-
-		if (fFoundDevice)
-			return B_OK;
 
 		// Check if this is a video class device
 		bool isVideoDevice = (device->Class() == USB_VIDEO_DEVICE_CLASS);
@@ -312,6 +313,10 @@ private:
 						}
 						break;
 					}
+
+					case VS_STILL_IMAGE_FRAME:
+						diag << "    VS_STILL_IMAGE_FRAME\n";
+						break;
 
 					case VS_COLORFORMAT:
 						diag << "    VS_COLORFORMAT\n";
