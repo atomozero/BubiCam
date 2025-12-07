@@ -124,6 +124,7 @@ private:
 
 	// Driver crash protection
 	bool				fDriverCrashed;
+	bool				fWatchdogAlertShown;
 	bigtime_t			fLastFrameReceived;
 	BMessageRunner*		fWatchdogRunner;
 };
