@@ -84,9 +84,9 @@ WebcamRoster::EnumerateDevices()
 			// The node will be instantiated on-demand in StartCapture()
 			WebcamDevice* device = new WebcamDevice(dormantNodes[i], B_OK);
 
-			// Parse USB descriptors to get device capabilities
-			// This talks to USB directly, doesn't need media node instantiated
-			device->ParseUSBDescriptors();
+			// Gather device info (USB info, driver info, formats, audio)
+			// This also calls ParseUSBDescriptors() internally
+			device->GatherDeviceInfo();
 
 			fDevices.AddItem(device);
 
