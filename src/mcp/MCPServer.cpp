@@ -639,6 +639,9 @@ MCPServer::_ToolGetStatus(const BString& arguments)
 		return "{\"error\":\"No webcam device available\"}";
 
 	VideoFormat currentFormat = fWebcamDevice->CurrentFormat();
+	uint32 framesReceived = fWebcamDevice->FramesCaptured();
+	uint32 framesDropped = fWebcamDevice->FramesDropped();
+	float actualFPS = fWebcamDevice->CurrentFPS();
 
 	BString result;
 	result << "{";
@@ -647,7 +650,11 @@ MCPServer::_ToolGetStatus(const BString& arguments)
 	result << "\"width\":" << currentFormat.width << ",";
 	result << "\"height\":" << currentFormat.height;
 	result << "},";
-	result << "\"fps\":" << currentFormat.frameRate << ",";
+	result << "\"declared_fps\":" << currentFormat.frameRate << ",";
+	result << "\"actual_fps\":" << actualFPS << ",";
+	result << "\"frames_received\":" << framesReceived << ",";
+	result << "\"frames_dropped\":" << framesDropped << ",";
+	result << "\"frames_flowing\":" << (actualFPS > 0.5 ? "true" : "false") << ",";
 	result << "\"colorSpace\":\"" << currentFormat.colorSpace << "\"";
 	result << "}";
 
