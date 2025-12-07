@@ -202,23 +202,43 @@ WebcamDevice::ParseUSBDescriptors()
 		if (fUSBVideoInfo.serialNumber.Length() > 0)
 			fSerialNumber = fUSBVideoInfo.serialNumber;
 
-		// Log formats found
+		// Log formats found and populate fSupportedFormats
 		fprintf(stderr, "  Found %d format(s):\n", (int)fUSBVideoInfo.formats.CountItems());
+
+		// Clear existing formats
+		for (int32 i = 0; i < fSupportedFormats.CountItems(); i++)
+			delete fSupportedFormats.ItemAt(i);
+		fSupportedFormats.MakeEmpty();
+
 		for (int32 f = 0; f < fUSBVideoInfo.formats.CountItems(); f++) {
-			USBVideoFormat* format = (USBVideoFormat*)fUSBVideoInfo.formats.ItemAt(f);
-			if (format != NULL) {
+			USBVideoFormat* usbFormat = (USBVideoFormat*)fUSBVideoInfo.formats.ItemAt(f);
+			if (usbFormat != NULL) {
 				fprintf(stderr, "    Format %d: %s (%d frames)\n",
-					format->formatIndex, format->formatName.String(),
-					(int)format->frames.CountItems());
-				for (int32 fr = 0; fr < format->frames.CountItems(); fr++) {
-					USBVideoFrame* frame = (USBVideoFrame*)format->frames.ItemAt(fr);
+					usbFormat->formatIndex, usbFormat->formatName.String(),
+					(int)usbFormat->frames.CountItems());
+
+				for (int32 fr = 0; fr < usbFormat->frames.CountItems(); fr++) {
+					USBVideoFrame* frame = (USBVideoFrame*)usbFormat->frames.ItemAt(fr);
 					if (frame != NULL) {
 						fprintf(stderr, "      Frame %d: %dx%d @ %.1f fps\n",
 							(int)fr, frame->width, frame->height, frame->defaultFrameRate);
+
+						// Add to fSupportedFormats for Format menu
+						VideoFormat* vf = new VideoFormat();
+						vf->width = frame->width;
+						vf->height = frame->height;
+						vf->frameRate = frame->defaultFrameRate;
+						strncpy(vf->colorSpace, usbFormat->formatName.String(),
+							sizeof(vf->colorSpace) - 1);
+						vf->colorSpace[sizeof(vf->colorSpace) - 1] = '\0';
+						fSupportedFormats.AddItem(vf);
 					}
 				}
 			}
 		}
+
+		fprintf(stderr, "  Populated %d formats in Format menu\n",
+			(int)fSupportedFormats.CountItems());
 
 		return B_OK;
 	}
@@ -295,59 +315,109 @@ WebcamDevice::_GatherVideoFormats()
 	if (roster == NULL)
 		return;
 
-	media_format format = {};
-	format.type = B_MEDIA_RAW_VIDEO;
-
-	// Get output formats from the node
-	int32 cookie = 0;
-	media_output output;
-	status_t status = roster->GetFreeOutputsFor(fMediaNode, &output, 1, &cookie,
-		B_MEDIA_RAW_VIDEO);
-	if (status != B_OK || cookie == 0)
-		return;
-
-	format = output.format;
-
-	if (format.type == B_MEDIA_RAW_VIDEO) {
-		VideoFormat* vf = new VideoFormat();
-		vf->width = format.u.raw_video.display.line_width;
-		vf->height = format.u.raw_video.display.line_count;
-		vf->frameRate = format.u.raw_video.field_rate;
-
-		switch (format.u.raw_video.display.format) {
-			case B_RGB32:
-				strcpy(vf->colorSpace, "RGB32");
-				break;
-			case B_RGB24:
-				strcpy(vf->colorSpace, "RGB24");
-				break;
-			case B_RGB16:
-				strcpy(vf->colorSpace, "RGB16");
-				break;
-			case B_YCbCr422:
-				strcpy(vf->colorSpace, "YCbCr422");
-				break;
-			case B_YCbCr420:
-				strcpy(vf->colorSpace, "YCbCr420");
-				break;
-			default:
-				strcpy(vf->colorSpace, "Unknown");
-		}
-
-		fSupportedFormats.AddItem(vf);
-		fCurrentFormat = *vf;
-	}
-
-	// Try to enumerate more formats using ParameterWeb
+	// First try to enumerate formats using ParameterWeb
+	// This works even when the node is already connected
+	// This is more reliable than USB parsing after the device has been used
 	BParameterWeb* web = NULL;
-	if (roster->GetParameterWebFor(fMediaNode, &web) == B_OK && web != NULL) {
+	fprintf(stderr, "_GatherVideoFormats: getting ParameterWeb for node %d\n", fMediaNode.node);
+	status_t webStatus = roster->GetParameterWebFor(fMediaNode, &web);
+	fprintf(stderr, "_GatherVideoFormats: GetParameterWebFor returned %s, web=%p\n",
+		strerror(webStatus), web);
+	if (webStatus == B_OK && web != NULL) {
+		fprintf(stderr, "_GatherVideoFormats: web has %d parameters\n", (int)web->CountParameters());
 		for (int32 i = 0; i < web->CountParameters(); i++) {
 			BParameter* param = web->ParameterAt(i);
-			if (param != NULL) {
-				// Log parameter info for debugging
+			if (param == NULL)
+				continue;
+
+			// Look for Resolution parameter (type=1 is BDiscreteParameter)
+			BString paramName = param->Name();
+			fprintf(stderr, "_GatherVideoFormats: checking param '%s'\n", paramName.String());
+
+			if (paramName.IFindFirst("Resolution") >= 0 ||
+				paramName.IFindFirst("Frame Size") >= 0) {
+				BDiscreteParameter* discrete = dynamic_cast<BDiscreteParameter*>(param);
+				if (discrete != NULL && discrete->CountItems() > 0) {
+					fprintf(stderr, "_GatherVideoFormats: Found Resolution param with %d items\n",
+						(int)discrete->CountItems());
+
+					// Clear existing formats and use the driver's list
+					for (int32 j = 0; j < fSupportedFormats.CountItems(); j++)
+						delete fSupportedFormats.ItemAt(j);
+					fSupportedFormats.MakeEmpty();
+
+					for (int32 j = 0; j < discrete->CountItems(); j++) {
+						const char* itemName = discrete->ItemNameAt(j);
+						fprintf(stderr, "  Item %d: name='%s'\n", (int)j,
+							itemName ? itemName : "(null)");
+
+						if (itemName == NULL || itemName[0] == '\0')
+							continue;
+
+						// Parse resolution from item name (e.g., "640x480" or "640 x 480")
+						int width = 0, height = 0;
+						if (sscanf(itemName, "%dx%d", &width, &height) == 2 ||
+							sscanf(itemName, "%d x %d", &width, &height) == 2) {
+							VideoFormat* vf = new VideoFormat();
+							vf->width = width;
+							vf->height = height;
+							vf->frameRate = 30.0f;  // Default
+							strcpy(vf->colorSpace, "YUY2");
+							fSupportedFormats.AddItem(vf);
+							fprintf(stderr, "  -> Added format: %dx%d\n", width, height);
+						}
+					}
+
+					fprintf(stderr, "_GatherVideoFormats: total formats: %d\n",
+						(int)fSupportedFormats.CountItems());
+				}
 			}
 		}
 		delete web;
+	}
+
+	// Fallback: if ParameterWeb didn't give us formats, try GetFreeOutputsFor
+	// (only works when node is not yet connected)
+	if (fSupportedFormats.CountItems() == 0) {
+		fprintf(stderr, "_GatherVideoFormats: trying GetFreeOutputsFor fallback\n");
+		int32 cookie = 0;
+		media_output output;
+		status_t status = roster->GetFreeOutputsFor(fMediaNode, &output, 1, &cookie,
+			B_MEDIA_RAW_VIDEO);
+		if (status == B_OK && cookie > 0) {
+			media_format format = output.format;
+			if (format.type == B_MEDIA_RAW_VIDEO) {
+				VideoFormat* vf = new VideoFormat();
+				vf->width = format.u.raw_video.display.line_width;
+				vf->height = format.u.raw_video.display.line_count;
+				vf->frameRate = format.u.raw_video.field_rate;
+
+				switch (format.u.raw_video.display.format) {
+					case B_RGB32:
+						strcpy(vf->colorSpace, "RGB32");
+						break;
+					case B_RGB24:
+						strcpy(vf->colorSpace, "RGB24");
+						break;
+					case B_RGB16:
+						strcpy(vf->colorSpace, "RGB16");
+						break;
+					case B_YCbCr422:
+						strcpy(vf->colorSpace, "YCbCr422");
+						break;
+					case B_YCbCr420:
+						strcpy(vf->colorSpace, "YCbCr420");
+						break;
+					default:
+						strcpy(vf->colorSpace, "Unknown");
+				}
+
+				fSupportedFormats.AddItem(vf);
+				fCurrentFormat = *vf;
+				fprintf(stderr, "_GatherVideoFormats: fallback added format %dx%d\n",
+					vf->width, vf->height);
+			}
+		}
 	}
 }
 
@@ -569,6 +639,12 @@ WebcamDevice::StartCapture(BLooper* target)
 	}
 
 	fIsCapturing = true;
+
+	// Refresh formats now that ParameterWeb is available
+	fprintf(stderr, "  -> Refreshing video formats from ParameterWeb...\n");
+	_GatherVideoFormats();
+	fprintf(stderr, "  -> Formats after refresh: %d\n", (int)fSupportedFormats.CountItems());
+
 	fprintf(stderr, "  -> Capture started successfully!\n");
 	return B_OK;
 }
@@ -874,6 +950,58 @@ WebcamDevice::_SetupVideoConnection()
 	media_format format;
 
 	// ===== APPROACH -1: Try user-requested format first =====
+	// First, we need to configure the driver's resolution parameter BEFORE connecting
+	if (fHasRequestedFormat && fRequestedFormat.width > 0 && fRequestedFormat.height > 0) {
+		_LogFormatNegotiation(BString().SetToFormat(
+			"Configuring driver for user-requested format (%dx%d)...",
+			(int)fRequestedFormat.width, (int)fRequestedFormat.height).String());
+
+		// Get ParameterWeb to set the Resolution parameter
+		BParameterWeb* web = NULL;
+		status_t webStatus = roster->GetParameterWebFor(fMediaNode, &web);
+		if (webStatus == B_OK && web != NULL) {
+			for (int32 i = 0; i < web->CountParameters(); i++) {
+				BParameter* param = web->ParameterAt(i);
+				if (param == NULL)
+					continue;
+
+				BString paramName = param->Name();
+				if (paramName.IFindFirst("Resolution") >= 0) {
+					BDiscreteParameter* discrete = dynamic_cast<BDiscreteParameter*>(param);
+					if (discrete != NULL) {
+						// Find the index matching the requested resolution
+						int32 matchIndex = -1;
+						for (int32 j = 0; j < discrete->CountItems(); j++) {
+							const char* itemName = discrete->ItemNameAt(j);
+							if (itemName == NULL)
+								continue;
+							int w = 0, h = 0;
+							if (sscanf(itemName, "%dx%d", &w, &h) == 2 ||
+								sscanf(itemName, "%d x %d", &w, &h) == 2) {
+								if (w == fRequestedFormat.width && h == fRequestedFormat.height) {
+									matchIndex = j;
+									break;
+								}
+							}
+						}
+
+						if (matchIndex >= 0) {
+							int32 value = matchIndex;
+							status_t setStatus = discrete->SetValue(&value, sizeof(value), -1);
+							_LogFormatNegotiation(BString().SetToFormat(
+								"  -> Set Resolution parameter to index %d: %s",
+								(int)matchIndex, strerror(setStatus)).String());
+						} else {
+							_LogFormatNegotiation("  -> Resolution not found in driver options");
+						}
+					}
+					break;
+				}
+			}
+			delete web;
+		}
+	}
+
 	if (fHasRequestedFormat && fRequestedFormat.width > 0 && fRequestedFormat.height > 0) {
 		_LogFormatNegotiation(BString().SetToFormat(
 			"Attempt -1: User-requested format (%dx%d)...",

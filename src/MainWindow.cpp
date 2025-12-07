@@ -539,6 +539,9 @@ MainWindow::_StartPreview()
 	fIsPreviewActive = true;
 	fStatusBar->SetText("Preview active");
 
+	// Refresh Format menu now that ParameterWeb is available
+	_PopulateFormatMenu();
+
 	// Update toolbar and driver info
 	_UpdateToolbarState();
 	_UpdateDriverInfo();
