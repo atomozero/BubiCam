@@ -131,6 +131,10 @@ BBitmap*
 IconUtils::CreateRefreshIcon(int32 size)
 {
 	BBitmap* bitmap = new BBitmap(BRect(0, 0, size - 1, size - 1), B_RGBA32);
+	if (bitmap == NULL || !bitmap->IsValid()) {
+		delete bitmap;
+		return NULL;
+	}
 	memset(bitmap->Bits(), 0, bitmap->BitsLength());
 
 	int cx = size / 2;
@@ -163,6 +167,10 @@ BBitmap*
 IconUtils::CreateStartIcon(int32 size)
 {
 	BBitmap* bitmap = new BBitmap(BRect(0, 0, size - 1, size - 1), B_RGBA32);
+	if (bitmap == NULL || !bitmap->IsValid()) {
+		delete bitmap;
+		return NULL;
+	}
 	memset(bitmap->Bits(), 0, bitmap->BitsLength());
 
 	// Play triangle (green)
@@ -184,6 +192,10 @@ BBitmap*
 IconUtils::CreateStopIcon(int32 size)
 {
 	BBitmap* bitmap = new BBitmap(BRect(0, 0, size - 1, size - 1), B_RGBA32);
+	if (bitmap == NULL || !bitmap->IsValid()) {
+		delete bitmap;
+		return NULL;
+	}
 	memset(bitmap->Bits(), 0, bitmap->BitsLength());
 
 	// Stop square (red)
@@ -198,6 +210,10 @@ BBitmap*
 IconUtils::CreateScreenshotIcon(int32 size)
 {
 	BBitmap* bitmap = new BBitmap(BRect(0, 0, size - 1, size - 1), B_RGBA32);
+	if (bitmap == NULL || !bitmap->IsValid()) {
+		delete bitmap;
+		return NULL;
+	}
 	memset(bitmap->Bits(), 0, bitmap->BitsLength());
 
 	// Camera body (dark gray)

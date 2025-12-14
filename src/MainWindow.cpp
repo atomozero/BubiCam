@@ -873,11 +873,19 @@ MainWindow::MessageReceived(BMessage* message)
 					delete fLastFrame;
 					fLastFrame = new BBitmap(bitmap->Bounds(),
 						bitmap->ColorSpace());
-					// Enable screenshot button now that we have a frame
-					_UpdateToolbarState();
+					if (fLastFrame == NULL || !fLastFrame->IsValid()) {
+						delete fLastFrame;
+						fLastFrame = NULL;
+						fprintf(stderr, "MainWindow: Failed to allocate screenshot bitmap\n");
+					} else {
+						// Enable screenshot button now that we have a frame
+						_UpdateToolbarState();
+					}
 				}
-				memcpy(fLastFrame->Bits(), bitmap->Bits(),
-					bitmap->BitsLength());
+				if (fLastFrame != NULL && fLastFrame->IsValid()) {
+					memcpy(fLastFrame->Bits(), bitmap->Bits(),
+						bitmap->BitsLength());
+				}
 			}
 			break;
 		}

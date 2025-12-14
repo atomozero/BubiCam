@@ -9,7 +9,7 @@ Questo documento traccia i task di miglioramento del codice identificati durante
 | 1 | Aggiungere BLocker per fTarget in VideoConsumer/AudioConsumer | Alta | COMPLETATO | VideoConsumer.h/cpp, AudioConsumer.h/cpp |
 | 2 | Fix race condition in WebcamDevice::StopCapture() | Alta | COMPLETATO | WebcamDevice.h/cpp |
 | 3 | Aggiungere lock per fCurrentWebcam in MainWindow | Alta | COMPLETATO | MainWindow.h/cpp |
-| 4 | Aggiungere controllo allocazione per tutte le new BBitmap | Alta | Da fare | WebcamDevice.cpp, VideoConsumer.cpp |
+| 4 | Aggiungere controllo allocazione per tutte le new BBitmap | Alta | COMPLETATO | MainWindow.cpp, VideoPreviewView.cpp, IconUtils.cpp |
 | 5 | Validare lunghezza descrittori USB prima di accedere | Media | Da fare | USBVideoParser.cpp |
 | 6 | Verificare dimensioni prima di memcpy in MainWindow | Media | Da fare | MainWindow.cpp |
 | 7 | Convertire BList a BObjectList in USBVideoParser | Media | Da fare | USBVideoParser.h/cpp |
@@ -105,9 +105,24 @@ In `WebcamDevice::StopCapture()` c'e una finestra temporale dove i puntatori pot
 ### Task 4: Controllo allocazione BBitmap (PRIORITA ALTA)
 
 **Problema:**
-`new BBitmap()` non viene controllato per fallimento allocazione.
+`new BBitmap()` non veniva controllato per fallimento allocazione. In Haiku, BBitmap non lancia eccezioni ma crea un oggetto invalido (`IsValid()` ritorna false). Usare un bitmap invalido causava crash o comportamenti undefined.
 
-**Stato:** Da fare
+**Soluzione:**
+- Controllare `IsValid()` dopo ogni `new BBitmap()`
+- Se invalido, deallocare e gestire gracefully (return NULL o skip operation)
+- Nota: `VideoConsumer.cpp` aveva gia' i controlli corretti
+
+**Test di verifica:**
+- Eseguire: `./tests/test_task4_bitmap_alloc.sh`
+- Verificare nessun crash durante avvio e uso prolungato
+
+**Stato:** COMPLETATO
+**Completato:** 2024-12-14
+
+**Modifiche apportate:**
+- `MainWindow.cpp`: Controllo `IsValid()` dopo allocazione `fLastFrame`, skip memcpy se invalido
+- `VideoPreviewView.cpp`: Controllo `IsValid()` dopo allocazione `fCurrentFrame`, return early se invalido
+- `IconUtils.cpp`: Controllo `IsValid()` in `CreateRefreshIcon()`, `CreateStartIcon()`, `CreateStopIcon()`, `CreateScreenshotIcon()`, return NULL se invalido
 
 ---
 
@@ -176,6 +191,7 @@ Gestione errori inconsistente tra status_t, BAlert e stderr.
 
 ## Changelog
 
+- **2024-12-14**: Task 4 completato - Aggiunto controllo allocazione BBitmap
 - **2024-12-14**: Task 3 completato - Aggiunto BLocker per fCurrentWebcam
 - **2024-12-14**: Task 2 completato - Fix race condition in StopCapture
 - **2024-12-14**: Task 1 completato - Aggiunto BLocker per fTarget

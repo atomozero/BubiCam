@@ -132,10 +132,18 @@ VideoPreviewView::SetFrame(BBitmap* bitmap)
 		fCurrentFrame->ColorSpace() != bitmap->ColorSpace()) {
 		delete fCurrentFrame;
 		fCurrentFrame = new BBitmap(bitmap->Bounds(), bitmap->ColorSpace());
+		if (fCurrentFrame == NULL || !fCurrentFrame->IsValid()) {
+			delete fCurrentFrame;
+			fCurrentFrame = NULL;
+			fprintf(stderr, "VideoPreviewView: Failed to allocate frame bitmap\n");
+			return;
+		}
 	}
 
 	// Copy bitmap data
-	memcpy(fCurrentFrame->Bits(), bitmap->Bits(), bitmap->BitsLength());
+	if (fCurrentFrame != NULL && fCurrentFrame->IsValid()) {
+		memcpy(fCurrentFrame->Bits(), bitmap->Bits(), bitmap->BitsLength());
+	}
 
 	lock.Unlock();
 
