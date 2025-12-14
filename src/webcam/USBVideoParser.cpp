@@ -261,7 +261,7 @@ private:
 							else
 								currentFormat->formatName = "Uncompressed";
 
-							fInfo->formats.AddItem((void*)currentFormat);
+							fInfo->formats.AddItem(currentFormat);
 							diag << "    VS_FORMAT_UNCOMPRESSED: " << currentFormat->formatName
 								<< ", " << (int)currentFormat->numFrames << " frame(s), "
 								<< (int)currentFormat->bitsPerPixel << " bpp\n";
@@ -277,7 +277,7 @@ private:
 							currentFormat->numFrames = buffer[4];
 							currentFormat->bitsPerPixel = 0;
 
-							fInfo->formats.AddItem((void*)currentFormat);
+							fInfo->formats.AddItem(currentFormat);
 							diag << "    VS_FORMAT_MJPEG: " << (int)currentFormat->numFrames
 								<< " frame(s)\n";
 						}
@@ -332,16 +332,13 @@ private:
 									uint32 interval = buffer[offset] | (buffer[offset + 1] << 8) |
 										(buffer[offset + 2] << 16) | (buffer[offset + 3] << 24);
 									if (interval > 0) {
-										float* fps = new float;
-										if (fps != NULL) {
-											*fps = 10000000.0f / interval;
-											frame->frameRates.AddItem((void*)fps);
-										}
+										float fpsValue = 10000000.0f / interval;
+										frame->frameRates.AddItem(new FrameRate(fpsValue));
 									}
 								}
 							}
 
-							currentFormat->frames.AddItem((void*)frame);
+							currentFormat->frames.AddItem(frame);
 
 							const char* frameType = (subtype == VS_FRAME_MJPEG) ?
 								"VS_FRAME_MJPEG" : "VS_FRAME_UNCOMPRESSED";

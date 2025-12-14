@@ -8,7 +8,7 @@
 
 #include <SupportDefs.h>
 #include <String.h>
-#include <List.h>
+#include <ObjectList.h>
 
 // USB Video Class constants
 #define USB_VIDEO_DEVICE_CLASS			0x0E
@@ -27,6 +27,12 @@
 #define VS_FORMAT_DV			0x0C
 #define VS_COLORFORMAT			0x0D
 
+// Simple wrapper for frame rate values (for use with BObjectList)
+struct FrameRate {
+	float value;
+	FrameRate(float v = 0.0f) : value(v) {}
+};
+
 // Parsed USB video frame descriptor
 struct USBVideoFrame {
 	uint8		formatType;			// 0=Uncompressed, 1=MJPEG, 2=Other
@@ -36,17 +42,12 @@ struct USBVideoFrame {
 	uint32		maxBitRate;
 	uint32		frameBufferSize;
 	float		defaultFrameRate;
-	BList		frameRates;			// Supported frame rates (float*)
+	BObjectList<FrameRate, true> frameRates;	// Supported frame rates (owned)
 
 	USBVideoFrame()
 		: formatType(0), width(0), height(0),
 		  minBitRate(0), maxBitRate(0), frameBufferSize(0),
 		  defaultFrameRate(0), frameRates(10) {}
-
-	~USBVideoFrame() {
-		for (int32 i = 0; i < frameRates.CountItems(); i++)
-			delete (float*)frameRates.ItemAt(i);
-	}
 };
 
 // Parsed USB video format descriptor
@@ -56,16 +57,11 @@ struct USBVideoFormat {
 	BString		formatName;			// "YUY2", "MJPEG", etc
 	uint8		bitsPerPixel;
 	uint8		numFrames;
-	BList		frames;				// USBVideoFrame*
+	BObjectList<USBVideoFrame, true> frames;	// Owned USBVideoFrame objects
 
 	USBVideoFormat()
 		: formatIndex(0), formatType(0), bitsPerPixel(0), numFrames(0),
 		  frames(10) {}
-
-	~USBVideoFormat() {
-		for (int32 i = 0; i < frames.CountItems(); i++)
-			delete (USBVideoFrame*)frames.ItemAt(i);
-	}
 };
 
 // Complete parsed USB video device info
@@ -79,7 +75,7 @@ struct USBVideoInfo {
 	uint16		uvcVersion;
 	uint32		clockFrequency;
 
-	BList		formats;			// USBVideoFormat*
+	BObjectList<USBVideoFormat, true> formats;	// Owned USBVideoFormat objects
 
 	// Diagnostic info
 	BString		diagnosticInfo;		// Additional debug info
@@ -87,11 +83,6 @@ struct USBVideoInfo {
 	USBVideoInfo()
 		: found(false), vendorID(0), productID(0), uvcVersion(0),
 		  clockFrequency(0), formats(5) {}
-
-	~USBVideoInfo() {
-		for (int32 i = 0; i < formats.CountItems(); i++)
-			delete (USBVideoFormat*)formats.ItemAt(i);
-	}
 };
 
 // Parse USB video descriptors for a device matching vendor/product ID

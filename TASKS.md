@@ -12,7 +12,7 @@ Questo documento traccia i task di miglioramento del codice identificati durante
 | 4 | Aggiungere controllo allocazione per tutte le new BBitmap | Alta | COMPLETATO | MainWindow.cpp, VideoPreviewView.cpp, IconUtils.cpp |
 | 5 | Validare lunghezza descrittori USB prima di accedere | Media | COMPLETATO | USBVideoParser.cpp |
 | 6 | Verificare dimensioni prima di memcpy in MainWindow | Media | COMPLETATO | MainWindow.cpp, VideoPreviewView.cpp |
-| 7 | Convertire BList a BObjectList in USBVideoParser | Media | Da fare | USBVideoParser.h/cpp |
+| 7 | Convertire BList a BObjectList in USBVideoParser | Media | COMPLETATO | USBVideoParser.h/cpp, DriverInfoView.cpp, WebcamDevice.cpp |
 | 8 | Usare atomic_int invece di volatile bool in MCPServer | Media | Da fare | MCPServer.h/cpp |
 | 9 | Documentare magic numbers con commenti | Bassa | Da fare | Vari file |
 | 10 | Refactoring WebcamDevice per ridurre responsabilita | Bassa | Da fare | WebcamDevice.h/cpp |
@@ -177,9 +177,28 @@ USBVideoParser non validava la lunghezza dei descrittori USB prima di accedere a
 ### Task 7: BList -> BObjectList (PRIORITA MEDIA)
 
 **Problema:**
-USBVideoParser usa BList con cancellazione manuale, error-prone.
+USBVideoParser usava BList con void* pointers che richiedevano casting manuali error-prone e deallocazione manuale nei distruttori. Nessun type-safety a compile time.
 
-**Stato:** Da fare
+**Soluzione:**
+- Convertito `BList` a `BObjectList<T, true>` (owning) per gestione automatica memoria
+- `USBVideoInfo::formats` -> `BObjectList<USBVideoFormat, true>`
+- `USBVideoFormat::frames` -> `BObjectList<USBVideoFrame, true>`
+- `USBVideoFrame::frameRates` -> `BObjectList<FrameRate, true>` (nuovo wrapper struct)
+- Rimossi tutti i cast manuali nei file che accedevano alle liste
+- Rimossi i distruttori con loop di delete (ora automatici)
+
+**Test di verifica:**
+- Eseguire: `./tests/test_task7_bobjectlist.sh`
+- Verificare nessun crash e nessun memory leak
+
+**Stato:** COMPLETATO
+**Completato:** 2024-12-14
+
+**Modifiche apportate:**
+- `USBVideoParser.h`: Sostituito `#include <List.h>` con `#include <ObjectList.h>`, aggiunto struct `FrameRate`, convertite le 3 liste a `BObjectList<T, true>`, rimossi distruttori manuali
+- `USBVideoParser.cpp`: Rimossi cast `(void*)` da AddItem(), usato `new FrameRate(value)` invece di `new float`
+- `DriverInfoView.cpp`: Rimossi cast manuali, usato `fps->value` per accedere al frame rate
+- `WebcamDevice.cpp`: Rimossi cast manuali da ItemAt()
 
 ---
 
@@ -221,6 +240,7 @@ Gestione errori inconsistente tra status_t, BAlert e stderr.
 
 ## Changelog
 
+- **2024-12-14**: Task 7 completato - Convertito BList a BObjectList type-safe
 - **2024-12-14**: Task 6 completato - Aggiunto controllo dimensioni memcpy
 - **2024-12-14**: Task 5 completato - Aggiunta validazione descrittori USB
 - **2024-12-14**: Task 4 completato - Aggiunto controllo allocazione BBitmap

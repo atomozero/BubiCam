@@ -226,14 +226,14 @@ WebcamDevice::ParseUSBDescriptors()
 		fSupportedFormats.MakeEmpty();
 
 		for (int32 f = 0; f < fUSBVideoInfo.formats.CountItems(); f++) {
-			USBVideoFormat* usbFormat = (USBVideoFormat*)fUSBVideoInfo.formats.ItemAt(f);
+			USBVideoFormat* usbFormat = fUSBVideoInfo.formats.ItemAt(f);
 			if (usbFormat != NULL) {
 				fprintf(stderr, "    Format %d: %s (%d frames)\n",
 					usbFormat->formatIndex, usbFormat->formatName.String(),
 					(int)usbFormat->frames.CountItems());
 
 				for (int32 fr = 0; fr < usbFormat->frames.CountItems(); fr++) {
-					USBVideoFrame* frame = (USBVideoFrame*)usbFormat->frames.ItemAt(fr);
+					USBVideoFrame* frame = usbFormat->frames.ItemAt(fr);
 					if (frame != NULL) {
 						fprintf(stderr, "      Frame %d: %dx%d @ %.1f fps\n",
 							(int)fr, frame->width, frame->height, frame->defaultFrameRate);
@@ -927,9 +927,9 @@ WebcamDevice::_SetupVideoConnection()
 		// This is CRITICAL - the producer will use these to allocate buffers
 		if (fUSBVideoInfo.found && fUSBVideoInfo.formats.CountItems() > 0) {
 			// Try to get first available resolution from USB descriptors
-			USBVideoFormat* usbFormat = (USBVideoFormat*)fUSBVideoInfo.formats.ItemAt(0);
+			USBVideoFormat* usbFormat = fUSBVideoInfo.formats.ItemAt(0);
 			if (usbFormat != NULL && usbFormat->frames.CountItems() > 0) {
-				USBVideoFrame* frame = (USBVideoFrame*)usbFormat->frames.ItemAt(0);
+				USBVideoFrame* frame = usbFormat->frames.ItemAt(0);
 				if (frame != NULL && frame->width > 0 && frame->height > 0) {
 					driverWidth = frame->width;
 					driverHeight = frame->height;
@@ -1236,11 +1236,11 @@ WebcamDevice::_SetupVideoConnection()
 	if (fUSBVideoInfo.found && fUSBVideoInfo.formats.CountItems() > 0) {
 		_LogFormatNegotiation("Using resolutions from USB descriptor parsing:");
 		for (int32 f = 0; f < fUSBVideoInfo.formats.CountItems(); f++) {
-			USBVideoFormat* usbFormat = (USBVideoFormat*)fUSBVideoInfo.formats.ItemAt(f);
+			USBVideoFormat* usbFormat = fUSBVideoInfo.formats.ItemAt(f);
 			if (usbFormat == NULL) continue;
 
 			for (int32 fr = 0; fr < usbFormat->frames.CountItems(); fr++) {
-				USBVideoFrame* frame = (USBVideoFrame*)usbFormat->frames.ItemAt(fr);
+				USBVideoFrame* frame = usbFormat->frames.ItemAt(fr);
 				if (frame == NULL || frame->width == 0 || frame->height == 0) continue;
 
 				ResolutionAttempt* attempt = new ResolutionAttempt();

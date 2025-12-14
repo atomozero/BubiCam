@@ -266,7 +266,7 @@ DriverInfoView::SetDevice(WebcamDevice* device, bool isCapturing)
 
 		// Display each format and its frames
 		for (int32 f = 0; f < usbInfo.formats.CountItems(); f++) {
-			USBVideoFormat* format = (USBVideoFormat*)usbInfo.formats.ItemAt(f);
+			USBVideoFormat* format = usbInfo.formats.ItemAt(f);
 			if (format == NULL)
 				continue;
 
@@ -280,7 +280,7 @@ DriverInfoView::SetDevice(WebcamDevice* device, bool isCapturing)
 				_AppendField("Bits per Pixel", (int32)format->bitsPerPixel);
 
 			for (int32 fr = 0; fr < format->frames.CountItems(); fr++) {
-				USBVideoFrame* frame = (USBVideoFrame*)format->frames.ItemAt(fr);
+				USBVideoFrame* frame = format->frames.ItemAt(fr);
 				if (frame == NULL)
 					continue;
 
@@ -290,11 +290,11 @@ DriverInfoView::SetDevice(WebcamDevice* device, bool isCapturing)
 				if (frame->frameRates.CountItems() > 0) {
 					fpsInfo << " @ ";
 					for (int32 r = 0; r < frame->frameRates.CountItems(); r++) {
-						float* fps = (float*)frame->frameRates.ItemAt(r);
+						FrameRate* fps = frame->frameRates.ItemAt(r);
 						if (fps != NULL) {
 							if (r > 0)
 								fpsInfo << ", ";
-							fpsInfo << BString().SetToFormat("%.1f", *fps);
+							fpsInfo << BString().SetToFormat("%.1f", fps->value);
 						}
 					}
 					fpsInfo << " fps";
