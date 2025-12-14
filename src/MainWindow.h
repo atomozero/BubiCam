@@ -17,6 +17,7 @@
 #include <FilePanel.h>
 #include <Bitmap.h>
 #include <Button.h>
+#include <Locker.h>
 #include <ToolBar.h>
 
 class VideoPreviewView;
@@ -111,6 +112,7 @@ private:
 
 	WebcamRoster*		fWebcamRoster;
 	WebcamDevice*		fCurrentWebcam;
+	mutable BLocker		fWebcamLock;	// Protects fCurrentWebcam access
 	int32				fCurrentWebcamIndex;
 	bool				fIsPreviewActive;
 

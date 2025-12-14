@@ -33,6 +33,7 @@
 #include <MediaRoster.h>
 #include <Roster.h>
 
+#include <Autolock.h>
 #include <Directory.h>
 #include <File.h>
 #include <FindDirectory.h>
@@ -447,8 +448,11 @@ MainWindow::_SelectWebcam(int32 index)
 		return;
 	}
 
-	fCurrentWebcam = device;
-	fCurrentWebcamIndex = index;
+	{
+		BAutolock lock(fWebcamLock);
+		fCurrentWebcam = device;
+		fCurrentWebcamIndex = index;
+	}
 
 	// Update menu checkmarks
 	for (int32 i = 2; i < fWebcamMenu->CountItems(); i++) {
@@ -849,12 +853,15 @@ MainWindow::MessageReceived(BMessage* message)
 					(int32)(bitmapBounds.Width() + 1),
 					(int32)(bitmapBounds.Height() + 1));
 
-				// Update stats from consumer
-				if (fCurrentWebcam != NULL) {
-					fVideoPreview->UpdateStats(
-						fCurrentWebcam->CurrentFPS(),
-						fCurrentWebcam->FramesCaptured(),
-						fCurrentWebcam->FramesDropped());
+				// Update stats from consumer (with lock protection)
+				{
+					BAutolock lock(fWebcamLock);
+					if (fCurrentWebcam != NULL) {
+						fVideoPreview->UpdateStats(
+							fCurrentWebcam->CurrentFPS(),
+							fCurrentWebcam->FramesCaptured(),
+							fCurrentWebcam->FramesDropped());
+					}
 				}
 
 				// Update stats bar (every frame)
@@ -1173,8 +1180,11 @@ MainWindow::QuitRequested()
 		fprintf(stderr, "  Skipping Media Kit cleanup to avoid hang\n");
 
 		// Just mark as not capturing and let the OS clean up
-		fIsPreviewActive = false;
-		fCurrentWebcam = NULL;
+		{
+			BAutolock lock(fWebcamLock);
+			fIsPreviewActive = false;
+			fCurrentWebcam = NULL;
+		}
 
 		// Don't try to clear the roster - it would call into the frozen driver
 		// The OS will clean up when the process exits

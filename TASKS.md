@@ -8,7 +8,7 @@ Questo documento traccia i task di miglioramento del codice identificati durante
 |---|------|----------|-------|----------------|
 | 1 | Aggiungere BLocker per fTarget in VideoConsumer/AudioConsumer | Alta | COMPLETATO | VideoConsumer.h/cpp, AudioConsumer.h/cpp |
 | 2 | Fix race condition in WebcamDevice::StopCapture() | Alta | COMPLETATO | WebcamDevice.h/cpp |
-| 3 | Aggiungere lock per fCurrentWebcam in MainWindow | Alta | Da fare | MainWindow.h/cpp |
+| 3 | Aggiungere lock per fCurrentWebcam in MainWindow | Alta | COMPLETATO | MainWindow.h/cpp |
 | 4 | Aggiungere controllo allocazione per tutte le new BBitmap | Alta | Da fare | WebcamDevice.cpp, VideoConsumer.cpp |
 | 5 | Validare lunghezza descrittori USB prima di accedere | Media | Da fare | USBVideoParser.cpp |
 | 6 | Verificare dimensioni prima di memcpy in MainWindow | Media | Da fare | MainWindow.cpp |
@@ -81,9 +81,24 @@ In `WebcamDevice::StopCapture()` c'e una finestra temporale dove i puntatori pot
 ### Task 3: Lock per fCurrentWebcam (PRIORITA ALTA)
 
 **Problema:**
-`fCurrentWebcam` in MainWindow viene accesso da piu message handler senza protezione.
+`fCurrentWebcam` in MainWindow viene acceduto da piu' message handler senza protezione. In particolare, `MSG_FRAME_RECEIVED` (che arriva dal Media Kit) poteva accedere a `fCurrentWebcam` mentre altri handler lo modificavano.
 
-**Stato:** Da fare
+**Soluzione:**
+- Aggiungere `BLocker fWebcamLock` per proteggere l'accesso a `fCurrentWebcam`
+- `_SelectWebcam()` usa il lock quando modifica `fCurrentWebcam`
+- `MSG_FRAME_RECEIVED` usa il lock quando accede alle statistiche
+- `QuitRequested()` usa il lock quando modifica `fCurrentWebcam`
+
+**Test di verifica:**
+- Eseguire: `./tests/test_task3_webcam_lock.sh`
+- Verificare nessun crash durante cicli di selezione webcam
+
+**Stato:** COMPLETATO
+**Completato:** 2024-12-14
+
+**Modifiche apportate:**
+- `MainWindow.h`: Aggiunto `#include <Locker.h>`, `mutable BLocker fWebcamLock`
+- `MainWindow.cpp`: Aggiunto `#include <Autolock.h>`, modificati `_SelectWebcam()`, `MSG_FRAME_RECEIVED`, `QuitRequested()` per usare il lock
 
 ---
 
@@ -161,6 +176,7 @@ Gestione errori inconsistente tra status_t, BAlert e stderr.
 
 ## Changelog
 
+- **2024-12-14**: Task 3 completato - Aggiunto BLocker per fCurrentWebcam
 - **2024-12-14**: Task 2 completato - Fix race condition in StopCapture
 - **2024-12-14**: Task 1 completato - Aggiunto BLocker per fTarget
 - **2024-12-14**: Documento creato
