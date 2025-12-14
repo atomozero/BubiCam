@@ -108,7 +108,7 @@ WebcamDevice::WebcamDevice(const dormant_node_info& info, status_t instantiateEr
 
 WebcamDevice::~WebcamDevice()
 {
-	fprintf(stderr, "WebcamDevice::~WebcamDevice() - destroying '%s'\n", fName.String());
+	LOG_DEBUG("Destroying device '%s'", fName.String());
 
 	// Stop capture if active
 	if (fIsCapturing)
@@ -122,8 +122,6 @@ WebcamDevice::~WebcamDevice()
 	for (int32 i = 0; i < fSupportedFormats.CountItems(); i++)
 		delete fSupportedFormats.ItemAt(i);
 	fSupportedFormats.MakeEmpty();
-
-	fprintf(stderr, "WebcamDevice::~WebcamDevice() - done\n");
 }
 
 
@@ -201,18 +199,11 @@ WebcamDevice::GatherDeviceInfo()
 status_t
 WebcamDevice::ParseUSBDescriptors()
 {
-	fprintf(stderr, "WebcamDevice::ParseUSBDescriptors()\n");
-
 	// Find and parse USB video device descriptors
-	// Pass pointer to avoid copy (which would cause dangling pointers in BList)
+	// (FindAndParseUSBVideoDevice already logs the results via ErrorUtils)
 	FindAndParseUSBVideoDevice(&fUSBVideoInfo);
 
 	if (fUSBVideoInfo.found) {
-		fprintf(stderr, "  USB Video device found: %s %s\n",
-			fUSBVideoInfo.vendorName.String(),
-			fUSBVideoInfo.productName.String());
-		fprintf(stderr, "  Diagnostic:\n%s\n", fUSBVideoInfo.diagnosticInfo.String());
-
 		// Update our device info with USB info
 		fUSBInfo.vendorID = fUSBVideoInfo.vendorID;
 		fUSBInfo.productID = fUSBVideoInfo.productID;
@@ -223,48 +214,36 @@ WebcamDevice::ParseUSBDescriptors()
 		if (fUSBVideoInfo.serialNumber.Length() > 0)
 			fUSBInfo.serialNumber = fUSBVideoInfo.serialNumber;
 
-		// Log formats found and populate fSupportedFormats
-		fprintf(stderr, "  Found %d format(s):\n", (int)fUSBVideoInfo.formats.CountItems());
-
 		// Clear existing formats
 		for (int32 i = 0; i < fSupportedFormats.CountItems(); i++)
 			delete fSupportedFormats.ItemAt(i);
 		fSupportedFormats.MakeEmpty();
 
+		// Populate fSupportedFormats for Format menu
 		for (int32 f = 0; f < fUSBVideoInfo.formats.CountItems(); f++) {
 			USBVideoFormat* usbFormat = fUSBVideoInfo.formats.ItemAt(f);
-			if (usbFormat != NULL) {
-				fprintf(stderr, "    Format %d: %s (%d frames)\n",
-					usbFormat->formatIndex, usbFormat->formatName.String(),
-					(int)usbFormat->frames.CountItems());
+			if (usbFormat == NULL)
+				continue;
 
-				for (int32 fr = 0; fr < usbFormat->frames.CountItems(); fr++) {
-					USBVideoFrame* frame = usbFormat->frames.ItemAt(fr);
-					if (frame != NULL) {
-						fprintf(stderr, "      Frame %d: %dx%d @ %.1f fps\n",
-							(int)fr, frame->width, frame->height, frame->defaultFrameRate);
+			for (int32 fr = 0; fr < usbFormat->frames.CountItems(); fr++) {
+				USBVideoFrame* frame = usbFormat->frames.ItemAt(fr);
+				if (frame == NULL)
+					continue;
 
-						// Add to fSupportedFormats for Format menu
-						VideoFormat* vf = new VideoFormat();
-						vf->width = frame->width;
-						vf->height = frame->height;
-						vf->frameRate = frame->defaultFrameRate;
-						strncpy(vf->colorSpace, usbFormat->formatName.String(),
-							sizeof(vf->colorSpace) - 1);
-						vf->colorSpace[sizeof(vf->colorSpace) - 1] = '\0';
-						fSupportedFormats.AddItem(vf);
-					}
-				}
+				VideoFormat* vf = new VideoFormat();
+				vf->width = frame->width;
+				vf->height = frame->height;
+				vf->frameRate = frame->defaultFrameRate;
+				strncpy(vf->colorSpace, usbFormat->formatName.String(),
+					sizeof(vf->colorSpace) - 1);
+				vf->colorSpace[sizeof(vf->colorSpace) - 1] = '\0';
+				fSupportedFormats.AddItem(vf);
 			}
 		}
-
-		fprintf(stderr, "  Populated %d formats in Format menu\n",
-			(int)fSupportedFormats.CountItems());
 
 		return B_OK;
 	}
 
-	fprintf(stderr, "  No USB Video device found\n");
 	return B_ENTRY_NOT_FOUND;
 }
 
@@ -336,38 +315,24 @@ WebcamDevice::_GatherVideoFormats()
 	if (roster == NULL)
 		return;
 
-	// First try to enumerate formats using ParameterWeb
-	// This works even when the node is already connected
-	// This is more reliable than USB parsing after the device has been used
 	// IMPORTANT: GetParameterWebFor only works on instantiated (non-dormant) nodes
-	if (!fNodeInstantiated) {
-		fprintf(stderr, "_GatherVideoFormats: node not instantiated, skipping ParameterWeb\n");
+	if (!fNodeInstantiated)
 		return;
-	}
 
 	BParameterWeb* web = NULL;
-	fprintf(stderr, "_GatherVideoFormats: getting ParameterWeb for node %d\n", fMediaNode.node);
 	status_t webStatus = roster->GetParameterWebFor(fMediaNode, &web);
-	fprintf(stderr, "_GatherVideoFormats: GetParameterWebFor returned %s, web=%p\n",
-		strerror(webStatus), web);
 	if (webStatus == B_OK && web != NULL) {
-		fprintf(stderr, "_GatherVideoFormats: web has %d parameters\n", (int)web->CountParameters());
 		for (int32 i = 0; i < web->CountParameters(); i++) {
 			BParameter* param = web->ParameterAt(i);
 			if (param == NULL)
 				continue;
 
-			// Look for Resolution parameter (type=1 is BDiscreteParameter)
+			// Look for Resolution parameter
 			BString paramName = param->Name();
-			fprintf(stderr, "_GatherVideoFormats: checking param '%s'\n", paramName.String());
-
 			if (paramName.IFindFirst("Resolution") >= 0 ||
 				paramName.IFindFirst("Frame Size") >= 0) {
 				BDiscreteParameter* discrete = dynamic_cast<BDiscreteParameter*>(param);
 				if (discrete != NULL && discrete->CountItems() > 0) {
-					fprintf(stderr, "_GatherVideoFormats: Found Resolution param with %d items\n",
-						(int)discrete->CountItems());
-
 					// Clear existing formats and use the driver's list
 					for (int32 j = 0; j < fSupportedFormats.CountItems(); j++)
 						delete fSupportedFormats.ItemAt(j);
@@ -375,28 +340,21 @@ WebcamDevice::_GatherVideoFormats()
 
 					for (int32 j = 0; j < discrete->CountItems(); j++) {
 						const char* itemName = discrete->ItemNameAt(j);
-						fprintf(stderr, "  Item %d: name='%s'\n", (int)j,
-							itemName ? itemName : "(null)");
-
 						if (itemName == NULL || itemName[0] == '\0')
 							continue;
 
-						// Parse resolution from item name (e.g., "640x480" or "640 x 480")
+						// Parse resolution from item name (e.g., "640x480")
 						int width = 0, height = 0;
 						if (sscanf(itemName, "%dx%d", &width, &height) == 2 ||
 							sscanf(itemName, "%d x %d", &width, &height) == 2) {
 							VideoFormat* vf = new VideoFormat();
 							vf->width = width;
 							vf->height = height;
-							vf->frameRate = 30.0f;  // Default
+							vf->frameRate = 30.0f;
 							strlcpy(vf->colorSpace, "YUY2", sizeof(vf->colorSpace));
 							fSupportedFormats.AddItem(vf);
-							fprintf(stderr, "  -> Added format: %dx%d\n", width, height);
 						}
 					}
-
-					fprintf(stderr, "_GatherVideoFormats: total formats: %d\n",
-						(int)fSupportedFormats.CountItems());
 				}
 			}
 		}
@@ -404,9 +362,7 @@ WebcamDevice::_GatherVideoFormats()
 	}
 
 	// Fallback: if ParameterWeb didn't give us formats, try GetFreeOutputsFor
-	// (only works when node is not yet connected)
 	if (fSupportedFormats.CountItems() == 0) {
-		fprintf(stderr, "_GatherVideoFormats: trying GetFreeOutputsFor fallback\n");
 		int32 cookie = 0;
 		media_output output;
 		status_t status = roster->GetFreeOutputsFor(fMediaNode, &output, 1, &cookie,
@@ -441,8 +397,6 @@ WebcamDevice::_GatherVideoFormats()
 
 				fSupportedFormats.AddItem(vf);
 				fCurrentFormat = *vf;
-				fprintf(stderr, "_GatherVideoFormats: fallback added format %dx%d\n",
-					vf->width, vf->height);
 			}
 		}
 	}
@@ -494,94 +448,67 @@ WebcamDevice::_GatherAudioInfo()
 status_t
 WebcamDevice::StartCapture(BLooper* target)
 {
-	fprintf(stderr, "WebcamDevice::StartCapture() called\n");
+	LOG_INFO("Starting capture for '%s'", fName.String());
 
 	if (fIsCapturing) {
-		fprintf(stderr, "  -> Already capturing, returning B_BUSY\n");
+		LOG_WARNING("Already capturing");
 		return B_BUSY;
 	}
 
 	fTarget = target;
-	fUsedLiveNode = false;  // Track if we used an existing live node
+	fUsedLiveNode = false;
 
 	BMediaRoster* roster = BMediaRoster::Roster();
 	if (roster == NULL) {
-		fprintf(stderr, "  -> BMediaRoster not available!\n");
+		LOG_ERROR("BMediaRoster not available");
 		return B_ERROR;
 	}
 
 	status_t status;
 
-	// Try to get the video input node
-	fprintf(stderr, "  -> fNodeInstantiated = %s\n", fNodeInstantiated ? "true" : "false");
+	// Instantiate node if needed
 	if (!fNodeInstantiated) {
-		// IMPORTANT: Always instantiate a fresh dormant node.
-		// Live nodes may have stale internal state (fConnected=true) from previous
-		// connections that weren't properly terminated, causing Connect() to fail
-		// silently without creating the buffer group.
-		// This matches CodyCam's behavior - it always uses InstantiateDormantNode.
-		{
-			// No live node found, instantiate from dormant
-			fprintf(stderr, "  -> No live node found, instantiating dormant node '%s' (addon=%d, flavor=%d)...\n",
-				fDormantInfo.name, fDormantInfo.addon, fDormantInfo.flavor_id);
+		LOG_DEBUG("Instantiating node '%s'", fDormantInfo.name);
 
-			// Use InstantiateDormantNode to get the specific webcam node
-			status = roster->InstantiateDormantNode(fDormantInfo, &fMediaNode, 0);
-			if (status != B_OK) {
-				fprintf(stderr, "  -> First attempt failed (%s), trying with B_FLAVOR_IS_GLOBAL...\n",
-					strerror(status));
-				status = roster->InstantiateDormantNode(fDormantInfo, &fMediaNode,
-					B_FLAVOR_IS_GLOBAL);
-			}
-
-			if (status != B_OK) {
-				fprintf(stderr, "  -> Failed to instantiate node: %s (0x%x)\n",
-					strerror(status), status);
-				return status;
-			}
-			fNodeInstantiated = true;
-			fMediaNodeID = fMediaNode.node;
-			fUsedLiveNode = false;
+		status = roster->InstantiateDormantNode(fDormantInfo, &fMediaNode, 0);
+		if (status != B_OK) {
+			status = roster->InstantiateDormantNode(fDormantInfo, &fMediaNode,
+				B_FLAVOR_IS_GLOBAL);
 		}
 
-		fprintf(stderr, "  -> Node ready, ID = %d, port = %d, kind = 0x%x, usedLiveNode=%s\n",
-			fMediaNodeID, fMediaNode.port, (int)fMediaNode.kind,
-			fUsedLiveNode ? "true" : "false");
-	} else {
-		fprintf(stderr, "  -> Node already instantiated, ID = %d\n", fMediaNodeID);
+		if (status != B_OK) {
+			LOG_ERROR("Failed to instantiate node: %s", strerror(status));
+			return status;
+		}
+		fNodeInstantiated = true;
+		fMediaNodeID = fMediaNode.node;
+		fUsedLiveNode = false;
+		LOG_DEBUG("Node instantiated, ID=%d", fMediaNodeID);
 	}
 
 	// Set up video connection
-	fprintf(stderr, "  -> Setting up video connection...\n");
 	status = _SetupVideoConnection();
 	if (status != B_OK) {
-		fprintf(stderr, "  -> Failed to set up video connection: %s (0x%x)\n",
-			strerror(status), status);
+		LOG_ERROR("Video connection failed: %s", strerror(status));
 		_TeardownConnections();
 		return status;
 	}
-	fprintf(stderr, "  -> Video connection established\n");
 
 	// Set up audio connection if available
 	if (fSupportsAudio) {
-		fprintf(stderr, "  -> Setting up audio connection...\n");
 		status = _SetupAudioConnection();
-		if (status != B_OK) {
-			fprintf(stderr, "  -> Note: Audio connection failed: %s\n",
-				strerror(status));
-			// Continue without audio
-		}
+		if (status != B_OK)
+			LOG_DEBUG("Audio not available: %s", strerror(status));
 	}
 
 	// Get the time source
 	media_node timeSource;
 	status = roster->GetTimeSource(&timeSource);
 	if (status != B_OK) {
-		fprintf(stderr, "  -> Failed to get time source: %s\n", strerror(status));
+		LOG_ERROR("Failed to get time source: %s", strerror(status));
 		_TeardownConnections();
 		return status;
 	}
-	fprintf(stderr, "  -> Got time source, node=%d\n", timeSource.node);
 
 	// Set time source for all nodes
 	roster->SetTimeSourceFor(fMediaNode.node, timeSource.node);
@@ -595,84 +522,33 @@ WebcamDevice::StartCapture(BLooper* target)
 	bigtime_t startTime = ts->Now() + kMediaStartDelay;
 	ts->Release();
 
-	// CRITICAL: Call Preroll() on the producer BEFORE StartNode
-	// This gives the hardware a chance to prepare for streaming.
-	// The USB webcam driver may need this to initialize properly.
-	fprintf(stderr, "  -> Calling Preroll() on producer node...\n");
+	// Preroll and start nodes
 	roster->PrerollNode(fMediaNode);
-
-	// Small delay to let driver prepare
 	snooze(kPostSeekDelay);
 
-	// Start nodes
-	// NOTE: We ALWAYS call StartNode on the producer, even for "live" nodes.
-	// "Live" in Media Kit means "instantiated and registered", NOT "already producing data".
-	// The UVC driver won't start USB streaming until it receives StartNode().
-	// This matches how Cortex handles all nodes (see NodeRef::_start() in Cortex source).
-	fprintf(stderr, "  -> Starting producer node%s...\n",
-		fUsedLiveNode ? " (existing live node)" : " (newly instantiated)");
 	status = roster->StartNode(fMediaNode, startTime);
 	if (status != B_OK) {
-		fprintf(stderr, "  -> Failed to start producer: %s (0x%x)\n", strerror(status), status);
-		// Don't fail completely - some drivers return errors but still work
-		fprintf(stderr, "  -> Continuing despite StartNode error...\n");
-	} else {
-		fprintf(stderr, "  -> Producer started successfully\n");
+		LOG_WARNING("StartNode returned: %s (continuing anyway)", strerror(status));
 	}
 
 	if (fVideoConsumer != NULL) {
-		fprintf(stderr, "  -> Starting video consumer node...\n");
 		status = roster->StartNode(fVideoConsumer->Node(), startTime);
-		if (status != B_OK) {
-			fprintf(stderr, "  -> Failed to start video consumer: %s\n",
-				strerror(status));
-		} else {
-			fprintf(stderr, "  -> Video consumer started at time %ld\n", startTime);
-			fprintf(stderr, "  -> Consumer connected=%s, node=%d, port=%d\n",
-				fVideoConsumer->IsConnected() ? "true" : "false",
-				fVideoConsumer->Node().node,
-				fVideoConsumer->Input().destination.port);
-		}
-	}
-
-	// Verify connection is truly established by checking connected outputs
-	fprintf(stderr, "  -> Verifying connection state...\n");
-	int32 connCount = 0;
-	media_output connOutputs[10];
-	status = roster->GetConnectedOutputsFor(fMediaNode, connOutputs, 10, &connCount);
-	fprintf(stderr, "  -> GetConnectedOutputsFor: status=%s, count=%d\n",
-		strerror(status), (int)connCount);
-	for (int32 i = 0; i < connCount; i++) {
-		fprintf(stderr, "     Connected output %d: name='%s', dest.node=%d, dest.port=%d\n",
-			(int)i, connOutputs[i].name,
-			connOutputs[i].destination.id, connOutputs[i].destination.port);
-	}
-
-	// Also verify the consumer sees the connection
-	if (fVideoConsumer != NULL) {
-		media_input input = fVideoConsumer->Input();
-		fprintf(stderr, "  -> Consumer input state: source.node=%d, source.port=%d, source.id=%d\n",
-			input.source.port != 0 ? fMediaNode.node : -1,
-			input.source.port, input.source.id);
+		if (status != B_OK)
+			LOG_WARNING("Video consumer start failed: %s", strerror(status));
 	}
 
 	if (fAudioConsumer != NULL) {
-		fprintf(stderr, "  -> Starting audio consumer node...\n");
 		status = roster->StartNode(fAudioConsumer->Node(), startTime);
-		if (status != B_OK) {
-			fprintf(stderr, "  -> Failed to start audio consumer: %s\n",
-				strerror(status));
-		}
+		if (status != B_OK)
+			LOG_DEBUG("Audio consumer start failed: %s", strerror(status));
 	}
 
 	fIsCapturing = true;
 
 	// Refresh formats now that ParameterWeb is available
-	fprintf(stderr, "  -> Refreshing video formats from ParameterWeb...\n");
 	_GatherVideoFormats();
-	fprintf(stderr, "  -> Formats after refresh: %d\n", (int)fSupportedFormats.CountItems());
 
-	fprintf(stderr, "  -> Capture started successfully!\n");
+	LOG_INFO("Capture started successfully");
 	return B_OK;
 }
 
@@ -683,11 +559,11 @@ WebcamDevice::StopCapture()
 	if (!fIsCapturing)
 		return;
 
-	fprintf(stderr, "WebcamDevice::StopCapture() called\n");
+	LOG_INFO("Stopping capture");
 
 	BMediaRoster* roster = BMediaRoster::Roster();
 	if (roster == NULL) {
-		fprintf(stderr, "  -> BMediaRoster is NULL, skipping cleanup\n");
+		LOG_WARNING("BMediaRoster is NULL during cleanup");
 		BAutolock lock(fCaptureLock);
 		fIsCapturing = false;
 		fTarget = NULL;
@@ -710,121 +586,79 @@ WebcamDevice::StopCapture()
 	media_input audioInput = {};
 
 	// CRITICAL: Hold lock while accessing and clearing member pointers
-	// This prevents other threads from accessing consumers during cleanup
 	{
 		BAutolock lock(fCaptureLock);
 
-		// Save consumer pointers
 		videoConsumer = fVideoConsumer;
 		audioConsumer = fAudioConsumer;
 
-		// FIRST: Tell consumers to stop sending messages to target
-		// This must happen BEFORE we start Media Kit cleanup
+		// Tell consumers to stop sending messages
 		if (videoConsumer != NULL && IsValidPointer(videoConsumer)) {
-			fprintf(stderr, "  -> Setting video consumer target to NULL\n");
 			videoConsumer->SetTarget(NULL);
 			videoConsumerNode = videoConsumer->Node();
 		} else if (videoConsumer != NULL) {
-			fprintf(stderr, "  -> WARNING: videoConsumer pointer looks invalid: %p\n",
-				(void*)videoConsumer);
+			LOG_WARNING("Invalid videoConsumer pointer: %p", (void*)videoConsumer);
 			videoConsumer = NULL;
 		}
 
 		if (audioConsumer != NULL && IsValidPointer(audioConsumer)) {
-			fprintf(stderr, "  -> Setting audio consumer target to NULL\n");
 			audioConsumer->SetTarget(NULL);
 			audioConsumerNode = audioConsumer->Node();
 		} else if (audioConsumer != NULL) {
-			fprintf(stderr, "  -> WARNING: audioConsumer pointer looks invalid: %p\n",
-				(void*)audioConsumer);
 			audioConsumer = NULL;
 		}
 
-		// Save other state needed for cleanup
+		// Save state for cleanup
 		producerNode = fMediaNode;
 		wasVideoConnected = fVideoConnected;
 		wasAudioConnected = fAudioConnected;
 		nodeWasInstantiated = fNodeInstantiated;
 		usedLiveNode = fUsedLiveNode;
-
-		// Save connection info for disconnect
 		videoOutput = fVideoOutput;
 		videoInput = fVideoInput;
 		audioOutput = fAudioOutput;
 		audioInput = fAudioInput;
 
-		fprintf(stderr, "  -> Saved local copies: video=%p (node=%d), audio=%p (node=%d)\n",
-			(void*)videoConsumer, videoConsumerNode.node,
-			(void*)audioConsumer, audioConsumerNode.node);
-
-		// Clear ALL member pointers and flags while still holding lock
-		// After releasing the lock, other threads will see NULL pointers
+		// Clear member pointers
 		fIsCapturing = false;
 		fVideoConsumer = NULL;
 		fAudioConsumer = NULL;
 		fVideoConnected = false;
 		fAudioConnected = false;
 	}
-	// Lock released here - other threads can now safely check fVideoConsumer (will be NULL)
 
-	// Stop the producer node first (using saved data only)
-	if (nodeWasInstantiated) {
-		fprintf(stderr, "  -> Stopping producer node %d%s...\n",
-			producerNode.node, usedLiveNode ? " (live node)" : "");
+	// Stop nodes
+	if (nodeWasInstantiated)
 		roster->StopNode(producerNode, 0, true);
-	}
-
-	// Stop consumers using SAVED node info - NO method calls on consumer objects!
-	if (videoConsumerNode.node > 0) {
-		fprintf(stderr, "  -> Stopping video consumer node %d...\n", videoConsumerNode.node);
+	if (videoConsumerNode.node > 0)
 		roster->StopNode(videoConsumerNode, 0, true);
-	}
-
-	if (audioConsumerNode.node > 0) {
-		fprintf(stderr, "  -> Stopping audio consumer node %d...\n", audioConsumerNode.node);
+	if (audioConsumerNode.node > 0)
 		roster->StopNode(audioConsumerNode, 0, true);
-	}
 
-	// Disconnect video (using saved connection info)
-	if (wasVideoConnected) {
-		fprintf(stderr, "  -> Disconnecting video...\n");
+	// Disconnect
+	if (wasVideoConnected)
 		roster->Disconnect(videoOutput.node.node, videoOutput.source,
 			videoInput.node.node, videoInput.destination);
-	}
-
-	// Disconnect audio (using saved connection info)
-	if (wasAudioConnected) {
-		fprintf(stderr, "  -> Disconnecting audio...\n");
+	if (wasAudioConnected)
 		roster->Disconnect(audioOutput.node.node, audioOutput.source,
 			audioInput.node.node, audioInput.destination);
-	}
 
-	// Unregister consumers - these calls are safe because UnregisterNode
-	// takes a BMediaNode* and only accesses the node ID
-	if (videoConsumer != NULL && videoConsumerNode.node > 0) {
-		fprintf(stderr, "  -> Unregistering video consumer...\n");
+	// Unregister consumers
+	if (videoConsumer != NULL && videoConsumerNode.node > 0)
 		roster->UnregisterNode(videoConsumer);
-	}
-
-	if (audioConsumer != NULL && audioConsumerNode.node > 0) {
-		fprintf(stderr, "  -> Unregistering audio consumer...\n");
+	if (audioConsumer != NULL && audioConsumerNode.node > 0)
 		roster->UnregisterNode(audioConsumer);
-	}
 
-	// Release the producer node only if we instantiated it (not for live nodes)
+	// Release the producer node
 	if (nodeWasInstantiated) {
-		if (!usedLiveNode) {
-			fprintf(stderr, "  -> Releasing producer node...\n");
+		if (!usedLiveNode)
 			roster->ReleaseNode(producerNode);
-		} else {
-			fprintf(stderr, "  -> Not releasing producer (live node, system-managed)\n");
-		}
 		fNodeInstantiated = false;
 		fUsedLiveNode = false;
 	}
 
 	fTarget = NULL;
-	fprintf(stderr, "  -> StopCapture() completed\n");
+	LOG_DEBUG("Capture stopped");
 }
 
 
@@ -1438,8 +1272,7 @@ WebcamDevice::_SetupAudioConnection()
 	// Register consumer
 	status = roster->RegisterNode(fAudioConsumer);
 	if (status != B_OK) {
-		fprintf(stderr, "Failed to register audio consumer: %s\n",
-			strerror(status));
+		LOG_DEBUG("Failed to register audio consumer: %s", strerror(status));
 		delete fAudioConsumer;
 		fAudioConsumer = NULL;
 		return status;
@@ -1452,7 +1285,6 @@ WebcamDevice::_SetupAudioConnection()
 		B_MEDIA_RAW_AUDIO);
 
 	if (status != B_OK || outputCount == 0) {
-		fprintf(stderr, "No audio outputs available\n");
 		roster->UnregisterNode(fAudioConsumer);
 		delete fAudioConsumer;
 		fAudioConsumer = NULL;
@@ -1468,7 +1300,6 @@ WebcamDevice::_SetupAudioConnection()
 		&inputCount, B_MEDIA_RAW_AUDIO);
 
 	if (status != B_OK || inputCount == 0) {
-		fprintf(stderr, "No audio inputs available on consumer\n");
 		roster->UnregisterNode(fAudioConsumer);
 		delete fAudioConsumer;
 		fAudioConsumer = NULL;
@@ -1487,7 +1318,7 @@ WebcamDevice::_SetupAudioConnection()
 		&format, &fAudioOutput, &fAudioInput);
 
 	if (status != B_OK) {
-		fprintf(stderr, "Failed to connect audio: %s\n", strerror(status));
+		LOG_DEBUG("Failed to connect audio: %s", strerror(status));
 		roster->UnregisterNode(fAudioConsumer);
 		delete fAudioConsumer;
 		fAudioConsumer = NULL;
@@ -1550,7 +1381,7 @@ WebcamDevice::_AddDriverWarning(const char* warning)
 	if (fDriverWarnings.Length() > 0)
 		fDriverWarnings << "\n";
 	fDriverWarnings << "⚠ " << warning;
-	fprintf(stderr, "DRIVER WARNING: %s\n", warning);
+	LOG_WARNING("%s", warning);
 }
 
 
@@ -1560,5 +1391,5 @@ WebcamDevice::_LogFormatNegotiation(const char* message)
 	if (fFormatNegotiationLog.Length() > 0)
 		fFormatNegotiationLog << "\n";
 	fFormatNegotiationLog << message;
-	fprintf(stderr, "%s\n", message);
+	LOG_DEBUG("%s", message);
 }
