@@ -14,6 +14,7 @@
 #include <MediaEventLooper.h>
 #include <BufferGroup.h>
 #include <Bitmap.h>
+#include <Locker.h>
 #include <Looper.h>
 #include <TimedEventQueue.h>
 
@@ -78,6 +79,9 @@ public:
 	// Frame access (for MCP server)
 	BBitmap*			GetCurrentFrame() const { return fDisplayBitmap; }
 
+	// Target management (thread-safe)
+	void				SetTarget(BLooper* target);
+
 	// Buffer management (CodyCam-style)
 	status_t			CreateBuffers(const media_format& format);
 	void				DeleteBuffers();
@@ -92,6 +96,7 @@ private:
 	void				_SendFrameToTarget(BBitmap* bitmap);
 
 	BLooper*			fTarget;
+	mutable BLocker		fTargetLock;
 	uint32				fFrameMessage;
 	uint32				fAudioMessage;
 

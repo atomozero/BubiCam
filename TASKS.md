@@ -1,0 +1,151 @@
+# BubiCam - Task di Miglioramento
+
+Questo documento traccia i task di miglioramento del codice identificati durante l'analisi.
+
+## Stato dei Task
+
+| # | Task | Priorità | Stato | File Coinvolti |
+|---|------|----------|-------|----------------|
+| 1 | Aggiungere BLocker per fTarget in VideoConsumer/AudioConsumer | Alta | COMPLETATO | VideoConsumer.h/cpp, AudioConsumer.h/cpp |
+| 2 | Fix race condition in WebcamDevice::StopCapture() | Alta | Da fare | WebcamDevice.cpp |
+| 3 | Aggiungere lock per fCurrentWebcam in MainWindow | Alta | Da fare | MainWindow.h/cpp |
+| 4 | Aggiungere controllo allocazione per tutte le new BBitmap | Alta | Da fare | WebcamDevice.cpp, VideoConsumer.cpp |
+| 5 | Validare lunghezza descrittori USB prima di accedere | Media | Da fare | USBVideoParser.cpp |
+| 6 | Verificare dimensioni prima di memcpy in MainWindow | Media | Da fare | MainWindow.cpp |
+| 7 | Convertire BList a BObjectList in USBVideoParser | Media | Da fare | USBVideoParser.h/cpp |
+| 8 | Usare atomic_int invece di volatile bool in MCPServer | Media | Da fare | MCPServer.h/cpp |
+| 9 | Documentare magic numbers con commenti | Bassa | Da fare | Vari file |
+| 10 | Refactoring WebcamDevice per ridurre responsabilita | Bassa | Da fare | WebcamDevice.h/cpp |
+| 11 | Standardizzare gestione errori (status_t vs BAlert) | Bassa | Da fare | Vari file |
+
+---
+
+## Dettagli Task
+
+### Task 1: BLocker per fTarget (PRIORITA ALTA)
+
+**Problema:**
+In `VideoConsumer::_SendFrameToTarget()` e `AudioConsumer::_HandleBuffer()`, il puntatore `fTarget` viene controllato per NULL e poi usato, ma senza sincronizzazione. In ambiente multi-thread, `fTarget` potrebbe essere eliminato tra il check e l'uso.
+
+```cpp
+// RACE CONDITION - fTarget potrebbe diventare NULL dopo questo check
+if (fTarget == NULL || bitmap == NULL)
+    return;
+fTarget->PostMessage(&msg);  // CRASH se fTarget eliminato qui
+```
+
+**Soluzione:**
+- Aggiungere `BLocker fTargetLock` per proteggere l'accesso a `fTarget`
+- Usare lock in tutti i metodi che accedono a `fTarget`
+- Aggiungere metodo `SetTarget()` thread-safe
+
+**Test di verifica:**
+- Compilare e eseguire senza crash durante start/stop ripetuti
+- Verificare che i frame continuino ad arrivare correttamente
+- Eseguire: `./tests/test_task1_target_lock.sh`
+
+**Stato:** COMPLETATO
+**Completato:** 2024-12-14
+
+**Modifiche apportate:**
+- `VideoConsumer.h`: Aggiunto `#include <Locker.h>`, `mutable BLocker fTargetLock`, metodo `SetTarget()`
+- `VideoConsumer.cpp`: Aggiunto `#include <Autolock.h>`, implementato `SetTarget()`, modificato `_SendFrameToTarget()` per usare `BAutolock`
+- `AudioConsumer.h`: Aggiunto `#include <Locker.h>`, `mutable BLocker fTargetLock`, metodo `SetTarget()`
+- `AudioConsumer.cpp`: Aggiunto `#include <Autolock.h>`, implementato `SetTarget()`, modificato `_HandleBuffer()` per usare `BAutolock`
+
+---
+
+### Task 2: Race condition StopCapture (PRIORITA ALTA)
+
+**Problema:**
+In `WebcamDevice::StopCapture()` c'e una finestra temporale dove i puntatori potrebbero essere invalidi durante lo shutdown.
+
+**Stato:** Da fare
+
+---
+
+### Task 3: Lock per fCurrentWebcam (PRIORITA ALTA)
+
+**Problema:**
+`fCurrentWebcam` in MainWindow viene accesso da piu message handler senza protezione.
+
+**Stato:** Da fare
+
+---
+
+### Task 4: Controllo allocazione BBitmap (PRIORITA ALTA)
+
+**Problema:**
+`new BBitmap()` non viene controllato per fallimento allocazione.
+
+**Stato:** Da fare
+
+---
+
+### Task 5: Validazione descrittori USB (PRIORITA MEDIA)
+
+**Problema:**
+USBVideoParser non valida la lunghezza dei descrittori prima di accedere ai campi.
+
+**Stato:** Da fare
+
+---
+
+### Task 6: Verifica dimensioni memcpy (PRIORITA MEDIA)
+
+**Problema:**
+`memcpy` in MainWindow non verifica che le dimensioni siano compatibili.
+
+**Stato:** Da fare
+
+---
+
+### Task 7: BList -> BObjectList (PRIORITA MEDIA)
+
+**Problema:**
+USBVideoParser usa BList con cancellazione manuale, error-prone.
+
+**Stato:** Da fare
+
+---
+
+### Task 8: atomic_int in MCPServer (PRIORITA MEDIA)
+
+**Problema:**
+`volatile bool fRunning` non garantisce atomicita.
+
+**Stato:** Da fare
+
+---
+
+### Task 9: Documentare magic numbers (PRIORITA BASSA)
+
+**Problema:**
+Numeri come `NUM_BUFFERS 3`, `kMaxLatency = 50000` non documentati.
+
+**Stato:** Da fare
+
+---
+
+### Task 10: Refactoring WebcamDevice (PRIORITA BASSA)
+
+**Problema:**
+WebcamDevice ha troppe responsabilita (32 metodi, 40+ variabili).
+
+**Stato:** Da fare
+
+---
+
+### Task 11: Standardizzare gestione errori (PRIORITA BASSA)
+
+**Problema:**
+Gestione errori inconsistente tra status_t, BAlert e stderr.
+
+**Stato:** Da fare
+
+---
+
+## Changelog
+
+- **2024-12-14**: Task 1 completato - Aggiunto BLocker per fTarget
+- **2024-12-14**: Documento creato

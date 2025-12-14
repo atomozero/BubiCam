@@ -8,8 +8,9 @@
 #define AUDIO_CONSUMER_H
 
 #include <BufferConsumer.h>
-#include <MediaEventLooper.h>
+#include <Locker.h>
 #include <Looper.h>
+#include <MediaEventLooper.h>
 
 class AudioConsumer : public BMediaEventLooper, public BBufferConsumer {
 public:
@@ -52,6 +53,9 @@ public:
 	media_input			Input() const { return fInput; }
 	bool				IsConnected() const { return fConnected; }
 
+	// Target management (thread-safe)
+	void				SetTarget(BLooper* target);
+
 private:
 	void				_HandleBuffer(BBuffer* buffer);
 	void				_CalculateLevels(const void* data, size_t size,
@@ -63,6 +67,7 @@ private:
 							float* outLeft, float* outRight);
 
 	BLooper*			fTarget;
+	mutable BLocker		fTargetLock;
 	uint32				fLevelMessage;
 
 	media_input			fInput;

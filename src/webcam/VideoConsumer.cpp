@@ -11,6 +11,7 @@
 #include "VideoConsumer.h"
 #include "MainWindow.h"
 
+#include <Autolock.h>
 #include <Buffer.h>
 #include <BufferGroup.h>
 #include <TimeSource.h>
@@ -830,9 +831,21 @@ VideoConsumer::_ConvertYUV420ToBGRA(const uint8* src, uint8* dst,
 
 
 void
+VideoConsumer::SetTarget(BLooper* target)
+{
+	BAutolock lock(fTargetLock);
+	fTarget = target;
+}
+
+
+void
 VideoConsumer::_SendFrameToTarget(BBitmap* bitmap)
 {
-	if (fTarget == NULL || bitmap == NULL)
+	if (bitmap == NULL)
+		return;
+
+	BAutolock lock(fTargetLock);
+	if (fTarget == NULL)
 		return;
 
 	BMessage msg(fFrameMessage);

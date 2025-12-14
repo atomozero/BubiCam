@@ -7,6 +7,7 @@
 #include "AudioConsumer.h"
 #include "MainWindow.h"
 
+#include <Autolock.h>
 #include <Buffer.h>
 #include <TimeSource.h>
 
@@ -224,9 +225,17 @@ AudioConsumer::FormatChanged(const media_source& producer,
 
 
 void
+AudioConsumer::SetTarget(BLooper* target)
+{
+	BAutolock lock(fTargetLock);
+	fTarget = target;
+}
+
+
+void
 AudioConsumer::_HandleBuffer(BBuffer* buffer)
 {
-	if (buffer == NULL || fTarget == NULL)
+	if (buffer == NULL)
 		return;
 
 	bigtime_t now = system_time();
@@ -241,7 +250,8 @@ AudioConsumer::_HandleBuffer(BBuffer* buffer)
 	float left = 0.0f, right = 0.0f;
 	_CalculateLevels(buffer->Data(), buffer->SizeUsed(), &left, &right);
 
-	// Send levels to target (with null check for race condition safety)
+	// Send levels to target (thread-safe with lock)
+	BAutolock lock(fTargetLock);
 	if (fTarget != NULL) {
 		BMessage msg(fLevelMessage);
 		msg.AddFloat("left", left);
