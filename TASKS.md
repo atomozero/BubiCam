@@ -11,7 +11,7 @@ Questo documento traccia i task di miglioramento del codice identificati durante
 | 3 | Aggiungere lock per fCurrentWebcam in MainWindow | Alta | COMPLETATO | MainWindow.h/cpp |
 | 4 | Aggiungere controllo allocazione per tutte le new BBitmap | Alta | COMPLETATO | MainWindow.cpp, VideoPreviewView.cpp, IconUtils.cpp |
 | 5 | Validare lunghezza descrittori USB prima di accedere | Media | COMPLETATO | USBVideoParser.cpp |
-| 6 | Verificare dimensioni prima di memcpy in MainWindow | Media | Da fare | MainWindow.cpp |
+| 6 | Verificare dimensioni prima di memcpy in MainWindow | Media | COMPLETATO | MainWindow.cpp, VideoPreviewView.cpp |
 | 7 | Convertire BList a BObjectList in USBVideoParser | Media | Da fare | USBVideoParser.h/cpp |
 | 8 | Usare atomic_int invece di volatile bool in MCPServer | Media | Da fare | MCPServer.h/cpp |
 | 9 | Documentare magic numbers con commenti | Bassa | Da fare | Vari file |
@@ -154,9 +154,23 @@ USBVideoParser non validava la lunghezza dei descrittori USB prima di accedere a
 ### Task 6: Verifica dimensioni memcpy (PRIORITA MEDIA)
 
 **Problema:**
-`memcpy` in MainWindow non verifica che le dimensioni siano compatibili.
+`memcpy` in MainWindow e VideoPreviewView copiava dati bitmap senza verificare che il buffer di destinazione fosse abbastanza grande. In MainWindow, inoltre, il check per riallocare il bitmap controllava solo le bounds ma non il color space, potendo causare mismatch di BitsLength.
 
-**Stato:** Da fare
+**Soluzione:**
+- MainWindow.cpp: Aggiunto check `ColorSpace()` nella condizione di riallocazione
+- MainWindow.cpp: Aggiunto check `BitsLength() >= bitmap->BitsLength()` prima di memcpy
+- VideoPreviewView.cpp: Aggiunto check `BitsLength() >= bitmap->BitsLength()` prima di memcpy
+
+**Test di verifica:**
+- Eseguire: `./tests/test_task6_memcpy_safety.sh`
+- Verificare nessun crash durante ricezione frame e screenshot
+
+**Stato:** COMPLETATO
+**Completato:** 2024-12-14
+
+**Modifiche apportate:**
+- `MainWindow.cpp`: Aggiunto check ColorSpace nella riallocazione fLastFrame, aggiunto check BitsLength prima di memcpy
+- `VideoPreviewView.cpp`: Aggiunto check BitsLength prima di memcpy in SetFrame()
 
 ---
 
@@ -207,6 +221,7 @@ Gestione errori inconsistente tra status_t, BAlert e stderr.
 
 ## Changelog
 
+- **2024-12-14**: Task 6 completato - Aggiunto controllo dimensioni memcpy
 - **2024-12-14**: Task 5 completato - Aggiunta validazione descrittori USB
 - **2024-12-14**: Task 4 completato - Aggiunto controllo allocazione BBitmap
 - **2024-12-14**: Task 3 completato - Aggiunto BLocker per fCurrentWebcam

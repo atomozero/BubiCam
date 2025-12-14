@@ -140,8 +140,9 @@ VideoPreviewView::SetFrame(BBitmap* bitmap)
 		}
 	}
 
-	// Copy bitmap data
-	if (fCurrentFrame != NULL && fCurrentFrame->IsValid()) {
+	// Copy bitmap data - verify buffer sizes match before copying
+	if (fCurrentFrame != NULL && fCurrentFrame->IsValid() &&
+		fCurrentFrame->BitsLength() >= bitmap->BitsLength()) {
 		memcpy(fCurrentFrame->Bits(), bitmap->Bits(), bitmap->BitsLength());
 	}
 

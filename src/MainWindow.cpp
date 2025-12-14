@@ -868,8 +868,10 @@ MainWindow::MessageReceived(BMessage* message)
 				_UpdateStatsBar();
 
 				// Keep a copy for screenshots
+				// Check bounds AND color space to ensure compatible allocation
 				if (fLastFrame == NULL ||
-					fLastFrame->Bounds() != bitmap->Bounds()) {
+					fLastFrame->Bounds() != bitmap->Bounds() ||
+					fLastFrame->ColorSpace() != bitmap->ColorSpace()) {
 					delete fLastFrame;
 					fLastFrame = new BBitmap(bitmap->Bounds(),
 						bitmap->ColorSpace());
@@ -882,7 +884,9 @@ MainWindow::MessageReceived(BMessage* message)
 						_UpdateToolbarState();
 					}
 				}
-				if (fLastFrame != NULL && fLastFrame->IsValid()) {
+				// Verify buffer sizes match before copying
+				if (fLastFrame != NULL && fLastFrame->IsValid() &&
+					fLastFrame->BitsLength() >= bitmap->BitsLength()) {
 					memcpy(fLastFrame->Bits(), bitmap->Bits(),
 						bitmap->BitsLength());
 				}
