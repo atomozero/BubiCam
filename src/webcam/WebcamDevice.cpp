@@ -9,6 +9,7 @@
 #include "AudioConsumer.h"
 #include "MainWindow.h"
 
+#include <Autolock.h>
 #include <MediaRoster.h>
 #include <MediaFormats.h>
 #include <TimeSource.h>
@@ -135,6 +136,7 @@ IsValidPointer(const void* ptr)
 uint32
 WebcamDevice::FramesCaptured() const
 {
+	BAutolock lock(fCaptureLock);
 	VideoConsumer* consumer = fVideoConsumer;
 	if (IsValidPointer(consumer))
 		return consumer->FramesReceived();
@@ -145,6 +147,7 @@ WebcamDevice::FramesCaptured() const
 uint32
 WebcamDevice::FramesDropped() const
 {
+	BAutolock lock(fCaptureLock);
 	VideoConsumer* consumer = fVideoConsumer;
 	if (IsValidPointer(consumer))
 		return consumer->FramesDropped();
@@ -155,6 +158,7 @@ WebcamDevice::FramesDropped() const
 float
 WebcamDevice::CurrentFPS() const
 {
+	BAutolock lock(fCaptureLock);
 	VideoConsumer* consumer = fVideoConsumer;
 	if (IsValidPointer(consumer))
 		return consumer->CurrentFPS();
@@ -165,6 +169,7 @@ WebcamDevice::CurrentFPS() const
 BBitmap*
 WebcamDevice::GetCurrentFrame() const
 {
+	BAutolock lock(fCaptureLock);
 	VideoConsumer* consumer = fVideoConsumer;
 	if (IsValidPointer(consumer))
 		return consumer->GetCurrentFrame();
@@ -674,79 +679,87 @@ WebcamDevice::StopCapture()
 
 	fprintf(stderr, "WebcamDevice::StopCapture() called\n");
 
-	// CRITICAL FIX: Set fIsCapturing to false AFTER we've saved all local copies
-	// but BEFORE we start any cleanup. This prevents re-entry.
-
 	BMediaRoster* roster = BMediaRoster::Roster();
 	if (roster == NULL) {
 		fprintf(stderr, "  -> BMediaRoster is NULL, skipping cleanup\n");
+		BAutolock lock(fCaptureLock);
 		fIsCapturing = false;
 		fTarget = NULL;
 		return;
 	}
 
-	// CRITICAL: Save ALL data needed for cleanup FIRST, BEFORE clearing anything.
-	// We must save the media_node info WHILE the consumer pointers are still valid,
-	// because after clearing fVideoConsumer/fAudioConsumer, another thread might
-	// delete the objects.
-	VideoConsumer* videoConsumer = fVideoConsumer;
-	AudioConsumer* audioConsumer = fAudioConsumer;
-
-	// Save node info IMMEDIATELY while pointers are definitely valid
-	// This is the FIX for the crash - we were calling videoConsumer->Node()
-	// AFTER clearing the member pointers, by which time another thread could
-	// have corrupted or deleted the object.
+	// Local variables to hold consumer data for cleanup
+	VideoConsumer* videoConsumer = NULL;
+	AudioConsumer* audioConsumer = NULL;
 	media_node videoConsumerNode = {};
 	media_node audioConsumerNode = {};
+	media_node producerNode = {};
+	bool wasVideoConnected = false;
+	bool wasAudioConnected = false;
+	bool nodeWasInstantiated = false;
+	bool usedLiveNode = false;
+	media_output videoOutput = {};
+	media_input videoInput = {};
+	media_output audioOutput = {};
+	media_input audioInput = {};
 
-	// Validate pointers BEFORE dereferencing them
-	bool videoConsumerValid = (videoConsumer != NULL &&
-		(uintptr_t)videoConsumer > 0x10000 &&
-		((uintptr_t)videoConsumer & 0x3) == 0);
-	bool audioConsumerValid = (audioConsumer != NULL &&
-		(uintptr_t)audioConsumer > 0x10000 &&
-		((uintptr_t)audioConsumer & 0x3) == 0);
+	// CRITICAL: Hold lock while accessing and clearing member pointers
+	// This prevents other threads from accessing consumers during cleanup
+	{
+		BAutolock lock(fCaptureLock);
 
-	if (videoConsumerValid) {
-		videoConsumerNode = videoConsumer->Node();
-	} else if (videoConsumer != NULL) {
-		fprintf(stderr, "  -> WARNING: videoConsumer pointer looks invalid: %p\n",
-			(void*)videoConsumer);
-		videoConsumer = NULL;
+		// Save consumer pointers
+		videoConsumer = fVideoConsumer;
+		audioConsumer = fAudioConsumer;
+
+		// FIRST: Tell consumers to stop sending messages to target
+		// This must happen BEFORE we start Media Kit cleanup
+		if (videoConsumer != NULL && IsValidPointer(videoConsumer)) {
+			fprintf(stderr, "  -> Setting video consumer target to NULL\n");
+			videoConsumer->SetTarget(NULL);
+			videoConsumerNode = videoConsumer->Node();
+		} else if (videoConsumer != NULL) {
+			fprintf(stderr, "  -> WARNING: videoConsumer pointer looks invalid: %p\n",
+				(void*)videoConsumer);
+			videoConsumer = NULL;
+		}
+
+		if (audioConsumer != NULL && IsValidPointer(audioConsumer)) {
+			fprintf(stderr, "  -> Setting audio consumer target to NULL\n");
+			audioConsumer->SetTarget(NULL);
+			audioConsumerNode = audioConsumer->Node();
+		} else if (audioConsumer != NULL) {
+			fprintf(stderr, "  -> WARNING: audioConsumer pointer looks invalid: %p\n",
+				(void*)audioConsumer);
+			audioConsumer = NULL;
+		}
+
+		// Save other state needed for cleanup
+		producerNode = fMediaNode;
+		wasVideoConnected = fVideoConnected;
+		wasAudioConnected = fAudioConnected;
+		nodeWasInstantiated = fNodeInstantiated;
+		usedLiveNode = fUsedLiveNode;
+
+		// Save connection info for disconnect
+		videoOutput = fVideoOutput;
+		videoInput = fVideoInput;
+		audioOutput = fAudioOutput;
+		audioInput = fAudioInput;
+
+		fprintf(stderr, "  -> Saved local copies: video=%p (node=%d), audio=%p (node=%d)\n",
+			(void*)videoConsumer, videoConsumerNode.node,
+			(void*)audioConsumer, audioConsumerNode.node);
+
+		// Clear ALL member pointers and flags while still holding lock
+		// After releasing the lock, other threads will see NULL pointers
+		fIsCapturing = false;
+		fVideoConsumer = NULL;
+		fAudioConsumer = NULL;
+		fVideoConnected = false;
+		fAudioConnected = false;
 	}
-
-	if (audioConsumerValid) {
-		audioConsumerNode = audioConsumer->Node();
-	} else if (audioConsumer != NULL) {
-		fprintf(stderr, "  -> WARNING: audioConsumer pointer looks invalid: %p\n",
-			(void*)audioConsumer);
-		audioConsumer = NULL;
-	}
-
-	// Save other state
-	media_node producerNode = fMediaNode;
-	bool wasVideoConnected = fVideoConnected;
-	bool wasAudioConnected = fAudioConnected;
-	bool nodeWasInstantiated = fNodeInstantiated;
-	bool usedLiveNode = fUsedLiveNode;
-
-	// Save connection info for disconnect
-	media_output videoOutput = fVideoOutput;
-	media_input videoInput = fVideoInput;
-	media_output audioOutput = fAudioOutput;
-	media_input audioInput = fAudioInput;
-
-	fprintf(stderr, "  -> Saved local copies: video=%p (node=%d), audio=%p (node=%d)\n",
-		(void*)videoConsumer, videoConsumerNode.node,
-		(void*)audioConsumer, audioConsumerNode.node);
-
-	// NOW clear ALL member pointers and flags
-	// After this point, NO other thread should access these members
-	fIsCapturing = false;
-	fVideoConsumer = NULL;
-	fAudioConsumer = NULL;
-	fVideoConnected = false;
-	fAudioConnected = false;
+	// Lock released here - other threads can now safely check fVideoConsumer (will be NULL)
 
 	// Stop the producer node first (using saved data only)
 	if (nodeWasInstantiated) {

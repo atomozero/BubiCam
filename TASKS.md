@@ -7,7 +7,7 @@ Questo documento traccia i task di miglioramento del codice identificati durante
 | # | Task | Priorità | Stato | File Coinvolti |
 |---|------|----------|-------|----------------|
 | 1 | Aggiungere BLocker per fTarget in VideoConsumer/AudioConsumer | Alta | COMPLETATO | VideoConsumer.h/cpp, AudioConsumer.h/cpp |
-| 2 | Fix race condition in WebcamDevice::StopCapture() | Alta | Da fare | WebcamDevice.cpp |
+| 2 | Fix race condition in WebcamDevice::StopCapture() | Alta | COMPLETATO | WebcamDevice.h/cpp |
 | 3 | Aggiungere lock per fCurrentWebcam in MainWindow | Alta | Da fare | MainWindow.h/cpp |
 | 4 | Aggiungere controllo allocazione per tutte le new BBitmap | Alta | Da fare | WebcamDevice.cpp, VideoConsumer.cpp |
 | 5 | Validare lunghezza descrittori USB prima di accedere | Media | Da fare | USBVideoParser.cpp |
@@ -58,9 +58,23 @@ fTarget->PostMessage(&msg);  // CRASH se fTarget eliminato qui
 ### Task 2: Race condition StopCapture (PRIORITA ALTA)
 
 **Problema:**
-In `WebcamDevice::StopCapture()` c'e una finestra temporale dove i puntatori potrebbero essere invalidi durante lo shutdown.
+In `WebcamDevice::StopCapture()` c'e una finestra temporale dove i puntatori potrebbero essere invalidi durante lo shutdown. I metodi `FramesCaptured()`, `FramesDropped()`, `CurrentFPS()`, `GetCurrentFrame()` accedevano ai consumer pointers senza sincronizzazione.
 
-**Stato:** Da fare
+**Soluzione:**
+- Aggiungere `BLocker fCaptureLock` per proteggere l'accesso ai consumer pointers
+- `StopCapture()` ora acquisisce il lock, chiama `SetTarget(NULL)` sui consumer, salva copie locali, cancella i member pointers, rilascia il lock, ed esegue il cleanup
+- I metodi di accesso (`FramesCaptured()`, etc.) usano il lock
+
+**Test di verifica:**
+- Eseguire: `./tests/test_task2_stopcapture_race.sh`
+- Verificare nessun crash durante cicli rapidi start/stop
+
+**Stato:** COMPLETATO
+**Completato:** 2024-12-14
+
+**Modifiche apportate:**
+- `WebcamDevice.h`: Aggiunto `#include <Locker.h>`, `mutable BLocker fCaptureLock`
+- `WebcamDevice.cpp`: Aggiunto `#include <Autolock.h>`, modificati `FramesCaptured()`, `FramesDropped()`, `CurrentFPS()`, `GetCurrentFrame()` per usare il lock, riscritta `StopCapture()` con lock e chiamata a `SetTarget(NULL)`
 
 ---
 
@@ -147,5 +161,6 @@ Gestione errori inconsistente tra status_t, BAlert e stderr.
 
 ## Changelog
 
+- **2024-12-14**: Task 2 completato - Fix race condition in StopCapture
 - **2024-12-14**: Task 1 completato - Aggiunto BLocker per fTarget
 - **2024-12-14**: Documento creato

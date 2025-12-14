@@ -9,6 +9,7 @@
 
 #include <String.h>
 #include <Bitmap.h>
+#include <Locker.h>
 #include <Looper.h>
 #include <MediaRoster.h>
 #include <MediaNode.h>
@@ -183,6 +184,7 @@ private:
 	bool				fIsCapturing;
 	BLooper*			fTarget;
 	bool				fUsedLiveNode;	// True if we used an existing live node
+	mutable BLocker		fCaptureLock;	// Protects consumer pointers during capture/stop
 
 	// USB Video Class descriptor info
 	USBVideoInfo		fUSBVideoInfo;
