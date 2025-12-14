@@ -7,6 +7,10 @@
 #include "WebcamRoster.h"
 #include "WebcamDevice.h"
 
+// Logging macros using centralized ErrorUtils
+#define LOG_MODULE "WebcamRoster"
+#include "ErrorUtils.h"
+
 #include <Autolock.h>
 #include <MediaRoster.h>
 #include <MediaAddOn.h>
@@ -38,7 +42,7 @@ WebcamRoster::EnumerateDevices()
 
 	BMediaRoster* roster = BMediaRoster::Roster();
 	if (roster == NULL) {
-		fprintf(stderr, "WebcamRoster: BMediaRoster not available\n");
+		LOG_ERROR("BMediaRoster not available");
 		return B_ERROR;
 	}
 
@@ -51,7 +55,7 @@ WebcamRoster::EnumerateDevices()
 	status_t status = roster->GetDormantNodes(dormantNodes, &dormantCount,
 		NULL, NULL, NULL, B_BUFFER_PRODUCER | B_PHYSICAL_INPUT, 0);
 
-	fprintf(stderr, "WebcamRoster: GetDormantNodes (PHYSICAL_INPUT) returned %d, count=%d\n",
+	LOG_INFO("GetDormantNodes (PHYSICAL_INPUT): status=%d, count=%d",
 		(int)status, (int)dormantCount);
 
 	if (status != B_OK || dormantCount == 0) {
@@ -59,7 +63,7 @@ WebcamRoster::EnumerateDevices()
 		dormantCount = kMaxNodes;
 		status = roster->GetDormantNodes(dormantNodes, &dormantCount,
 			NULL, NULL, NULL, B_BUFFER_PRODUCER, 0);
-		fprintf(stderr, "WebcamRoster: GetDormantNodes (BUFFER_PRODUCER) returned %d, count=%d\n",
+		LOG_INFO("GetDormantNodes (BUFFER_PRODUCER): status=%d, count=%d",
 			(int)status, (int)dormantCount);
 	}
 
@@ -68,17 +72,19 @@ WebcamRoster::EnumerateDevices()
 		return status;
 	}
 
+	LOG_SECTION("Enumerating Media Nodes");
+
 	// Filter for video producers (webcams)
 	// IMPORTANT: Do NOT instantiate nodes here! The UVC driver only allows
 	// one instance at a time. Just add the dormant node info and let
 	// StartCapture() instantiate when needed.
 	for (int32 i = 0; i < dormantCount; i++) {
-		fprintf(stderr, "WebcamRoster: Node %d: '%s' (addon=%d, flavor=%d)\n",
+		LOG_DEBUG("Node %d: '%s' (addon=%d, flavor=%d)",
 			(int)i, dormantNodes[i].name, (int)dormantNodes[i].addon,
 			(int)dormantNodes[i].flavor_id);
 
 		if (_IsVideoProducer(dormantNodes[i])) {
-			fprintf(stderr, "WebcamRoster: -> Detected as video producer, adding to list\n");
+			LOG_INFO("Found video producer: %s", dormantNodes[i].name);
 
 			// Create device WITHOUT instantiating - just store dormant info
 			// The node will be instantiated on-demand in StartCapture()
@@ -90,7 +96,7 @@ WebcamRoster::EnumerateDevices()
 
 			fDevices.AddItem(device);
 
-			fprintf(stderr, "WebcamRoster: -> Added device '%s'\n", device->Name());
+			LOG_INFO("Added device: %s", device->Name());
 		}
 	}
 
