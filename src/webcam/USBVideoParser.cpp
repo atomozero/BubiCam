@@ -157,12 +157,19 @@ private:
 
 	void _ParseVideoControl(const BUSBInterface* intf, BString& diag)
 	{
-		uint8 buffer[1024];
+		static const size_t kBufferSize = 1024;
+		uint8 buffer[kBufferSize];
 		usb_descriptor* generic = (usb_descriptor*)buffer;
 
 		for (uint32 k = 0; intf->OtherDescriptorAt(k, generic, sizeof(buffer)) == B_OK; k++) {
 			uint8 descType = generic->generic.descriptor_type;
 			uint8 descLen = generic->generic.length;
+
+			// Validate descriptor length doesn't exceed buffer
+			if (descLen > kBufferSize || descLen < 2) {
+				diag << "    WARNING: Invalid descriptor length " << (int)descLen << ", skipping\n";
+				continue;
+			}
 
 			// Class-specific interface descriptor
 			if (descType == 0x24 && descLen >= 3) {
@@ -194,7 +201,8 @@ private:
 
 	void _ParseVideoStreaming(const BUSBInterface* intf, BString& diag)
 	{
-		uint8 buffer[1024];
+		static const size_t kBufferSize = 1024;
+		uint8 buffer[kBufferSize];
 		usb_descriptor* generic = (usb_descriptor*)buffer;
 
 		USBVideoFormat* currentFormat = NULL;
@@ -218,6 +226,12 @@ private:
 				<< ", len=" << (int)generic->generic.length << "\n";
 			uint8 descType = generic->generic.descriptor_type;
 			uint8 descLen = generic->generic.length;
+
+			// Validate descriptor length doesn't exceed buffer
+			if (descLen > kBufferSize || descLen < 2) {
+				diag << "      WARNING: Invalid descriptor length " << (int)descLen << ", skipping\n";
+				continue;
+			}
 
 			// Class-specific interface descriptor (type 0x24 = CS_INTERFACE)
 			if (descType == 0x24 && descLen >= 3) {
@@ -274,9 +288,23 @@ private:
 					{
 						if (descLen >= 26 && currentFormat != NULL) {
 							USBVideoFrame* frame = new USBVideoFrame();
+							if (frame == NULL) {
+								diag << "    ERROR: Failed to allocate USBVideoFrame\n";
+								break;
+							}
 							frame->formatType = (subtype == VS_FRAME_MJPEG) ? 1 : 0;
 							frame->width = buffer[5] | (buffer[6] << 8);
 							frame->height = buffer[7] | (buffer[8] << 8);
+
+							// Sanity check dimensions (must be > 0 and reasonable)
+							if (frame->width == 0 || frame->height == 0 ||
+								frame->width > 8192 || frame->height > 8192) {
+								diag << "    WARNING: Invalid frame dimensions "
+									<< frame->width << "x" << frame->height << ", skipping\n";
+								delete frame;
+								break;
+							}
+
 							frame->minBitRate = buffer[9] | (buffer[10] << 8) |
 								(buffer[11] << 16) | (buffer[12] << 24);
 							frame->maxBitRate = buffer[13] | (buffer[14] << 8) |
@@ -292,14 +320,23 @@ private:
 
 							// Parse discrete frame intervals
 							uint8 intervalType = buffer[25];
-							if (intervalType > 0 && descLen >= 26 + intervalType * 4) {
+							// Validate: need 4 bytes per interval, and must fit in buffer
+							size_t requiredLen = 26 + (size_t)intervalType * 4;
+							if (intervalType > 0 && intervalType <= 30 &&  // Sanity limit
+								descLen >= requiredLen && requiredLen <= kBufferSize) {
 								for (uint8 j = 0; j < intervalType; j++) {
-									uint32 interval = buffer[26 + j*4] | (buffer[27 + j*4] << 8) |
-										(buffer[28 + j*4] << 16) | (buffer[29 + j*4] << 24);
+									size_t offset = 26 + (size_t)j * 4;
+									// Double-check offset is within bounds
+									if (offset + 3 >= kBufferSize)
+										break;
+									uint32 interval = buffer[offset] | (buffer[offset + 1] << 8) |
+										(buffer[offset + 2] << 16) | (buffer[offset + 3] << 24);
 									if (interval > 0) {
 										float* fps = new float;
-										*fps = 10000000.0f / interval;
-										frame->frameRates.AddItem((void*)fps);
+										if (fps != NULL) {
+											*fps = 10000000.0f / interval;
+											frame->frameRates.AddItem((void*)fps);
+										}
 									}
 								}
 							}

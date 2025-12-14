@@ -10,7 +10,7 @@ Questo documento traccia i task di miglioramento del codice identificati durante
 | 2 | Fix race condition in WebcamDevice::StopCapture() | Alta | COMPLETATO | WebcamDevice.h/cpp |
 | 3 | Aggiungere lock per fCurrentWebcam in MainWindow | Alta | COMPLETATO | MainWindow.h/cpp |
 | 4 | Aggiungere controllo allocazione per tutte le new BBitmap | Alta | COMPLETATO | MainWindow.cpp, VideoPreviewView.cpp, IconUtils.cpp |
-| 5 | Validare lunghezza descrittori USB prima di accedere | Media | Da fare | USBVideoParser.cpp |
+| 5 | Validare lunghezza descrittori USB prima di accedere | Media | COMPLETATO | USBVideoParser.cpp |
 | 6 | Verificare dimensioni prima di memcpy in MainWindow | Media | Da fare | MainWindow.cpp |
 | 7 | Convertire BList a BObjectList in USBVideoParser | Media | Da fare | USBVideoParser.h/cpp |
 | 8 | Usare atomic_int invece di volatile bool in MCPServer | Media | Da fare | MCPServer.h/cpp |
@@ -129,9 +129,25 @@ In `WebcamDevice::StopCapture()` c'e una finestra temporale dove i puntatori pot
 ### Task 5: Validazione descrittori USB (PRIORITA MEDIA)
 
 **Problema:**
-USBVideoParser non valida la lunghezza dei descrittori prima di accedere ai campi.
+USBVideoParser non validava la lunghezza dei descrittori USB prima di accedere ai campi interni. Descrittori malformati o corrotti potevano causare accessi fuori dai limiti del buffer, crash durante il parsing, o comportamenti undefined.
 
-**Stato:** Da fare
+**Soluzione:**
+- Definita costante `kBufferSize = 1024` per evitare magic numbers
+- Aggiunto controllo lunghezza descrittore (min 2 byte, max kBufferSize)
+- Aggiunto sanity check per dimensioni frame (0 < width/height <= 8192)
+- Aggiunto bounds checking per parsing frame intervals
+- Aggiunto controllo allocazione USBVideoFrame
+- Aggiunti messaggi diagnostici WARNING per descrittori invalidi
+
+**Test di verifica:**
+- Eseguire: `./tests/test_task5_usb_validation.sh`
+- Verificare nessun crash durante enumerazione USB
+
+**Stato:** COMPLETATO
+**Completato:** 2024-12-14
+
+**Modifiche apportate:**
+- `USBVideoParser.cpp`: Aggiunta validazione lunghezza in `_ParseVideoControl()` e `_ParseVideoStreaming()`, bounds checking per frame intervals, sanity check dimensioni frame, controllo allocazione USBVideoFrame
 
 ---
 
@@ -191,6 +207,7 @@ Gestione errori inconsistente tra status_t, BAlert e stderr.
 
 ## Changelog
 
+- **2024-12-14**: Task 5 completato - Aggiunta validazione descrittori USB
 - **2024-12-14**: Task 4 completato - Aggiunto controllo allocazione BBitmap
 - **2024-12-14**: Task 3 completato - Aggiunto BLocker per fCurrentWebcam
 - **2024-12-14**: Task 2 completato - Fix race condition in StopCapture
