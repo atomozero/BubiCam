@@ -22,8 +22,17 @@
 #include <stdlib.h>
 
 
-// Timing constants
+// Maximum acceptable latency for video buffer processing (in microseconds).
+// 50ms is chosen as a balance between:
+// - Responsiveness (lower values = more responsive but more CPU)
+// - Stability (higher values = more buffer time but increased delay)
+// At 30fps, each frame takes ~33ms, so 50ms allows some headroom.
 const bigtime_t kMaxLatency = 50000;  // 50ms
+
+// Fallback resolution when driver reports invalid (0x0) dimensions.
+// 320x240 (QVGA) is a safe minimum supported by virtually all webcams.
+const uint32 kFallbackWidth = 320;
+const uint32 kFallbackHeight = 240;
 
 // Debug macros (similar to CodyCam)
 #define INFO(x...) fprintf(stderr, "VideoConsumer: " x)
@@ -118,9 +127,10 @@ VideoConsumer::CreateBuffers(const media_format& format)
 
 	// Validate and fix dimensions
 	if (xSize == 0 || ySize == 0) {
-		INFO("CreateBuffers() - format has 0x0 dimensions, using 320x240 default\n");
-		xSize = 320;
-		ySize = 240;
+		INFO("CreateBuffers() - format has 0x0 dimensions, using %dx%d fallback\n",
+			(int)kFallbackWidth, (int)kFallbackHeight);
+		xSize = kFallbackWidth;
+		ySize = kFallbackHeight;
 	}
 
 	// Validate colorspace

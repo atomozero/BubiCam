@@ -28,6 +28,18 @@
 #include <string.h>
 
 
+// Timing constants for media operations (in microseconds)
+// Start delay gives driver time to initialize before first frame
+const bigtime_t kMediaStartDelay = 100000;		// 100ms
+// Wait time after seek to allow driver to stabilize
+const bigtime_t kPostSeekDelay = 50000;			// 50ms
+
+// Fallback resolution when driver reports invalid dimensions.
+// 320x240 (QVGA) is universally supported by USB webcams.
+const int32 kFallbackWidth = 320;
+const int32 kFallbackHeight = 240;
+
+
 WebcamDevice::WebcamDevice(const media_node& node, const dormant_node_info& info)
 	:
 	fVendorID(0),
@@ -586,7 +598,7 @@ WebcamDevice::StartCapture(BLooper* target)
 
 	// Get performance time
 	BTimeSource* ts = roster->MakeTimeSourceFor(timeSource);
-	bigtime_t startTime = ts->Now() + 100000;  // Start in 100ms (give driver time to prepare)
+	bigtime_t startTime = ts->Now() + kMediaStartDelay;
 	ts->Release();
 
 	// CRITICAL: Call Preroll() on the producer BEFORE StartNode
@@ -596,7 +608,7 @@ WebcamDevice::StartCapture(BLooper* target)
 	roster->PrerollNode(fMediaNode);
 
 	// Small delay to let driver prepare
-	snooze(50000);  // 50ms
+	snooze(kPostSeekDelay);
 
 	// Start nodes
 	// NOTE: We ALWAYS call StartNode on the producer, even for "live" nodes.
@@ -941,9 +953,11 @@ WebcamDevice::_SetupVideoConnection()
 		}
 		// If still no dimensions, use safe defaults
 		if (driverWidth == 0 || driverHeight == 0) {
-			driverWidth = 320;
-			driverHeight = 240;
-			_LogFormatNegotiation("  -> Using default resolution: 320x240");
+			driverWidth = kFallbackWidth;
+			driverHeight = kFallbackHeight;
+			_LogFormatNegotiation(BString().SetToFormat(
+				"  -> Using default resolution: %dx%d",
+				(int)kFallbackWidth, (int)kFallbackHeight).String());
 		}
 
 		// Update the producer format with corrected dimensions

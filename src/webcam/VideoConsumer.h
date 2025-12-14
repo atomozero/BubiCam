@@ -18,7 +18,12 @@
 #include <Looper.h>
 #include <TimedEventQueue.h>
 
-// Number of buffers in the buffer group (like CodyCam uses 3)
+// Number of buffers in the shared buffer group for video frames.
+// 3 is the standard for webcam applications (CodyCam pattern):
+// - One buffer being filled by producer
+// - One buffer being processed by consumer
+// - One buffer available for next frame
+// Using fewer causes dropped frames; more wastes memory without benefit.
 #define NUM_BUFFERS 3
 
 class VideoConsumer : public BMediaEventLooper, public BBufferConsumer {

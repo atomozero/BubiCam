@@ -14,7 +14,7 @@ Questo documento traccia i task di miglioramento del codice identificati durante
 | 6 | Verificare dimensioni prima di memcpy in MainWindow | Media | COMPLETATO | MainWindow.cpp, VideoPreviewView.cpp |
 | 7 | Convertire BList a BObjectList in USBVideoParser | Media | COMPLETATO | USBVideoParser.h/cpp, DriverInfoView.cpp, WebcamDevice.cpp |
 | 8 | Usare atomic_int invece di volatile bool in MCPServer | Media | COMPLETATO | MCPServer.h/cpp |
-| 9 | Documentare magic numbers con commenti | Bassa | Da fare | Vari file |
+| 9 | Documentare magic numbers con commenti | Bassa | COMPLETATO | VideoConsumer.h/cpp, WebcamDevice.cpp |
 | 10 | Refactoring WebcamDevice per ridurre responsabilita | Bassa | Da fare | WebcamDevice.h/cpp |
 | 11 | Standardizzare gestione errori (status_t vs BAlert) | Bassa | Da fare | Vari file |
 
@@ -234,9 +234,32 @@ USBVideoParser usava BList con void* pointers che richiedevano casting manuali e
 ### Task 9: Documentare magic numbers (PRIORITA BASSA)
 
 **Problema:**
-Numeri come `NUM_BUFFERS 3`, `kMaxLatency = 50000` non documentati.
+Il codice conteneva numeri "magici" non documentati che rendevano difficile capire il rationale delle scelte implementative. Esempi: `NUM_BUFFERS 3`, valori di latenza `50000`, risoluzioni `320x240`, delay `100000`.
 
-**Stato:** Da fare
+**Soluzione:**
+- Aggiunti commenti dettagliati che spiegano:
+  1. Cosa rappresenta ogni costante
+  2. Perche' e' stato scelto quel valore specifico
+  3. Quali conseguenze ha cambiare il valore
+- Convertiti numeri letterali in costanti con nome significativo
+- Costanti definite:
+  - `NUM_BUFFERS`: pattern triple-buffering per webcam
+  - `kMaxLatency`: 50ms bilanciamento latenza/stabilita
+  - `kFallbackWidth/Height`: 320x240 QVGA universalmente supportato
+  - `kMediaStartDelay`: 100ms per inizializzazione driver
+  - `kPostSeekDelay`: 50ms stabilizzazione post-seek
+
+**Test di verifica:**
+- Eseguire: `./tests/test_task9_magic_numbers.sh`
+- Verificare che costanti siano definite e usate
+
+**Stato:** COMPLETATO
+**Completato:** 2024-12-14
+
+**Modifiche apportate:**
+- `VideoConsumer.h`: Documentato `NUM_BUFFERS` con spiegazione triple-buffering
+- `VideoConsumer.cpp`: Aggiunto `kMaxLatency`, `kFallbackWidth`, `kFallbackHeight` con commenti, usati nel codice
+- `WebcamDevice.cpp`: Aggiunto `kMediaStartDelay`, `kPostSeekDelay`, `kFallbackWidth`, `kFallbackHeight` con commenti, sostituiti numeri letterali
 
 ---
 
@@ -260,6 +283,7 @@ Gestione errori inconsistente tra status_t, BAlert e stderr.
 
 ## Changelog
 
+- **2024-12-14**: Task 9 completato - Documentati magic numbers con costanti e commenti
 - **2024-12-14**: Task 8 completato - Convertito volatile a std::atomic in MCPServer
 - **2024-12-14**: Task 7 completato - Convertito BList a BObjectList type-safe
 - **2024-12-14**: Task 6 completato - Aggiunto controllo dimensioni memcpy
