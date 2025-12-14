@@ -15,7 +15,7 @@ Questo documento traccia i task di miglioramento del codice identificati durante
 | 7 | Convertire BList a BObjectList in USBVideoParser | Media | COMPLETATO | USBVideoParser.h/cpp, DriverInfoView.cpp, WebcamDevice.cpp |
 | 8 | Usare atomic_int invece di volatile bool in MCPServer | Media | COMPLETATO | MCPServer.h/cpp |
 | 9 | Documentare magic numbers con commenti | Bassa | COMPLETATO | VideoConsumer.h/cpp, WebcamDevice.cpp |
-| 10 | Refactoring WebcamDevice per ridurre responsabilita | Bassa | Da fare | WebcamDevice.h/cpp |
+| 10 | Refactoring WebcamDevice per ridurre responsabilita | Bassa | COMPLETATO | WebcamDevice.h/cpp |
 | 11 | Standardizzare gestione errori (status_t vs BAlert) | Bassa | Da fare | Vari file |
 
 ---
@@ -266,9 +266,37 @@ Il codice conteneva numeri "magici" non documentati che rendevano difficile capi
 ### Task 10: Refactoring WebcamDevice (PRIORITA BASSA)
 
 **Problema:**
-WebcamDevice ha troppe responsabilita (32 metodi, 40+ variabili).
+WebcamDevice aveva ~40 variabili membro sparse senza raggruppamento logico:
+- 9 variabili per informazioni USB (vendorID, productID, vendorName, etc.)
+- 3 variabili per informazioni driver (driverName, driverPath, driverVersion)
 
-**Stato:** Da fare
+**Soluzione:**
+- Creata struct `USBDeviceInfo` che raggruppa tutte le 9 variabili USB:
+  - vendorID, productID, vendorName, productName
+  - serialNumber, usbVersion
+  - deviceClass, deviceSubclass, deviceProtocol
+- Creata struct `DriverInfo` che raggruppa tutte le 3 variabili driver:
+  - name, path, version
+- Sostituite le variabili membro individuali con le nuove struct
+- API pubblica invariata (getter delegano alle struct)
+- Aggiunti nuovi metodi `GetUSBInfo()` e `GetDriverInfo()` per accesso diretto
+
+**Benefici:**
+- Riduzione variabili membro individuali (da ~40 a ~30)
+- Codice piu' organizzato e leggibile
+- Possibilita' di passare info USB/driver come unita' singola
+- Nessun breaking change per i consumatori esistenti
+
+**Test di verifica:**
+- Eseguire: `./tests/test_task10_refactoring.sh`
+- Verificare struct definite e usate correttamente
+
+**Stato:** COMPLETATO
+**Completato:** 2024-12-14
+
+**Modifiche apportate:**
+- `WebcamDevice.h`: Aggiunte struct `USBDeviceInfo` e `DriverInfo`, sostituiti membri individuali, aggiunti getter `GetUSBInfo()` e `GetDriverInfo()`
+- `WebcamDevice.cpp`: Aggiornati costruttori e metodi `_GatherUSBInfo()`, `_GatherDriverInfo()`, `ParseUSBDescriptors()` per usare le nuove struct
 
 ---
 
@@ -283,6 +311,7 @@ Gestione errori inconsistente tra status_t, BAlert e stderr.
 
 ## Changelog
 
+- **2024-12-14**: Task 10 completato - Refactoring WebcamDevice con struct USBDeviceInfo e DriverInfo
 - **2024-12-14**: Task 9 completato - Documentati magic numbers con costanti e commenti
 - **2024-12-14**: Task 8 completato - Convertito volatile a std::atomic in MCPServer
 - **2024-12-14**: Task 7 completato - Convertito BList a BObjectList type-safe

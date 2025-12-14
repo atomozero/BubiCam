@@ -42,11 +42,6 @@ const int32 kFallbackHeight = 240;
 
 WebcamDevice::WebcamDevice(const media_node& node, const dormant_node_info& info)
 	:
-	fVendorID(0),
-	fProductID(0),
-	fDeviceClass(0),
-	fDeviceSubclass(0),
-	fDeviceProtocol(0),
 	fSupportsVideo(true),
 	fHasRequestedFormat(false),
 	fSupportsAudio(false),
@@ -78,11 +73,6 @@ WebcamDevice::WebcamDevice(const media_node& node, const dormant_node_info& info
 
 WebcamDevice::WebcamDevice(const dormant_node_info& info, status_t instantiateError)
 	:
-	fVendorID(0),
-	fProductID(0),
-	fDeviceClass(0),
-	fDeviceSubclass(0),
-	fDeviceProtocol(0),
 	fSupportsVideo(true),
 	fHasRequestedFormat(false),
 	fSupportsAudio(false),
@@ -220,14 +210,14 @@ WebcamDevice::ParseUSBDescriptors()
 		fprintf(stderr, "  Diagnostic:\n%s\n", fUSBVideoInfo.diagnosticInfo.String());
 
 		// Update our device info with USB info
-		fVendorID = fUSBVideoInfo.vendorID;
-		fProductID = fUSBVideoInfo.productID;
+		fUSBInfo.vendorID = fUSBVideoInfo.vendorID;
+		fUSBInfo.productID = fUSBVideoInfo.productID;
 		if (fUSBVideoInfo.vendorName.Length() > 0)
-			fVendorName = fUSBVideoInfo.vendorName;
+			fUSBInfo.vendorName = fUSBVideoInfo.vendorName;
 		if (fUSBVideoInfo.productName.Length() > 0)
-			fProductName = fUSBVideoInfo.productName;
+			fUSBInfo.productName = fUSBVideoInfo.productName;
 		if (fUSBVideoInfo.serialNumber.Length() > 0)
-			fSerialNumber = fUSBVideoInfo.serialNumber;
+			fUSBInfo.serialNumber = fUSBVideoInfo.serialNumber;
 
 		// Log formats found and populate fSupportedFormats
 		fprintf(stderr, "  Found %d format(s):\n", (int)fUSBVideoInfo.formats.CountItems());
@@ -281,20 +271,20 @@ WebcamDevice::_GatherUSBInfo()
 	// Set default values - USB enumeration requires a subclass of BUSBRoster
 	// which is complex to set up for device matching. For now, we use
 	// information from the media node name and driver path.
-	if (fVendorName.Length() == 0)
-		fVendorName = "Unknown";
-	if (fProductName.Length() == 0)
-		fProductName = fName;
-	if (fUSBVersion.Length() == 0)
-		fUSBVersion = "2.0";
+	if (fUSBInfo.vendorName.Length() == 0)
+		fUSBInfo.vendorName = "Unknown";
+	if (fUSBInfo.productName.Length() == 0)
+		fUSBInfo.productName = fName;
+	if (fUSBInfo.usbVersion.Length() == 0)
+		fUSBInfo.usbVersion = "2.0";
 
 	// Try to detect USB class from name
 	if (fName.IFindFirst("uvc") >= 0 ||
 		fName.IFindFirst("webcam") >= 0 ||
 		fName.IFindFirst("camera") >= 0) {
-		fDeviceClass = 0x0E;  // Video class
-		fDeviceSubclass = 0x01;  // Video control
-		fDeviceProtocol = 0x00;
+		fUSBInfo.deviceClass = 0x0E;  // Video class
+		fUSBInfo.deviceSubclass = 0x01;  // Video control
+		fUSBInfo.deviceProtocol = 0x00;
 	}
 }
 
@@ -310,27 +300,27 @@ WebcamDevice::_GatherDriverInfo()
 			BPath path;
 			entry.GetPath(&path);
 			if (strstr(fName.String(), path.Leaf()) != NULL) {
-				fDriverPath = path.Path();
+				fDriverInfo.path = path.Path();
 				break;
 			}
 		}
 	}
 
 	// Driver name from dormant info
-	fDriverName = fDormantInfo.addon > 0 ?
+	fDriverInfo.name = fDormantInfo.addon > 0 ?
 		"Media Add-on" : "Built-in";
 
 	// Try to get driver version
 	BPath addonsPath;
 	if (find_directory(B_SYSTEM_ADDONS_DIRECTORY, &addonsPath) == B_OK) {
 		addonsPath.Append("media");
-		fDriverVersion = "Unknown";
+		fDriverInfo.version = "Unknown";
 	}
 
 	// Look for UVC driver
 	if (fName.IFindFirst("uvc") >= 0 ||
 		fName.IFindFirst("usb video") >= 0) {
-		fDriverName = "usb_webcam (UVC)";
+		fDriverInfo.name = "usb_webcam (UVC)";
 	}
 }
 

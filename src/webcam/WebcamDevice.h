@@ -38,6 +38,36 @@ struct VideoFormat {
 };
 
 
+// USB device information - encapsulates all USB-related device data.
+// This struct groups the 9 USB-related fields that were previously
+// separate member variables, improving code organization.
+struct USBDeviceInfo {
+	uint16		vendorID;
+	uint16		productID;
+	BString		vendorName;
+	BString		productName;
+	BString		serialNumber;
+	BString		usbVersion;
+	uint8		deviceClass;
+	uint8		deviceSubclass;
+	uint8		deviceProtocol;
+
+	USBDeviceInfo()
+		: vendorID(0), productID(0),
+		  deviceClass(0), deviceSubclass(0), deviceProtocol(0)
+	{}
+};
+
+
+// Driver information - encapsulates driver identification data.
+// Groups the 3 driver-related fields for better organization.
+struct DriverInfo {
+	BString		name;
+	BString		path;
+	BString		version;
+};
+
+
 class WebcamDevice {
 public:
 						WebcamDevice(const media_node& node,
@@ -50,21 +80,23 @@ public:
 	const char*			Name() const { return fName.String(); }
 	const char*			DevicePath() const { return fDevicePath.String(); }
 
-	// USB information
-	uint16				VendorID() const { return fVendorID; }
-	uint16				ProductID() const { return fProductID; }
-	const char*			VendorName() const { return fVendorName.String(); }
-	const char*			ProductName() const { return fProductName.String(); }
-	const char*			SerialNumber() const { return fSerialNumber.String(); }
-	const char*			USBVersion() const { return fUSBVersion.String(); }
-	uint8				DeviceClass() const { return fDeviceClass; }
-	uint8				DeviceSubclass() const { return fDeviceSubclass; }
-	uint8				DeviceProtocol() const { return fDeviceProtocol; }
+	// USB information (accessors delegate to fUSBInfo struct)
+	uint16				VendorID() const { return fUSBInfo.vendorID; }
+	uint16				ProductID() const { return fUSBInfo.productID; }
+	const char*			VendorName() const { return fUSBInfo.vendorName.String(); }
+	const char*			ProductName() const { return fUSBInfo.productName.String(); }
+	const char*			SerialNumber() const { return fUSBInfo.serialNumber.String(); }
+	const char*			USBVersion() const { return fUSBInfo.usbVersion.String(); }
+	uint8				DeviceClass() const { return fUSBInfo.deviceClass; }
+	uint8				DeviceSubclass() const { return fUSBInfo.deviceSubclass; }
+	uint8				DeviceProtocol() const { return fUSBInfo.deviceProtocol; }
+	const USBDeviceInfo& GetUSBInfo() const { return fUSBInfo; }
 
-	// Driver information
-	const char*			DriverName() const { return fDriverName.String(); }
-	const char*			DriverPath() const { return fDriverPath.String(); }
-	const char*			DriverVersion() const { return fDriverVersion.String(); }
+	// Driver information (accessors delegate to fDriverInfo struct)
+	const char*			DriverName() const { return fDriverInfo.name.String(); }
+	const char*			DriverPath() const { return fDriverInfo.path.String(); }
+	const char*			DriverVersion() const { return fDriverInfo.version.String(); }
+	const DriverInfo&	GetDriverInfo() const { return fDriverInfo; }
 
 	// Video capabilities
 	bool				SupportsVideo() const { return fSupportsVideo; }
@@ -132,21 +164,11 @@ private:
 	BString				fName;
 	BString				fDevicePath;
 
-	// USB information
-	uint16				fVendorID;
-	uint16				fProductID;
-	BString				fVendorName;
-	BString				fProductName;
-	BString				fSerialNumber;
-	BString				fUSBVersion;
-	uint8				fDeviceClass;
-	uint8				fDeviceSubclass;
-	uint8				fDeviceProtocol;
+	// USB information (consolidated into struct)
+	USBDeviceInfo		fUSBInfo;
 
-	// Driver information
-	BString				fDriverName;
-	BString				fDriverPath;
-	BString				fDriverVersion;
+	// Driver information (consolidated into struct)
+	DriverInfo			fDriverInfo;
 
 	// Video capabilities
 	bool				fSupportsVideo;
