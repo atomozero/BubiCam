@@ -16,6 +16,10 @@
 #include "ExportUtils.h"
 #include "IconUtils.h"
 
+// Logging macros using centralized ErrorUtils
+#define LOG_MODULE "MainWindow"
+#include "ErrorUtils.h"
+
 #include <Application.h>
 #include <LayoutBuilder.h>
 #include <SplitView.h>

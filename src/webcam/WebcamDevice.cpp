@@ -9,6 +9,10 @@
 #include "AudioConsumer.h"
 #include "MainWindow.h"
 
+// Logging macros using centralized ErrorUtils
+#define LOG_MODULE "WebcamDevice"
+#include "ErrorUtils.h"
+
 #include <Autolock.h>
 #include <MediaRoster.h>
 #include <MediaFormats.h>

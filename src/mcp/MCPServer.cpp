@@ -5,6 +5,10 @@
 #include "MCPServer.h"
 #include "WebcamDevice.h"
 
+// Logging macros using centralized ErrorUtils
+#define LOG_MODULE "MCPServer"
+#include "ErrorUtils.h"
+
 #include <Application.h>
 #include <Bitmap.h>
 #include <BitmapStream.h>

@@ -7,6 +7,10 @@
 #include "ExportUtils.h"
 #include "WebcamDevice.h"
 
+// Logging macros using centralized ErrorUtils
+#define LOG_MODULE "ExportUtils"
+#include "ErrorUtils.h"
+
 #include <File.h>
 #include <Directory.h>
 #include <FindDirectory.h>

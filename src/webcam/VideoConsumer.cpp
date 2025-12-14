@@ -34,10 +34,14 @@ const bigtime_t kMaxLatency = 50000;  // 50ms
 const uint32 kFallbackWidth = 320;
 const uint32 kFallbackHeight = 240;
 
-// Debug macros (similar to CodyCam)
-#define INFO(x...) fprintf(stderr, "VideoConsumer: " x)
-#define ERROR(x...) fprintf(stderr, "VideoConsumer ERROR: " x)
-#define PROGRESS(x...) fprintf(stderr, "VideoConsumer: " x)
+// Logging macros using centralized ErrorUtils
+#define LOG_MODULE "VideoConsumer"
+#include "ErrorUtils.h"
+
+// Legacy macros for compatibility - delegate to standardized logging
+#define INFO(x...) LOG_INFO(x)
+#define ERROR(x...) LOG_ERROR(x)
+#define PROGRESS(x...) LOG_DEBUG(x)
 
 
 VideoConsumer::VideoConsumer(const char* name, BLooper* target,

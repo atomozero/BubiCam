@@ -15,6 +15,10 @@
 #include <string.h>
 #include <math.h>
 
+// Logging macros using centralized ErrorUtils
+#define LOG_MODULE "AudioConsumer"
+#include "ErrorUtils.h"
+
 
 const bigtime_t kAudioLatency = 10000;  // 10ms
 const bigtime_t kLevelUpdateInterval = 50000;  // 50ms between VU updates

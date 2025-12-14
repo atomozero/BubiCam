@@ -16,7 +16,7 @@ Questo documento traccia i task di miglioramento del codice identificati durante
 | 8 | Usare atomic_int invece di volatile bool in MCPServer | Media | COMPLETATO | MCPServer.h/cpp |
 | 9 | Documentare magic numbers con commenti | Bassa | COMPLETATO | VideoConsumer.h/cpp, WebcamDevice.cpp |
 | 10 | Refactoring WebcamDevice per ridurre responsabilita | Bassa | COMPLETATO | WebcamDevice.h/cpp |
-| 11 | Standardizzare gestione errori (status_t vs BAlert) | Bassa | Da fare | Vari file |
+| 11 | Standardizzare gestione errori (status_t vs BAlert) | Bassa | COMPLETATO | ErrorUtils.h + vari file |
 
 ---
 
@@ -303,14 +303,59 @@ WebcamDevice aveva ~40 variabili membro sparse senza raggruppamento logico:
 ### Task 11: Standardizzare gestione errori (PRIORITA BASSA)
 
 **Problema:**
-Gestione errori inconsistente tra status_t, BAlert e stderr.
+Gestione errori inconsistente nel codebase:
+- Alcuni errori mostrati con BAlert (visibili all'utente)
+- Altri errori solo con fprintf(stderr) (invisibili all'utente)
+- Messaggi di errore con formati diversi
+- Nessun sistema centralizzato per logging
 
-**Stato:** Da fare
+**Soluzione:**
+Creato `ErrorUtils.h` che fornisce un sistema centralizzato di logging:
+
+**Macro di logging (4 livelli di severita'):**
+- `LOG_DEBUG(fmt, ...)` - Informazioni di debug
+- `LOG_INFO(fmt, ...)` - Informazioni generali
+- `LOG_WARNING(fmt, ...)` - Avvertimenti non critici
+- `LOG_ERROR(fmt, ...)` - Errori critici
+
+**Helper per alert utente:**
+- `ShowErrorAlert(title, message)` - Alert errore (icona stop)
+- `ShowWarningAlert(title, message)` - Alert avviso (icona warning)
+- `ShowConfirmationAlert(title, message, cancel, confirm)` - Conferma con 2 pulsanti
+- `ShowErrorAlertWithStatus(title, message, status)` - Alert con codice status_t
+
+**Macro combinate:**
+- `LOG_AND_SHOW_ERROR(title, fmt, ...)` - Log + alert in un passo
+- `CHECK_STATUS(status, fmt, ...)` - Log errore e return se status != B_OK
+- `CHECK_STATUS_LOG(status, fmt, ...)` - Log errore senza return
+
+**Formato consistente:**
+```
+[MODULE] LEVEL: message
+```
+Ogni file definisce LOG_MODULE prima di includere ErrorUtils.h.
+
+**Test di verifica:**
+- Eseguire: `./tests/test_task11_error_handling.sh`
+- Verificare macro e helper presenti, file aggiornati
+
+**Stato:** COMPLETATO
+**Completato:** 2024-12-14
+
+**Modifiche apportate:**
+- `src/utils/ErrorUtils.h`: Nuovo file con macro e helper
+- `src/webcam/VideoConsumer.cpp`: Aggiunto LOG_MODULE + ErrorUtils, macro legacy delegano
+- `src/webcam/AudioConsumer.cpp`: Aggiunto LOG_MODULE + ErrorUtils
+- `src/webcam/WebcamDevice.cpp`: Aggiunto LOG_MODULE + ErrorUtils
+- `src/MainWindow.cpp`: Aggiunto LOG_MODULE + ErrorUtils
+- `src/mcp/MCPServer.cpp`: Aggiunto LOG_MODULE + ErrorUtils
+- `src/utils/ExportUtils.cpp`: Aggiunto LOG_MODULE + ErrorUtils
 
 ---
 
 ## Changelog
 
+- **2024-12-14**: Task 11 completato - Standardizzato gestione errori con ErrorUtils.h
 - **2024-12-14**: Task 10 completato - Refactoring WebcamDevice con struct USBDeviceInfo e DriverInfo
 - **2024-12-14**: Task 9 completato - Documentati magic numbers con costanti e commenti
 - **2024-12-14**: Task 8 completato - Convertito volatile a std::atomic in MCPServer
