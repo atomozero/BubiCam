@@ -13,7 +13,7 @@ Questo documento traccia i task di miglioramento del codice identificati durante
 | 5 | Validare lunghezza descrittori USB prima di accedere | Media | COMPLETATO | USBVideoParser.cpp |
 | 6 | Verificare dimensioni prima di memcpy in MainWindow | Media | COMPLETATO | MainWindow.cpp, VideoPreviewView.cpp |
 | 7 | Convertire BList a BObjectList in USBVideoParser | Media | COMPLETATO | USBVideoParser.h/cpp, DriverInfoView.cpp, WebcamDevice.cpp |
-| 8 | Usare atomic_int invece di volatile bool in MCPServer | Media | Da fare | MCPServer.h/cpp |
+| 8 | Usare atomic_int invece di volatile bool in MCPServer | Media | COMPLETATO | MCPServer.h/cpp |
 | 9 | Documentare magic numbers con commenti | Bassa | Da fare | Vari file |
 | 10 | Refactoring WebcamDevice per ridurre responsabilita | Bassa | Da fare | WebcamDevice.h/cpp |
 | 11 | Standardizzare gestione errori (status_t vs BAlert) | Bassa | Da fare | Vari file |
@@ -205,9 +205,29 @@ USBVideoParser usava BList con void* pointers che richiedevano casting manuali e
 ### Task 8: atomic_int in MCPServer (PRIORITA MEDIA)
 
 **Problema:**
-`volatile bool fRunning` non garantisce atomicita.
+`volatile bool fRunning` in MCPServer non garantisce atomicita. `volatile` previene solo le ottimizzazioni del compilatore che cacherebbero il valore, ma NON garantisce operazioni atomiche o memory barriers. Su sistemi multi-core, un thread potrebbe non vedere le modifiche fatte da un altro thread.
 
-**Stato:** Da fare
+**Soluzione:**
+- Convertito `volatile bool fRunning` a `std::atomic<bool> fRunning`
+- Convertito i contatori `int32` a `std::atomic<int32>` per consistenza
+- Sostituito chiamate `atomic_add(&var, n)` con operatori `++`/`--` di std::atomic
+- Aggiunto `#include <atomic>` al header
+
+`std::atomic` garantisce:
+- Operazioni atomiche (no torn reads/writes)
+- Memory barriers per corretta visibilita tra thread
+- Lock-free su la maggior parte delle architetture
+
+**Test di verifica:**
+- Eseguire: `./tests/test_task8_atomic.sh`
+- Verificare avvii/chiusure rapidi senza crash
+
+**Stato:** COMPLETATO
+**Completato:** 2024-12-14
+
+**Modifiche apportate:**
+- `MCPServer.h`: Aggiunto `#include <atomic>`, convertito `volatile bool fRunning` a `std::atomic<bool>`, convertito contatori a `std::atomic<int32>`
+- `MCPServer.cpp`: Sostituito `atomic_add()` con `++`/`--` operators
 
 ---
 
@@ -240,6 +260,7 @@ Gestione errori inconsistente tra status_t, BAlert e stderr.
 
 ## Changelog
 
+- **2024-12-14**: Task 8 completato - Convertito volatile a std::atomic in MCPServer
 - **2024-12-14**: Task 7 completato - Convertito BList a BObjectList type-safe
 - **2024-12-14**: Task 6 completato - Aggiunto controllo dimensioni memcpy
 - **2024-12-14**: Task 5 completato - Aggiunta validazione descrittori USB

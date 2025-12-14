@@ -14,6 +14,7 @@
 #include <ObjectList.h>
 #include <Messenger.h>
 #include <NetworkAddress.h>
+#include <atomic>
 
 class BDataIO;
 class WebcamDevice;
@@ -110,14 +111,14 @@ private:
 	WebcamDevice*		fWebcamDevice;
 	BObjectList<MCPTool, true>	fTools;
 
-	volatile bool		fRunning;
+	std::atomic<bool>	fRunning;		// Thread-safe flag for server state
 	uint16				fPort;
 	thread_id			fListenerThread;
 	int					fServerSocket;
 
-	int32				fConnectedClients;
-	int32				fTotalRequests;
-	int32				fTotalErrors;
+	std::atomic<int32>	fConnectedClients;	// Thread-safe counters
+	std::atomic<int32>	fTotalRequests;
+	std::atomic<int32>	fTotalErrors;
 };
 
 #endif // MCP_SERVER_H

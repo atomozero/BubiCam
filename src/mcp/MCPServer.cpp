@@ -275,14 +275,14 @@ MCPServer::_ListenerThread(void* data)
 			continue;
 		}
 
-		atomic_add(&server->fConnectedClients, 1);
+		++server->fConnectedClients;
 		server->_Log("Client connected from %s",
 			inet_ntoa(clientAddr.sin_addr));
 
 		// Handle connection (in same thread for simplicity)
 		server->_HandleConnection(clientSocket);
 
-		atomic_add(&server->fConnectedClients, -1);
+		--server->fConnectedClients;
 		close(clientSocket);
 	}
 
@@ -337,7 +337,7 @@ MCPServer::_HandleConnection(int socket)
 		if (bodyStart > 0)
 			request.CopyInto(body, bodyStart + 4, request.Length() - bodyStart - 4);
 
-		atomic_add(&fTotalRequests, 1);
+		++fTotalRequests;
 
 		BString result = _HandleMCPRequest(body);
 		_SendHTTPResponse(socket, 200, "OK", result);
@@ -410,7 +410,7 @@ MCPServer::_HandleMCPRequest(const BString& jsonRequest)
 		return _JsonResult(id, "{}");
 	}
 	else {
-		atomic_add(&fTotalErrors, 1);
+		++fTotalErrors;
 		return _JsonError(id, -32601, "Method not found");
 	}
 }
@@ -477,7 +477,7 @@ MCPServer::_HandleToolCall(const BString& id, const BString& toolName,
 	else if (toolName == "get_supported_formats")
 		content = _ToolGetSupportedFormats(arguments);
 	else {
-		atomic_add(&fTotalErrors, 1);
+		++fTotalErrors;
 		return _JsonError(id, -32602, "Unknown tool");
 	}
 
