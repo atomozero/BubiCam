@@ -10,6 +10,7 @@ SRCS = \
 	src/MainWindow.cpp \
 	src/views/VideoPreviewView.cpp \
 	src/views/DriverInfoView.cpp \
+	src/views/DriverTestView.cpp \
 	src/views/SyslogView.cpp \
 	src/views/VUMeterView.cpp \
 	src/views/WebcamControlsView.cpp \

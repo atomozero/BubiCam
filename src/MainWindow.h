@@ -22,6 +22,7 @@
 
 class VideoPreviewView;
 class DriverInfoView;
+class DriverTestView;
 class SyslogView;
 class VUMeterView;
 class WebcamControlsView;
@@ -55,7 +56,8 @@ enum {
 	MSG_MCP_LOG				= 'mcpl',
 	MSG_RESTART_PREVIEW		= 'rsrt',
 	MSG_WATCHDOG_CHECK		= 'wdck',
-	MSG_FORCE_STOP			= 'fstp'
+	MSG_FORCE_STOP			= 'fstp',
+	MSG_SHOW_DRIVER_TESTS	= 'sdtv'
 };
 
 
@@ -95,6 +97,7 @@ private:
 
 	VideoPreviewView*	fVideoPreview;
 	DriverInfoView*		fDriverInfo;
+	DriverTestView*		fDriverTestView;
 	SyslogView*			fSyslogView;
 	VUMeterView*		fVUMeter;
 	WebcamControlsView*	fWebcamControls;

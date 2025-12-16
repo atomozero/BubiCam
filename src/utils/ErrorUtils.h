@@ -32,6 +32,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <Alert.h>
+#include <GraphicsDefs.h>
 #include <String.h>
 
 // Log levels for filtering (can be set at compile time)
@@ -84,6 +85,7 @@
 #define ANSI_DIM        "\033[2m"
 
 // Log level colors
+#define LOG_COLOR_TRACE    ANSI_DIM        // Gray/dim for trace (very verbose)
 #define LOG_COLOR_DEBUG    ANSI_DIM        // Gray/dim for debug
 #define LOG_COLOR_INFO     ANSI_GREEN      // Green for info
 #define LOG_COLOR_WARNING  ANSI_YELLOW     // Yellow for warnings
@@ -162,6 +164,15 @@ _LogMessage(const char* level, const char* levelColor, const char* module,
 // ============================================================================
 // Logging Macros
 // ============================================================================
+
+// LOG_TRACE: Very verbose, only enabled with LOG_LEVEL -1
+// Use for per-buffer/per-frame logging that would spam the output
+#if LOG_LEVEL <= -1
+#define LOG_TRACE(fmt, ...) \
+	_LogMessage("TRACE", LOG_COLOR_TRACE, LOG_MODULE, fmt, ##__VA_ARGS__)
+#else
+#define LOG_TRACE(fmt, ...) ((void)0)
+#endif
 
 #if LOG_LEVEL <= 0
 #define LOG_DEBUG(fmt, ...) \
@@ -321,6 +332,31 @@ LogSection(const char* title)
 }
 
 #define LOG_SECTION(title) LogSection(title)
+
+
+// ============================================================================
+// Media Kit Helpers
+// ============================================================================
+
+// Get compact colorspace name for logging
+inline const char*
+ColorSpaceName(color_space cs)
+{
+	switch (cs) {
+		case B_RGB32:     return "RGB32";
+		case B_RGBA32:    return "RGBA32";
+		case B_RGB24:     return "RGB24";
+		case B_RGB16:     return "RGB16";
+		case B_RGB15:     return "RGB15";
+		case B_GRAY8:     return "GRAY8";
+		case B_YCbCr422:  return "YUY2";
+		case B_YUV422:    return "YUV422";
+		case B_YCbCr420:  return "I420";
+		case B_YUV420:    return "YUV420";
+		case B_NO_COLOR_SPACE: return "NONE";
+		default:          return "???";
+	}
+}
 
 
 #endif // ERROR_UTILS_H

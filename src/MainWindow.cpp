@@ -7,6 +7,7 @@
 #include "MainWindow.h"
 #include "VideoPreviewView.h"
 #include "DriverInfoView.h"
+#include "DriverTestView.h"
 #include "SyslogView.h"
 #include "VUMeterView.h"
 #include "WebcamControlsView.h"
@@ -62,6 +63,7 @@ MainWindow::MainWindow()
 	fToolsMenu(NULL),
 	fVideoPreview(NULL),
 	fDriverInfo(NULL),
+	fDriverTestView(NULL),
 	fSyslogView(NULL),
 	fVUMeter(NULL),
 	fWebcamControls(NULL),
@@ -184,6 +186,9 @@ MainWindow::_BuildMenu()
 
 	// Tools menu
 	fToolsMenu = new BMenu("Tools");
+	fToolsMenu->AddItem(new BMenuItem("Driver Tests" B_UTF8_ELLIPSIS,
+		new BMessage(MSG_SHOW_DRIVER_TESTS), 'D'));
+	fToolsMenu->AddSeparatorItem();
 	fToolsMenu->AddItem(new BMenuItem("Clear Syslog",
 		new BMessage(MSG_CLEAR_SYSLOG), 'L'));
 	BMenuItem* noiseFilterItem = new BMenuItem("Filter Syslog Noise",
@@ -316,7 +321,7 @@ MainWindow::_BuildLayout()
 	leftSplit->SetItemWeight(1, 0.18f, true);
 	leftSplit->SetExplicitMaxSize(BSize(400, B_SIZE_UNLIMITED));
 
-	// Create tab view for right panel (Driver Info + Controls)
+	// Create tab view for right panel (Driver Info + Controls + Tests)
 	fRightTabView = new BTabView("rightTabs");
 
 	// Driver Info tab
@@ -330,6 +335,14 @@ MainWindow::_BuildLayout()
 		fWebcamControls, 0, false, true);
 	fRightTabView->AddTab(controlsScroll, new BTab());
 	fRightTabView->TabAt(1)->SetLabel("Controls");
+
+	// Testing tab
+	fDriverTestView = new DriverTestView("driverTestView");
+	fDriverTestView->SetTarget(this);
+	BScrollView* testScroll = new BScrollView("testScroll",
+		fDriverTestView, 0, false, true);
+	fRightTabView->AddTab(testScroll, new BTab());
+	fRightTabView->TabAt(2)->SetLabel("Testing");
 
 	// Syslog box
 	BBox* syslogBox = new BBox("syslogBox");
@@ -475,6 +488,10 @@ MainWindow::_SelectWebcam(int32 index)
 
 	// Update controls panel (requires instantiated node for GetParameterWebFor)
 	fWebcamControls->SetDevice(device);
+
+	// Update test panel
+	if (fDriverTestView != NULL)
+		fDriverTestView->SetDevice(device);
 
 	// Update MCP server with new device
 	if (fMCPServer != NULL)
@@ -857,15 +874,22 @@ MainWindow::MessageReceived(BMessage* message)
 					(int32)(bitmapBounds.Width() + 1),
 					(int32)(bitmapBounds.Height() + 1));
 
-				// Update stats from consumer (with lock protection)
+				// Update stats from consumer
+				// CRITICAL FIX: Copy webcam pointer under lock, then release lock
+				// BEFORE calling methods that may acquire other locks. This prevents
+				// deadlock with StopCapture which holds fCaptureLock and waits for
+				// fTargetLock.
+				WebcamDevice* webcam = NULL;
 				{
 					BAutolock lock(fWebcamLock);
-					if (fCurrentWebcam != NULL) {
-						fVideoPreview->UpdateStats(
-							fCurrentWebcam->CurrentFPS(),
-							fCurrentWebcam->FramesCaptured(),
-							fCurrentWebcam->FramesDropped());
-					}
+					webcam = fCurrentWebcam;
+				}
+				// Lock released - safe to call methods that may acquire locks
+				if (webcam != NULL) {
+					fVideoPreview->UpdateStats(
+						webcam->CurrentFPS(),
+						webcam->FramesCaptured(),
+						webcam->FramesDropped());
 				}
 
 				// Update stats bar (every frame)
@@ -974,6 +998,11 @@ MainWindow::MessageReceived(BMessage* message)
 		case MSG_TOGGLE_CONTROLS:
 			// Switch to controls tab
 			fRightTabView->Select(1);
+			break;
+
+		case MSG_SHOW_DRIVER_TESTS:
+			// Switch to testing tab
+			fRightTabView->Select(2);
 			break;
 
 		case MSG_RESTART_MEDIA:

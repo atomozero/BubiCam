@@ -125,24 +125,18 @@ WebcamDevice::~WebcamDevice()
 }
 
 
-// Helper to validate consumer pointer
-static inline bool
-IsValidPointer(const void* ptr)
-{
-	if (ptr == NULL)
-		return false;
-	// Check for obviously invalid addresses (like 0x3f800000 = 1.0f)
-	uintptr_t addr = (uintptr_t)ptr;
-	return (addr > 0x10000) && ((addr & 0x3) == 0);
-}
-
-
 uint32
 WebcamDevice::FramesCaptured() const
 {
-	BAutolock lock(fCaptureLock);
-	VideoConsumer* consumer = fVideoConsumer;
-	if (IsValidPointer(consumer))
+	// CRITICAL FIX: Copy pointer under lock, release lock, then use pointer.
+	// This prevents deadlock with StopCapture which may be waiting for fTargetLock
+	// while we hold fCaptureLock.
+	VideoConsumer* consumer = NULL;
+	{
+		BAutolock lock(fCaptureLock);
+		consumer = fVideoConsumer;
+	}
+	if (consumer != NULL)
 		return consumer->FramesReceived();
 	return 0;
 }
@@ -151,9 +145,12 @@ WebcamDevice::FramesCaptured() const
 uint32
 WebcamDevice::FramesDropped() const
 {
-	BAutolock lock(fCaptureLock);
-	VideoConsumer* consumer = fVideoConsumer;
-	if (IsValidPointer(consumer))
+	VideoConsumer* consumer = NULL;
+	{
+		BAutolock lock(fCaptureLock);
+		consumer = fVideoConsumer;
+	}
+	if (consumer != NULL)
 		return consumer->FramesDropped();
 	return 0;
 }
@@ -162,9 +159,12 @@ WebcamDevice::FramesDropped() const
 float
 WebcamDevice::CurrentFPS() const
 {
-	BAutolock lock(fCaptureLock);
-	VideoConsumer* consumer = fVideoConsumer;
-	if (IsValidPointer(consumer))
+	VideoConsumer* consumer = NULL;
+	{
+		BAutolock lock(fCaptureLock);
+		consumer = fVideoConsumer;
+	}
+	if (consumer != NULL)
 		return consumer->CurrentFPS();
 	return 0.0f;
 }
@@ -173,9 +173,12 @@ WebcamDevice::CurrentFPS() const
 BBitmap*
 WebcamDevice::GetCurrentFrame() const
 {
-	BAutolock lock(fCaptureLock);
-	VideoConsumer* consumer = fVideoConsumer;
-	if (IsValidPointer(consumer))
+	VideoConsumer* consumer = NULL;
+	{
+		BAutolock lock(fCaptureLock);
+		consumer = fVideoConsumer;
+	}
+	if (consumer != NULL)
 		return consumer->GetCurrentFrame();
 	return NULL;
 }
@@ -585,27 +588,23 @@ WebcamDevice::StopCapture()
 	media_output audioOutput = {};
 	media_input audioInput = {};
 
-	// CRITICAL: Hold lock while accessing and clearing member pointers
+	// CRITICAL FIX: Two-phase cleanup to prevent deadlock.
+	// Phase 1: Copy pointers and clear members under lock
+	// Phase 2: Call SetTarget() OUTSIDE lock to avoid deadlock with PostMessage
+
+	// Phase 1: Copy and clear under lock
 	{
 		BAutolock lock(fCaptureLock);
 
 		videoConsumer = fVideoConsumer;
 		audioConsumer = fAudioConsumer;
 
-		// Tell consumers to stop sending messages
-		if (videoConsumer != NULL && IsValidPointer(videoConsumer)) {
-			videoConsumer->SetTarget(NULL);
+		// Get node info while we have valid pointers
+		if (videoConsumer != NULL) {
 			videoConsumerNode = videoConsumer->Node();
-		} else if (videoConsumer != NULL) {
-			LOG_WARNING("Invalid videoConsumer pointer: %p", (void*)videoConsumer);
-			videoConsumer = NULL;
 		}
-
-		if (audioConsumer != NULL && IsValidPointer(audioConsumer)) {
-			audioConsumer->SetTarget(NULL);
+		if (audioConsumer != NULL) {
 			audioConsumerNode = audioConsumer->Node();
-		} else if (audioConsumer != NULL) {
-			audioConsumer = NULL;
 		}
 
 		// Save state for cleanup
@@ -619,12 +618,25 @@ WebcamDevice::StopCapture()
 		audioOutput = fAudioOutput;
 		audioInput = fAudioInput;
 
-		// Clear member pointers
+		// Clear member pointers FIRST - this prevents any new messages from being
+		// processed that reference these consumers
 		fIsCapturing = false;
 		fVideoConsumer = NULL;
 		fAudioConsumer = NULL;
 		fVideoConnected = false;
 		fAudioConnected = false;
+	}
+	// Lock released here
+
+	// Phase 2: Tell consumers to stop sending messages OUTSIDE lock.
+	// This is safe because we've already cleared member pointers, so no other
+	// code path can access these consumers. SetTarget(NULL) may briefly block
+	// on fTargetLock, but won't cause deadlock since we don't hold fCaptureLock.
+	if (videoConsumer != NULL) {
+		videoConsumer->SetTarget(NULL);
+	}
+	if (audioConsumer != NULL) {
+		audioConsumer->SetTarget(NULL);
 	}
 
 	// Stop nodes
@@ -682,54 +694,35 @@ WebcamDevice::_SetupVideoConnection()
 	// Register consumer
 	status = roster->RegisterNode(fVideoConsumer);
 	if (status != B_OK) {
-		_LogFormatNegotiation(BString().SetToFormat(
-			"Failed to register video consumer: %s", strerror(status)).String());
+		LOG_ERROR("RegisterNode failed: %s", strerror(status));
 		delete fVideoConsumer;
 		fVideoConsumer = NULL;
 		return status;
 	}
-	_LogFormatNegotiation(BString().SetToFormat(
-		"Video consumer registered (node ID = %d)", fVideoConsumer->Node().node).String());
+	LOG_DEBUG("Consumer registered: node=%d", fVideoConsumer->Node().node);
 
 	// Get video outputs from producer
-	// Try multiple approaches - some drivers only expose outputs in certain conditions
 	int32 outputCount = 0;
 	media_output outputs[10];
 
 	// Approach 1: Get FREE outputs for RAW_VIDEO
 	status = roster->GetFreeOutputsFor(fMediaNode, outputs, 10, &outputCount,
 		B_MEDIA_RAW_VIDEO);
-	_LogFormatNegotiation(BString().SetToFormat(
-		"GetFreeOutputsFor(RAW_VIDEO): status=%s, count=%d",
-		strerror(status), (int)outputCount).String());
+	LOG_DEBUG("GetFreeOutputsFor: count=%d", (int)outputCount);
 
 	// Approach 2: If no RAW_VIDEO outputs, try without type filter
 	if (outputCount == 0) {
 		status = roster->GetFreeOutputsFor(fMediaNode, outputs, 10, &outputCount,
 			B_MEDIA_UNKNOWN_TYPE);
-		_LogFormatNegotiation(BString().SetToFormat(
-			"GetFreeOutputsFor(UNKNOWN_TYPE): status=%s, count=%d",
-			strerror(status), (int)outputCount).String());
 	}
 
-	// Approach 3: If still no outputs, try GetAllOutputsFor (includes connected outputs)
+	// Approach 3: If still no outputs, try GetAllOutputsFor
 	if (outputCount == 0) {
 		status = roster->GetAllOutputsFor(fMediaNode, outputs, 10, &outputCount);
-		_LogFormatNegotiation(BString().SetToFormat(
-			"GetAllOutputsFor: status=%s, count=%d",
-			strerror(status), (int)outputCount).String());
-
-		// Log all outputs we found
-		for (int32 i = 0; i < outputCount; i++) {
-			_LogFormatNegotiation(BString().SetToFormat(
-				"  Output %d: name='%s', type=%d, source.id=%d, dest.id=%d",
-				i, outputs[i].name, outputs[i].format.type,
-				outputs[i].source.id, outputs[i].destination.id).String());
-		}
 	}
 
 	if (status != B_OK || outputCount == 0) {
-		_AddDriverWarning("Driver does not expose any video outputs (tried FREE + ALL)");
+		_AddDriverWarning("No video outputs exposed by driver");
 		return B_ERROR;
 	}
 
@@ -737,8 +730,6 @@ WebcamDevice::_SetupVideoConnection()
 	media_format& producerFormat = fVideoOutput.format;
 
 	// ===== DRIVER DIAGNOSTIC: Analyze what the driver reports =====
-	_LogFormatNegotiation("\n=== DRIVER FORMAT ANALYSIS ===");
-
 	if (producerFormat.type != B_MEDIA_RAW_VIDEO) {
 		_AddDriverWarning(BString().SetToFormat(
 			"Driver reports unexpected format type: %d (expected B_MEDIA_RAW_VIDEO=%d)",
@@ -751,31 +742,24 @@ WebcamDevice::_SetupVideoConnection()
 	color_space driverColorSpace = producerFormat.u.raw_video.display.format;
 	float driverFrameRate = producerFormat.u.raw_video.field_rate;
 
-	_LogFormatNegotiation(BString().SetToFormat(
-		"Driver declares: %dx%d, colorspace=0x%x, bpr=%d, fps=%.2f",
-		(int)driverWidth, (int)driverHeight, (int)driverColorSpace,
-		(int)driverBPR, driverFrameRate).String());
+	LOG_DEBUG("Driver format: %dx%d %s bpr=%d @%.0ffps",
+		(int)driverWidth, (int)driverHeight, ColorSpaceName(driverColorSpace),
+		(int)driverBPR, driverFrameRate);
 
 	// Check for invalid dimensions (0x0) and fix them
 	if (driverWidth == 0 || driverHeight == 0) {
 		_AddDriverWarning(BString().SetToFormat(
-			"Driver reports INVALID dimensions: %dx%d (should be non-zero). "
-			"The driver is not correctly initializing the format structure.",
-			(int)driverWidth, (int)driverHeight).String());
+			"Driver reports INVALID dimensions: %dx%d", (int)driverWidth, (int)driverHeight).String());
 
 		// FIX: Use dimensions from USB descriptors or default values
-		// This is CRITICAL - the producer will use these to allocate buffers
 		if (fUSBVideoInfo.found && fUSBVideoInfo.formats.CountItems() > 0) {
-			// Try to get first available resolution from USB descriptors
 			USBVideoFormat* usbFormat = fUSBVideoInfo.formats.ItemAt(0);
 			if (usbFormat != NULL && usbFormat->frames.CountItems() > 0) {
 				USBVideoFrame* frame = usbFormat->frames.ItemAt(0);
 				if (frame != NULL && frame->width > 0 && frame->height > 0) {
 					driverWidth = frame->width;
 					driverHeight = frame->height;
-					_LogFormatNegotiation(BString().SetToFormat(
-						"  -> Using USB descriptor resolution: %dx%d",
-						(int)driverWidth, (int)driverHeight).String());
+					LOG_DEBUG("Using USB descriptor: %dx%d", (int)driverWidth, (int)driverHeight);
 				}
 			}
 		}
@@ -783,15 +767,12 @@ WebcamDevice::_SetupVideoConnection()
 		if (driverWidth == 0 || driverHeight == 0) {
 			driverWidth = kFallbackWidth;
 			driverHeight = kFallbackHeight;
-			_LogFormatNegotiation(BString().SetToFormat(
-				"  -> Using default resolution: %dx%d",
-				(int)kFallbackWidth, (int)kFallbackHeight).String());
+			LOG_DEBUG("Using fallback: %dx%d", (int)kFallbackWidth, (int)kFallbackHeight);
 		}
 
 		// Update the producer format with corrected dimensions
 		producerFormat.u.raw_video.display.line_width = driverWidth;
 		producerFormat.u.raw_video.display.line_count = driverHeight;
-		// Also set bytes_per_row if missing (assuming 4 bytes per pixel for safety)
 		if (producerFormat.u.raw_video.display.bytes_per_row == 0) {
 			producerFormat.u.raw_video.display.bytes_per_row = driverWidth * 4;
 		}
@@ -799,33 +780,24 @@ WebcamDevice::_SetupVideoConnection()
 
 	// Check for missing bytes_per_row
 	if (driverBPR == 0 && driverWidth > 0) {
-		_AddDriverWarning("Driver reports bytes_per_row=0 (should be width * bytes_per_pixel)");
+		_AddDriverWarning("Driver reports bytes_per_row=0");
 	}
 
 	// Get consumer input directly from the consumer object
-	// (GetFreeInputsFor sometimes fails to find registered inputs)
 	fVideoInput = fVideoConsumer->Input();
-	_LogFormatNegotiation(BString().SetToFormat(
-		"Consumer input (via Input()): port=%d, node=%d, dest.id=%d",
-		fVideoInput.destination.port, fVideoInput.node.node,
-		fVideoInput.destination.id).String());
+	LOG_DEBUG("Consumer input: port=%d node=%d", fVideoInput.destination.port, fVideoInput.node.node);
 
 	if (fVideoInput.destination.port <= 0) {
-		_AddDriverWarning("Consumer input has invalid port - node may not be properly registered");
+		_AddDriverWarning("Consumer input has invalid port");
 		return B_ERROR;
 	}
-
-	// ===== FORMAT NEGOTIATION =====
-	_LogFormatNegotiation("\n=== FORMAT NEGOTIATION ===");
 
 	media_format format;
 
 	// ===== APPROACH -1: Try user-requested format first =====
-	// First, we need to configure the driver's resolution parameter BEFORE connecting
+	// Configure the driver's resolution parameter BEFORE connecting
 	if (fHasRequestedFormat && fRequestedFormat.width > 0 && fRequestedFormat.height > 0) {
-		_LogFormatNegotiation(BString().SetToFormat(
-			"Configuring driver for user-requested format (%dx%d)...",
-			(int)fRequestedFormat.width, (int)fRequestedFormat.height).String());
+		LOG_DEBUG("Trying user-requested format: %dx%d", (int)fRequestedFormat.width, (int)fRequestedFormat.height);
 
 		// Get ParameterWeb to set the Resolution parameter
 		BParameterWeb* web = NULL;
@@ -858,12 +830,7 @@ WebcamDevice::_SetupVideoConnection()
 
 						if (matchIndex >= 0) {
 							int32 value = matchIndex;
-							status_t setStatus = discrete->SetValue(&value, sizeof(value), -1);
-							_LogFormatNegotiation(BString().SetToFormat(
-								"  -> Set Resolution parameter to index %d: %s",
-								(int)matchIndex, strerror(setStatus)).String());
-						} else {
-							_LogFormatNegotiation("  -> Resolution not found in driver options");
+							discrete->SetValue(&value, sizeof(value), -1);
 						}
 					}
 					break;
@@ -874,9 +841,6 @@ WebcamDevice::_SetupVideoConnection()
 	}
 
 	if (fHasRequestedFormat && fRequestedFormat.width > 0 && fRequestedFormat.height > 0) {
-		_LogFormatNegotiation(BString().SetToFormat(
-			"Attempt -1: User-requested format (%dx%d)...",
-			(int)fRequestedFormat.width, (int)fRequestedFormat.height).String());
 
 		format = media_format();
 		format.type = B_MEDIA_RAW_VIDEO;
@@ -898,13 +862,11 @@ WebcamDevice::_SetupVideoConnection()
 			&format, &fVideoOutput, &fVideoInput);
 
 		if (status == B_OK) {
-			_LogFormatNegotiation(BString().SetToFormat(
-				"\n=== CONNECTION SUCCESSFUL (user-requested format) ===\n"
-				"Final format: %dx%d, colorspace=0x%x, fps=%.2f",
+			LOG_INFO("Connected: %dx%d %s @%.0ffps (user-requested)",
 				(int)format.u.raw_video.display.line_width,
 				(int)format.u.raw_video.display.line_count,
-				(int)format.u.raw_video.display.format,
-				format.u.raw_video.field_rate).String());
+				ColorSpaceName(format.u.raw_video.display.format),
+				format.u.raw_video.field_rate);
 
 			fVideoConnected = true;
 			fCurrentFormat.width = format.u.raw_video.display.line_width;
@@ -913,16 +875,11 @@ WebcamDevice::_SetupVideoConnection()
 			return B_OK;
 		}
 
-		_LogFormatNegotiation(BString().SetToFormat(
-			"  -> REJECTED: %s (0x%08x), trying fallbacks...",
-			strerror(status), status).String());
+		LOG_DEBUG("User format rejected: %s", strerror(status));
 	}
 
 	// ===== APPROACH 0: Use CodyCam-style FULLY SPECIFIED format =====
-	// CodyCam creates a complete format structure with all fields filled in.
-	// This is critical because the USB webcam driver has a bug where it doesn't
-	// properly initialize its format, so we must pass a complete format.
-	_LogFormatNegotiation("Attempt 0: CodyCam-style fully specified format (320x240 B_RGB32)...");
+	LOG_DEBUG("Trying CodyCam-style 320x240 RGB32...");
 
 	// Create a FULLY SPECIFIED format like CodyCam does
 	// {field_rate, interlace, first_active, last_active, orientation,
@@ -948,28 +905,15 @@ WebcamDevice::_SetupVideoConnection()
 	};
 	format.u.raw_video = vid_format;
 
-	_LogFormatNegotiation(BString().SetToFormat(
-		"  Using format: type=%d, %dx%d, cs=0x%x, bpr=%d, fps=%.2f",
-		format.type,
-		(int)format.u.raw_video.display.line_width,
-		(int)format.u.raw_video.display.line_count,
-		(int)format.u.raw_video.display.format,
-		(int)format.u.raw_video.display.bytes_per_row,
-		format.u.raw_video.field_rate).String());
-
 	status = roster->Connect(fVideoOutput.source, fVideoInput.destination,
 		&format, &fVideoOutput, &fVideoInput);
 
 	if (status == B_OK) {
-		// Success!
-		_LogFormatNegotiation(BString().SetToFormat(
-			"\n=== CONNECTION SUCCESSFUL (CodyCam format) ===\n"
-			"Final format: %dx%d, colorspace=0x%x, bpr=%d, fps=%.2f",
+		LOG_INFO("Connected: %dx%d %s @%.0ffps (CodyCam-style)",
 			(int)format.u.raw_video.display.line_width,
 			(int)format.u.raw_video.display.line_count,
-			(int)format.u.raw_video.display.format,
-			(int)format.u.raw_video.display.bytes_per_row,
-			format.u.raw_video.field_rate).String());
+			ColorSpaceName(format.u.raw_video.display.format),
+			format.u.raw_video.field_rate);
 
 		fVideoConnected = true;
 
@@ -982,11 +926,10 @@ WebcamDevice::_SetupVideoConnection()
 		return B_OK;
 	}
 
-	_LogFormatNegotiation(BString().SetToFormat(
-		"  -> REJECTED: %s (0x%08x)", strerror(status), status).String());
+	LOG_DEBUG("CodyCam-style rejected: %s", strerror(status));
 
 	// ===== APPROACH 1: Pure wildcard format =====
-	_LogFormatNegotiation("Attempt 1: Pure wildcard format...");
+	LOG_DEBUG("Trying wildcard format...");
 	format = media_format();
 	format.type = B_MEDIA_RAW_VIDEO;
 	format.u.raw_video = media_raw_video_format::wildcard;
@@ -995,13 +938,11 @@ WebcamDevice::_SetupVideoConnection()
 		&format, &fVideoOutput, &fVideoInput);
 
 	if (status == B_OK) {
-		_LogFormatNegotiation(BString().SetToFormat(
-			"\n=== CONNECTION SUCCESSFUL (wildcard) ===\n"
-			"Final format: %dx%d, colorspace=0x%x, fps=%.2f",
+		LOG_INFO("Connected: %dx%d %s @%.0ffps (wildcard)",
 			(int)format.u.raw_video.display.line_width,
 			(int)format.u.raw_video.display.line_count,
-			(int)format.u.raw_video.display.format,
-			format.u.raw_video.field_rate).String());
+			ColorSpaceName(format.u.raw_video.display.format),
+			format.u.raw_video.field_rate);
 
 		fVideoConnected = true;
 
@@ -1014,11 +955,10 @@ WebcamDevice::_SetupVideoConnection()
 		return B_OK;
 	}
 
-	_LogFormatNegotiation(BString().SetToFormat(
-		"  -> REJECTED: %s (0x%08x)", strerror(status), status).String());
+	LOG_DEBUG("Wildcard rejected: %s", strerror(status));
 
 	// ===== APPROACH 2: Try ENCODED_VIDEO (MJPEG) format =====
-	_LogFormatNegotiation("Attempt 2: Encoded video (MJPEG) format...");
+	LOG_DEBUG("Trying encoded video (MJPEG)...");
 	format = media_format();
 	format.type = B_MEDIA_ENCODED_VIDEO;
 	format.u.encoded_video = media_encoded_video_format::wildcard;
@@ -1027,21 +967,15 @@ WebcamDevice::_SetupVideoConnection()
 		&format, &fVideoOutput, &fVideoInput);
 
 	if (status == B_OK) {
-		_LogFormatNegotiation(BString().SetToFormat(
-			"\n=== CONNECTION SUCCESSFUL (encoded video) ===\n"
-			"Format type: %d (ENCODED_VIDEO=%d)",
-			format.type, B_MEDIA_ENCODED_VIDEO).String());
-
+		LOG_INFO("Connected: encoded video type=%d", format.type);
 		fVideoConnected = true;
-		// For encoded video, dimensions might not be in the format
 		return B_OK;
 	}
 
-	_LogFormatNegotiation(BString().SetToFormat(
-		"  -> REJECTED: %s (0x%08x)", strerror(status), status).String());
+	LOG_DEBUG("Encoded video rejected: %s", strerror(status));
 
 	// ===== APPROACH 3: B_MEDIA_UNKNOWN_TYPE - fully permissive =====
-	_LogFormatNegotiation("Attempt 3: Unknown type (fully permissive)...");
+	LOG_DEBUG("Trying unknown type (permissive)...");
 	format = media_format();
 	format.type = B_MEDIA_UNKNOWN_TYPE;
 
@@ -1049,17 +983,12 @@ WebcamDevice::_SetupVideoConnection()
 		&format, &fVideoOutput, &fVideoInput);
 
 	if (status == B_OK) {
-		_LogFormatNegotiation(BString().SetToFormat(
-			"\n=== CONNECTION SUCCESSFUL (unknown type) ===\n"
-			"Negotiated type: %d", format.type).String());
-
+		LOG_INFO("Connected: unknown type, negotiated=%d", format.type);
 		fVideoConnected = true;
 		return B_OK;
 	}
 
-	_LogFormatNegotiation(BString().SetToFormat(
-		"  -> REJECTED: %s (0x%08x)", strerror(status), status).String());
-	_LogFormatNegotiation("Trying specific resolutions...");
+	LOG_DEBUG("Unknown type rejected: %s", strerror(status));
 
 	// ===== BUILD LIST OF RESOLUTIONS TO TRY =====
 
@@ -1076,7 +1005,7 @@ WebcamDevice::_SetupVideoConnection()
 
 	// Priority 1: Use resolutions from USB descriptor parsing (if available)
 	if (fUSBVideoInfo.found && fUSBVideoInfo.formats.CountItems() > 0) {
-		_LogFormatNegotiation("Using resolutions from USB descriptor parsing:");
+		LOG_DEBUG("Trying USB descriptor resolutions...");
 		for (int32 f = 0; f < fUSBVideoInfo.formats.CountItems(); f++) {
 			USBVideoFormat* usbFormat = fUSBVideoInfo.formats.ItemAt(f);
 			if (usbFormat == NULL) continue;
@@ -1089,18 +1018,12 @@ WebcamDevice::_SetupVideoConnection()
 				attempt->width = frame->width;
 				attempt->height = frame->height;
 				attempt->colorSpace = B_YCbCr422;  // UVC typically uses YUY2
-				attempt->source = "USB descriptor";
+				attempt->source = "USB";
 				attempts.AddItem(attempt);
-
-				_LogFormatNegotiation(BString().SetToFormat(
-					"  - %dx%d from %s (%s)",
-					frame->width, frame->height,
-					usbFormat->formatName.String(), attempt->source).String());
 			}
 		}
 	} else {
-		_AddDriverWarning("No USB descriptor format information available. "
-			"Using fallback resolutions.");
+		_AddDriverWarning("No USB descriptor info, using fallbacks");
 	}
 
 	// Priority 2: Use driver-declared resolution (if valid)
@@ -1109,10 +1032,8 @@ WebcamDevice::_SetupVideoConnection()
 		attempt->width = driverWidth;
 		attempt->height = driverHeight;
 		attempt->colorSpace = driverColorSpace != 0 ? driverColorSpace : B_YCbCr422;
-		attempt->source = "driver declaration";
+		attempt->source = "driver";
 		attempts.AddItem(attempt);
-		_LogFormatNegotiation(BString().SetToFormat(
-			"  - %dx%d from driver declaration", driverWidth, driverHeight).String());
 	}
 
 	// Priority 3: Common fallback resolutions (320x240 first like CodyCam)
@@ -1129,7 +1050,6 @@ WebcamDevice::_SetupVideoConnection()
 	}
 
 	// ===== TRY EACH RESOLUTION =====
-	// Note: 'format' is already declared above for the initial wildcard attempt
 	status = B_ERROR;
 	int32 attemptNum = 0;
 
@@ -1149,12 +1069,9 @@ WebcamDevice::_SetupVideoConnection()
 		if (isDuplicate) continue;
 
 		attemptNum++;
-		_LogFormatNegotiation(BString().SetToFormat(
-			"Attempt %d: %dx%d %s (from %s)...",
-			attemptNum, attempt->width, attempt->height,
-			attempt->colorSpace == B_YCbCr422 ? "YCbCr422" :
-			attempt->colorSpace == B_RGB32 ? "RGB32" : "other",
-			attempt->source).String());
+		LOG_DEBUG("Trying %dx%d %s (%s)...",
+			attempt->width, attempt->height,
+			ColorSpaceName(attempt->colorSpace), attempt->source);
 
 		// Build format structure like CodyCam does
 		format = media_format();
@@ -1179,28 +1096,14 @@ WebcamDevice::_SetupVideoConnection()
 			&format, &fVideoOutput, &fVideoInput);
 
 		if (status != B_OK) {
-			_LogFormatNegotiation(BString().SetToFormat(
-				"  -> REJECTED: %s (0x%08x)",
-				strerror(status), status).String());
-
 			// If YCbCr422 failed, try RGB32 at same resolution
 			if (attempt->colorSpace == B_YCbCr422) {
 				attemptNum++;
-				_LogFormatNegotiation(BString().SetToFormat(
-					"Attempt %d: %dx%d RGB32 (fallback)...",
-					attemptNum, attempt->width, attempt->height).String());
-
 				format.u.raw_video.display.format = B_RGB32;
 				format.u.raw_video.display.bytes_per_row = attempt->width * 4;
 
 				status = roster->Connect(fVideoOutput.source, fVideoInput.destination,
 					&format, &fVideoOutput, &fVideoInput);
-
-				if (status != B_OK) {
-					_LogFormatNegotiation(BString().SetToFormat(
-						"  -> REJECTED: %s (0x%08x)",
-						strerror(status), status).String());
-				}
 			}
 		}
 	}
@@ -1208,40 +1111,29 @@ WebcamDevice::_SetupVideoConnection()
 	// Last resort: wildcard format
 	if (status != B_OK) {
 		attemptNum++;
-		_LogFormatNegotiation(BString().SetToFormat(
-			"Attempt %d: Wildcard format (let driver decide)...", attemptNum).String());
+		LOG_DEBUG("Last resort: wildcard...");
 
 		format.type = B_MEDIA_RAW_VIDEO;
 		format.u.raw_video = media_raw_video_format::wildcard;
 
 		status = roster->Connect(fVideoOutput.source, fVideoInput.destination,
 			&format, &fVideoOutput, &fVideoInput);
-
-		if (status != B_OK) {
-			_LogFormatNegotiation(BString().SetToFormat(
-				"  -> REJECTED: %s (0x%08x)", strerror(status), status).String());
-		}
 	}
 
 	// ===== RESULT =====
 	if (status != B_OK) {
 		_AddDriverWarning(BString().SetToFormat(
-			"FORMAT NEGOTIATION FAILED after %d attempts. "
-			"The driver rejected all proposed formats. "
-			"This may indicate a driver bug or unsupported resolution.",
-			attemptNum).String());
-		_LogFormatNegotiation("\n=== CONNECTION FAILED ===");
+			"Format negotiation failed after %d attempts", attemptNum).String());
+		LOG_ERROR("Connection failed: %s", strerror(status));
 		return status;
 	}
 
 	// Success!
-	_LogFormatNegotiation(BString().SetToFormat(
-		"\n=== CONNECTION SUCCESSFUL ===\n"
-		"Final format: %dx%d, colorspace=0x%x, fps=%.2f",
+	LOG_INFO("Connected: %dx%d %s @%.0ffps (attempt %d)",
 		(int)format.u.raw_video.display.line_width,
 		(int)format.u.raw_video.display.line_count,
-		(int)format.u.raw_video.display.format,
-		format.u.raw_video.field_rate).String());
+		ColorSpaceName(format.u.raw_video.display.format),
+		format.u.raw_video.field_rate, attemptNum);
 
 	fVideoConnected = true;
 

@@ -309,31 +309,27 @@ ParseUSBVideoDevice(USBVideoInfo* info, uint16 vendorID, uint16 productID)
 bool
 FindAndParseUSBVideoDevice(USBVideoInfo* info)
 {
-	LOG_DEBUG("Starting USB device enumeration...");
 	bool result = ParseUSBVideoDevice(info, 0, 0);
 
 	if (info && info->found) {
-		LOG_INFO("USB device: %s %s (%04X:%04X)",
-			info->vendorName.String(), info->productName.String(),
-			info->vendorID, info->productID);
-
-		if (info->formats.CountItems() > 0) {
-			LOG_INFO("Supported formats: %d", (int)info->formats.CountItems());
-			for (int32 f = 0; f < info->formats.CountItems(); f++) {
-				USBVideoFormat* fmt = info->formats.ItemAt(f);
-				if (fmt == NULL) continue;
-				BString resolutions;
-				for (int32 fr = 0; fr < fmt->frames.CountItems(); fr++) {
-					USBVideoFrame* frame = fmt->frames.ItemAt(fr);
-					if (frame == NULL) continue;
-					if (resolutions.Length() > 0) resolutions << ", ";
-					resolutions << frame->width << "x" << frame->height;
-				}
-				LOG_DETAIL("  %s: %s", fmt->formatName.String(), resolutions.String());
+		// Build compact format summary
+		BString fmtSummary;
+		for (int32 f = 0; f < info->formats.CountItems(); f++) {
+			USBVideoFormat* fmt = info->formats.ItemAt(f);
+			if (fmt == NULL) continue;
+			if (fmtSummary.Length() > 0) fmtSummary << " | ";
+			fmtSummary << fmt->formatName << ": ";
+			for (int32 fr = 0; fr < fmt->frames.CountItems(); fr++) {
+				USBVideoFrame* frame = fmt->frames.ItemAt(fr);
+				if (frame == NULL) continue;
+				if (fr > 0) fmtSummary << ", ";
+				fmtSummary << frame->width << "x" << frame->height;
 			}
 		}
-	} else {
-		LOG_DEBUG("No USB video device found");
+
+		LOG_INFO("USB: %s %04X:%04X [%s]",
+			info->productName.String(), info->vendorID, info->productID,
+			fmtSummary.Length() > 0 ? fmtSummary.String() : "no formats");
 	}
 
 	return result;

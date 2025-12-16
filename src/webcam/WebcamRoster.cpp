@@ -55,16 +55,13 @@ WebcamRoster::EnumerateDevices()
 	status_t status = roster->GetDormantNodes(dormantNodes, &dormantCount,
 		NULL, NULL, NULL, B_BUFFER_PRODUCER | B_PHYSICAL_INPUT, 0);
 
-	LOG_INFO("GetDormantNodes (PHYSICAL_INPUT): status=%d, count=%d",
-		(int)status, (int)dormantCount);
+	LOG_DEBUG("GetDormantNodes: found %d nodes", (int)dormantCount);
 
 	if (status != B_OK || dormantCount == 0) {
 		// Retry with just B_BUFFER_PRODUCER
 		dormantCount = kMaxNodes;
 		status = roster->GetDormantNodes(dormantNodes, &dormantCount,
 			NULL, NULL, NULL, B_BUFFER_PRODUCER, 0);
-		LOG_INFO("GetDormantNodes (BUFFER_PRODUCER): status=%d, count=%d",
-			(int)status, (int)dormantCount);
 	}
 
 	if (status != B_OK) {
@@ -72,31 +69,23 @@ WebcamRoster::EnumerateDevices()
 		return status;
 	}
 
-	LOG_SECTION("Enumerating Media Nodes");
-
 	// Filter for video producers (webcams)
 	// IMPORTANT: Do NOT instantiate nodes here! The UVC driver only allows
 	// one instance at a time. Just add the dormant node info and let
 	// StartCapture() instantiate when needed.
 	for (int32 i = 0; i < dormantCount; i++) {
-		LOG_DEBUG("Node %d: '%s' (addon=%d, flavor=%d)",
-			(int)i, dormantNodes[i].name, (int)dormantNodes[i].addon,
-			(int)dormantNodes[i].flavor_id);
+		LOG_TRACE("Node %d: '%s' (addon=%d)",
+			(int)i, dormantNodes[i].name, (int)dormantNodes[i].addon);
 
 		if (_IsVideoProducer(dormantNodes[i])) {
-			LOG_INFO("Found video producer: %s", dormantNodes[i].name);
-
 			// Create device WITHOUT instantiating - just store dormant info
-			// The node will be instantiated on-demand in StartCapture()
 			WebcamDevice* device = new WebcamDevice(dormantNodes[i], B_OK);
 
 			// Gather device info (USB info, driver info, formats, audio)
-			// This also calls ParseUSBDescriptors() internally
 			device->GatherDeviceInfo();
 
 			fDevices.AddItem(device);
-
-			LOG_INFO("Added device: %s", device->Name());
+			LOG_INFO("Found webcam: %s", device->Name());
 		}
 	}
 

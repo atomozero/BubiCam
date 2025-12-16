@@ -76,28 +76,26 @@ VideoConsumer::VideoConsumer(const char* name, BLooper* target,
 	fFormat = media_format();
 	fProducerSource = media_source();
 
-	INFO("VideoConsumer created\n");
+	LOG_DEBUG("VideoConsumer created");
 }
 
 
 VideoConsumer::~VideoConsumer()
 {
-	INFO("~VideoConsumer() - cleaning up\n");
+	LOG_DEBUG("~VideoConsumer cleanup");
 
 	Quit();
 	DeleteBuffers();
 
 	delete fDisplayBitmap;
 	fDisplayBitmap = NULL;
-
-	INFO("~VideoConsumer() - done\n");
 }
 
 
 void
 VideoConsumer::DeleteBuffers()
 {
-	INFO("DeleteBuffers()\n");
+	LOG_TRACE("DeleteBuffers");
 
 	// Delete the buffer group first
 	if (fBuffers != NULL) {
@@ -117,8 +115,6 @@ VideoConsumer::DeleteBuffers()
 status_t
 VideoConsumer::CreateBuffers(const media_format& format)
 {
-	INFO("CreateBuffers() - creating CodyCam-style buffer group\n");
-
 	// Delete any old buffers first
 	DeleteBuffers();
 
@@ -131,7 +127,7 @@ VideoConsumer::CreateBuffers(const media_format& format)
 
 	// Validate and fix dimensions
 	if (xSize == 0 || ySize == 0) {
-		INFO("CreateBuffers() - format has 0x0 dimensions, using %dx%d fallback\n",
+		LOG_DEBUG("CreateBuffers: 0x0 dimensions, using %dx%d fallback",
 			(int)kFallbackWidth, (int)kFallbackHeight);
 		xSize = kFallbackWidth;
 		ySize = kFallbackHeight;
@@ -139,12 +135,11 @@ VideoConsumer::CreateBuffers(const media_format& format)
 
 	// Validate colorspace
 	if (colorspace == 0) {
-		INFO("CreateBuffers() - format has no colorspace, using B_RGB32\n");
 		colorspace = B_RGB32;
 	}
 
-	INFO("CreateBuffers() - creating %d buffers at %dx%d, colorspace=0x%x\n",
-		NUM_BUFFERS, (int)xSize, (int)ySize, (int)colorspace);
+	LOG_DEBUG("CreateBuffers: %d x %dx%d %s", NUM_BUFFERS, (int)xSize, (int)ySize,
+		ColorSpaceName(colorspace));
 
 	fBitmapWidth = xSize;
 	fBitmapHeight = ySize;
@@ -195,10 +190,9 @@ VideoConsumer::CreateBuffers(const media_format& format)
 				return status;
 			}
 
-			PROGRESS("CreateBuffers() - added buffer %d: area=%d, size=%zu\n",
-				j, info.area, info.size);
+			LOG_TRACE("CreateBuffers: buffer %d area=%d size=%zu", j, info.area, info.size);
 		} else {
-			ERROR("CreateBuffers() - bitmap %d is invalid\n", j);
+			LOG_ERROR("CreateBuffers: bitmap %d invalid", j);
 			DeleteBuffers();
 			return B_ERROR;
 		}
@@ -214,16 +208,15 @@ VideoConsumer::CreateBuffers(const media_format& format)
 		for (int j = 0; j < NUM_BUFFERS; j++) {
 			if (buffList[j] != NULL) {
 				fBufferMap[j] = buffList[j];
-				PROGRESS("CreateBuffers() - buffer %d mapped: BBuffer=%p\n",
-					j, fBufferMap[j]);
+				LOG_TRACE("CreateBuffers: buffer %d -> BBuffer=%p", j, fBufferMap[j]);
 			} else {
-				ERROR("CreateBuffers() - buffer %d is NULL in list\n", j);
+				LOG_ERROR("CreateBuffers: buffer %d NULL", j);
 				DeleteBuffers();
 				return B_ERROR;
 			}
 		}
 	} else {
-		ERROR("CreateBuffers() - GetBufferList() failed: %s\n", strerror(status));
+		LOG_ERROR("CreateBuffers: GetBufferList failed: %s", strerror(status));
 		DeleteBuffers();
 		return status;
 	}
@@ -233,13 +226,11 @@ VideoConsumer::CreateBuffers(const media_format& format)
 	delete fDisplayBitmap;
 	fDisplayBitmap = new BBitmap(bounds, B_RGB32, false, false);
 	if (!fDisplayBitmap->IsValid()) {
-		ERROR("CreateBuffers() - failed to create display bitmap\n");
+		LOG_WARNING("CreateBuffers: display bitmap failed (not fatal)");
 		delete fDisplayBitmap;
 		fDisplayBitmap = NULL;
-		// Not fatal - we can still display directly if format matches
 	}
 
-	INFO("CreateBuffers() - SUCCESS! Buffer group created with %d buffers\n", NUM_BUFFERS);
 	return B_OK;
 }
 
@@ -257,8 +248,6 @@ VideoConsumer::AddOn(int32* internalId) const
 void
 VideoConsumer::NodeRegistered()
 {
-	INFO("NodeRegistered() called\n");
-
 	// Set up the input
 	fInput.destination.port = ControlPort();
 	fInput.destination.id = 0;
@@ -270,14 +259,11 @@ VideoConsumer::NodeRegistered()
 	fInput.format.type = B_MEDIA_RAW_VIDEO;
 	fInput.format.u.raw_video = media_raw_video_format::wildcard;
 
-	INFO("NodeRegistered() - input configured: port=%d, node=%d, dest.id=%d\n",
-		fInput.destination.port, fInput.node.node, fInput.destination.id);
-
 	// Set run mode and start event loop
 	SetPriority(B_REAL_TIME_PRIORITY);
 	Run();
 
-	INFO("NodeRegistered() - event loop started, RunState=%d\n", RunState());
+	LOG_DEBUG("NodeRegistered: port=%d node=%d", fInput.destination.port, fInput.node.node);
 }
 
 
@@ -301,11 +287,11 @@ VideoConsumer::HandleEvent(const media_timed_event* event,
 {
 	switch (event->type) {
 		case BTimedEventQueue::B_START:
-			INFO("HandleEvent - B_START\n");
+			LOG_DEBUG("HandleEvent: START");
 			break;
 
 		case BTimedEventQueue::B_STOP:
-			INFO("HandleEvent - B_STOP\n");
+			LOG_DEBUG("HandleEvent: STOP");
 			EventQueue()->FlushEvents(0, BTimedEventQueue::B_ALWAYS, true,
 				BTimedEventQueue::B_HANDLE_BUFFER);
 			break;
@@ -332,28 +318,16 @@ VideoConsumer::HandleEvent(const media_timed_event* event,
 status_t
 VideoConsumer::AcceptFormat(const media_destination& dest, media_format* format)
 {
-	INFO("AcceptFormat() called\n");
-	INFO("  format type = %d (RAW_VIDEO=%d, ENCODED_VIDEO=%d)\n",
-		format->type, B_MEDIA_RAW_VIDEO, B_MEDIA_ENCODED_VIDEO);
-
 	// Be permissive - accept destination even if it doesn't match exactly
-	// (some buggy drivers might send wrong destination)
 
-	// Log format details for debugging
-	if (format->type == B_MEDIA_RAW_VIDEO) {
-		INFO("  RAW_VIDEO: %dx%d, colorspace=0x%x, field_rate=%.2f, bpr=%d\n",
-			(int)format->u.raw_video.display.line_width,
-			(int)format->u.raw_video.display.line_count,
-			(int)format->u.raw_video.display.format,
-			format->u.raw_video.field_rate,
-			(int)format->u.raw_video.display.bytes_per_row);
-	}
-
-	// Accept RAW_VIDEO formats
-	// CodyCam accepts: B_RGB32, B_RGB16, B_RGB15, B_GRAY8
-	// We'll be more permissive and accept YUV formats too since we can convert
 	if (format->type == B_MEDIA_RAW_VIDEO) {
 		color_space cs = format->u.raw_video.display.format;
+
+		LOG_DEBUG("AcceptFormat: %dx%d %s @%.0ffps",
+			(int)format->u.raw_video.display.line_width,
+			(int)format->u.raw_video.display.line_count,
+			ColorSpaceName(cs),
+			format->u.raw_video.field_rate);
 
 		// Accept common video colorspaces
 		switch (cs) {
@@ -367,35 +341,27 @@ VideoConsumer::AcceptFormat(const media_destination& dest, media_format* format)
 			case B_YUV422:
 			case B_YCbCr420:
 			case B_YUV420:
-				INFO("  -> ACCEPTED (colorspace 0x%x)\n", cs);
 				return B_OK;
 
 			case B_NO_COLOR_SPACE:
 				// Unspecified - default to RGB32 like CodyCam
 				format->u.raw_video.display.format = B_RGB32;
-				INFO("  -> ACCEPTED (defaulted to RGB32)\n");
 				return B_OK;
 
 			default:
-				// Accept anyway for driver testing - we'll show a test pattern
-				INFO("  -> ACCEPTED (unknown colorspace 0x%x, will use test pattern)\n", cs);
+				// Accept anyway for driver testing
 				return B_OK;
 		}
 	}
 
-	// Accept ENCODED_VIDEO too (for MJPEG drivers)
-	if (format->type == B_MEDIA_ENCODED_VIDEO) {
-		INFO("  -> ACCEPTED (ENCODED_VIDEO)\n");
+	// Accept ENCODED_VIDEO (MJPEG) and UNKNOWN_TYPE for driver testing
+	if (format->type == B_MEDIA_ENCODED_VIDEO ||
+		format->type == B_MEDIA_UNKNOWN_TYPE) {
+		LOG_DEBUG("AcceptFormat: type=%d accepted", format->type);
 		return B_OK;
 	}
 
-	// Accept UNKNOWN_TYPE for permissive driver testing
-	if (format->type == B_MEDIA_UNKNOWN_TYPE) {
-		INFO("  -> ACCEPTED (UNKNOWN_TYPE for driver testing)\n");
-		return B_OK;
-	}
-
-	INFO("  -> REJECTED (type %d not supported)\n", format->type);
+	LOG_DEBUG("AcceptFormat: type=%d rejected", format->type);
 	return B_MEDIA_BAD_FORMAT;
 }
 
@@ -426,21 +392,17 @@ VideoConsumer::BufferReceived(BBuffer* buffer)
 	static int bufferCount = 0;
 	bufferCount++;
 
-	if (bufferCount <= 5 || bufferCount % 100 == 0) {
-		INFO("BufferReceived() - buffer #%d, size=%zu, RunState=%d\n",
-			bufferCount, buffer ? buffer->SizeUsed() : 0, RunState());
-	}
+	LOG_TRACE("BufferReceived: #%d size=%zu state=%d",
+		bufferCount, buffer ? buffer->SizeUsed() : 0, RunState());
 
 	if (buffer == NULL) {
-		ERROR("BufferReceived() - NULL buffer!\n");
+		LOG_ERROR("BufferReceived: NULL buffer");
 		return;
 	}
 
 	// Check if we're running
 	if (RunState() != BMediaEventLooper::B_STARTED) {
-		if (bufferCount <= 10) {
-			INFO("BufferReceived() - not started (state=%d), recycling\n", RunState());
-		}
+		LOG_TRACE("BufferReceived: not started, recycling");
 		buffer->Recycle();
 		return;
 	}
@@ -452,7 +414,7 @@ VideoConsumer::BufferReceived(BBuffer* buffer)
 
 	status_t status = EventQueue()->AddEvent(event);
 	if (status != B_OK) {
-		ERROR("BufferReceived() - failed to queue buffer: %s\n", strerror(status));
+		LOG_ERROR("BufferReceived: queue failed: %s", strerror(status));
 		buffer->Recycle();
 		fFramesDropped++;
 	}
@@ -463,13 +425,13 @@ void
 VideoConsumer::ProducerDataStatus(const media_destination& forWhom,
 	int32 status, bigtime_t atPerformanceTime)
 {
-	const char* statusStr = "unknown";
+	const char* statusStr = "?";
 	switch (status) {
-		case B_DATA_NOT_AVAILABLE: statusStr = "B_DATA_NOT_AVAILABLE"; break;
-		case B_DATA_AVAILABLE: statusStr = "B_DATA_AVAILABLE"; break;
-		case B_PRODUCER_STOPPED: statusStr = "B_PRODUCER_STOPPED"; break;
+		case B_DATA_NOT_AVAILABLE: statusStr = "NOT_AVAILABLE"; break;
+		case B_DATA_AVAILABLE: statusStr = "AVAILABLE"; break;
+		case B_PRODUCER_STOPPED: statusStr = "STOPPED"; break;
 	}
-	INFO("ProducerDataStatus() - status=%s (%d)\n", statusStr, (int)status);
+	LOG_DEBUG("ProducerDataStatus: %s", statusStr);
 }
 
 
@@ -488,15 +450,11 @@ VideoConsumer::Connected(const media_source& producer,
 	const media_destination& where, const media_format& withFormat,
 	media_input* outInput)
 {
-	INFO("Connected() called\n");
-	INFO("  producer: port=%d, id=%d\n", producer.port, producer.id);
-	INFO("  where: port=%d, id=%d\n", where.port, where.id);
-	INFO("  format: type=%d, %dx%d, colorspace=0x%x, bpr=%d, fps=%.2f\n",
-		withFormat.type,
+	LOG_INFO("Connected: %d:%d -> %d:%d, %dx%d %s @%.0ffps",
+		producer.port, producer.id, where.port, where.id,
 		(int)withFormat.u.raw_video.display.line_width,
 		(int)withFormat.u.raw_video.display.line_count,
-		(int)withFormat.u.raw_video.display.format,
-		(int)withFormat.u.raw_video.display.bytes_per_row,
+		ColorSpaceName(withFormat.u.raw_video.display.format),
 		withFormat.u.raw_video.field_rate);
 
 	// Store connection info (like CodyCam)
@@ -509,33 +467,24 @@ VideoConsumer::Connected(const media_source& producer,
 
 	*outInput = fInput;
 
-	// THIS IS THE CRITICAL PART - Create buffers and pass them to producer!
+	// Create buffers and pass them to producer
 	uint32 userData = 0;
 	int32 changeTag = 1;
 
 	status_t status = CreateBuffers(withFormat);
 	if (status == B_OK) {
-		INFO("Connected() - buffers created, calling SetOutputBuffersFor()\n");
-
 		// Pass our buffer group to the producer
-		// This tells the producer to use OUR buffers instead of creating its own
 		status = BBufferConsumer::SetOutputBuffersFor(producer, fDestination,
 			fBuffers, (void*)&userData, &changeTag, true);
 
 		if (status != B_OK) {
-			// Not all producers support this, so don't fail
-			INFO("Connected() - SetOutputBuffersFor() returned %s (this may be OK)\n",
-				strerror(status));
-		} else {
-			INFO("Connected() - SetOutputBuffersFor() SUCCESS!\n");
+			LOG_DEBUG("SetOutputBuffersFor: %s (may be OK)", strerror(status));
 		}
 	} else {
-		ERROR("Connected() - CreateBuffers() failed: %s\n", strerror(status));
-		// Don't fail the connection - the producer might create its own buffers
+		LOG_ERROR("CreateBuffers failed: %s", strerror(status));
 	}
 
 	fConnected = true;
-	INFO("Connected() - SUCCESS!\n");
 	return B_OK;
 }
 
@@ -544,20 +493,16 @@ void
 VideoConsumer::Disconnected(const media_source& producer,
 	const media_destination& where)
 {
-	INFO("Disconnected() called\n");
+	LOG_DEBUG("Disconnected");
 
-	if (where != fInput.destination || producer != fInput.source) {
-		INFO("Disconnected() - wrong source/destination, ignoring\n");
+	if (where != fInput.destination || producer != fInput.source)
 		return;
-	}
 
 	fConnected = false;
 	fInput.source = media_source::null;
 	fProducerSource = media_source::null;
 
 	DeleteBuffers();
-
-	INFO("Disconnected() - cleanup complete\n");
 }
 
 
@@ -566,7 +511,10 @@ VideoConsumer::FormatChanged(const media_source& producer,
 	const media_destination& consumer, int32 changeTag,
 	const media_format& format)
 {
-	INFO("FormatChanged() called\n");
+	LOG_DEBUG("FormatChanged: %dx%d %s",
+		(int)format.u.raw_video.display.line_width,
+		(int)format.u.raw_video.display.line_count,
+		ColorSpaceName(format.u.raw_video.display.format));
 
 	if (consumer != fInput.destination)
 		return B_MEDIA_BAD_DESTINATION;
@@ -685,9 +633,9 @@ VideoConsumer::_ConvertBuffer(BBuffer* buffer, BBitmap* destBitmap)
 	// Debug log occasionally
 	static int32 sConvertCount = 0;
 	sConvertCount++;
-	if (sConvertCount <= 5 || (sConvertCount % 500) == 0) {
-		INFO("_ConvertBuffer #%d: srcSize=%zu, format=0x%x, %dx%d\n",
-			(int)sConvertCount, srcSize, (int)srcFormat, (int)width, (int)height);
+	if (sConvertCount <= 2 || (sConvertCount % 500) == 0) {
+		LOG_TRACE("ConvertBuffer #%d: %zu bytes %dx%d %s",
+			(int)sConvertCount, srcSize, (int)width, (int)height, ColorSpaceName(srcFormat));
 	}
 
 	// Handle empty buffer
@@ -858,12 +806,28 @@ VideoConsumer::_SendFrameToTarget(BBitmap* bitmap)
 	if (bitmap == NULL)
 		return;
 
-	BAutolock lock(fTargetLock);
-	if (fTarget == NULL)
+	// CRITICAL FIX: Copy target pointer under lock, then release lock BEFORE
+	// calling PostMessage. Holding a lock while calling PostMessage can cause
+	// deadlock if the target's message handler tries to acquire a lock that
+	// we're waiting for (classic lock inversion deadlock).
+	BLooper* target = NULL;
+	{
+		BAutolock lock(fTargetLock);
+		target = fTarget;
+	}
+	// Lock released here - safe to call PostMessage
+
+	if (target == NULL)
 		return;
 
 	BMessage msg(fFrameMessage);
 	msg.AddPointer("bitmap", bitmap);
 
-	fTarget->PostMessage(&msg);
+	// Use PostMessage with timeout to avoid blocking indefinitely
+	// if the target's message queue is full or target is busy
+	status_t status = target->PostMessage(&msg);
+	if (status != B_OK) {
+		// Target may have been deleted or queue full - not fatal
+		LOG_TRACE("PostMessage failed: %s", strerror(status));
+	}
 }
