@@ -23,6 +23,7 @@
 class VideoPreviewView;
 class DriverInfoView;
 class DriverTestView;
+class USBPacketView;
 class SyslogView;
 class VUMeterView;
 class WebcamControlsView;
@@ -57,7 +58,8 @@ enum {
 	MSG_RESTART_PREVIEW		= 'rsrt',
 	MSG_WATCHDOG_CHECK		= 'wdck',
 	MSG_FORCE_STOP			= 'fstp',
-	MSG_SHOW_DRIVER_TESTS	= 'sdtv'
+	MSG_SHOW_DRIVER_TESTS	= 'sdtv',
+	MSG_SHOW_USB_VIEWER		= 'susb'
 };
 
 
@@ -98,6 +100,7 @@ private:
 	VideoPreviewView*	fVideoPreview;
 	DriverInfoView*		fDriverInfo;
 	DriverTestView*		fDriverTestView;
+	USBPacketView*		fUSBPacketView;
 	SyslogView*			fSyslogView;
 	VUMeterView*		fVUMeter;
 	WebcamControlsView*	fWebcamControls;

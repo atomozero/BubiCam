@@ -171,7 +171,7 @@ Documento di pianificazione per le funzionalità della versione 2.0 di BubiCam.
 | [ ] | **API pubblica** | Libreria libbubicam.so per altre app | Header pubblici |
 | [ ] | **Plugin system** | Filtri video custom (effetti, overlay) | BAddOn |
 | [ ] | **Log viewer avanzato** | Filtri regex, colorazione, ricerca | Potenzia SyslogView |
-| [ ] | **USB packet viewer** | Visualizzazione traffico USB raw | Richiede permessi root |
+| [x] | **USB packet viewer** | Visualizzazione USB descriptors e hex dump | USBPacketView con tabs |
 | [ ] | **Frame inspector** | Analisi dettagliata singolo frame | Pixel values, metadata |
 | [ ] | **Export per debug** | Dump completo stato applicazione | Per bug report |
 | [ ] | **Command line mode** | Esecuzione senza GUI | bubicam --capture file.avi |
@@ -236,6 +236,7 @@ Documento di pianificazione per le funzionalità della versione 2.0 di BubiCam.
 |------|----------|-----------|
 | 2024-12-16 | 0.1 | Creazione iniziale roadmap |
 | 2024-12-16 | 0.2 | Implementato capitolo 2 (Testing Avanzato Driver) |
+| 2024-12-16 | 0.3 | Implementato USB Packet Viewer (cap. 8) |
 
 ---
 

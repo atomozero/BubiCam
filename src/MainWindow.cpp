@@ -8,6 +8,7 @@
 #include "VideoPreviewView.h"
 #include "DriverInfoView.h"
 #include "DriverTestView.h"
+#include "USBPacketView.h"
 #include "SyslogView.h"
 #include "VUMeterView.h"
 #include "WebcamControlsView.h"
@@ -64,6 +65,7 @@ MainWindow::MainWindow()
 	fVideoPreview(NULL),
 	fDriverInfo(NULL),
 	fDriverTestView(NULL),
+	fUSBPacketView(NULL),
 	fSyslogView(NULL),
 	fVUMeter(NULL),
 	fWebcamControls(NULL),
@@ -188,6 +190,8 @@ MainWindow::_BuildMenu()
 	fToolsMenu = new BMenu("Tools");
 	fToolsMenu->AddItem(new BMenuItem("Driver Tests" B_UTF8_ELLIPSIS,
 		new BMessage(MSG_SHOW_DRIVER_TESTS), 'D'));
+	fToolsMenu->AddItem(new BMenuItem("USB Descriptors" B_UTF8_ELLIPSIS,
+		new BMessage(MSG_SHOW_USB_VIEWER), 'U'));
 	fToolsMenu->AddSeparatorItem();
 	fToolsMenu->AddItem(new BMenuItem("Clear Syslog",
 		new BMessage(MSG_CLEAR_SYSLOG), 'L'));
@@ -344,6 +348,11 @@ MainWindow::_BuildLayout()
 	fRightTabView->AddTab(testScroll, new BTab());
 	fRightTabView->TabAt(2)->SetLabel("Testing");
 
+	// USB tab
+	fUSBPacketView = new USBPacketView("usbPacketView");
+	fRightTabView->AddTab(fUSBPacketView, new BTab());
+	fRightTabView->TabAt(3)->SetLabel("USB");
+
 	// Syslog box
 	BBox* syslogBox = new BBox("syslogBox");
 	syslogBox->SetLabel("Syslog");
@@ -492,6 +501,10 @@ MainWindow::_SelectWebcam(int32 index)
 	// Update test panel
 	if (fDriverTestView != NULL)
 		fDriverTestView->SetDevice(device);
+
+	// Update USB panel
+	if (fUSBPacketView != NULL)
+		fUSBPacketView->SetDevice(device);
 
 	// Update MCP server with new device
 	if (fMCPServer != NULL)
@@ -1003,6 +1016,11 @@ MainWindow::MessageReceived(BMessage* message)
 		case MSG_SHOW_DRIVER_TESTS:
 			// Switch to testing tab
 			fRightTabView->Select(2);
+			break;
+
+		case MSG_SHOW_USB_VIEWER:
+			// Switch to USB tab
+			fRightTabView->Select(3);
 			break;
 
 		case MSG_RESTART_MEDIA:
