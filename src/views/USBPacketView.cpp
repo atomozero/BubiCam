@@ -493,30 +493,37 @@ USBPacketView::Refresh()
 void
 USBPacketView::_BuildLayout()
 {
-	// Create tab view
+	// Create tab view - limit size to prevent layout overflow
 	fTabView = new BTabView("usbTabs");
+	fTabView->SetExplicitMinSize(BSize(200, 150));
 
-	// Tab 1: Summary text view
+	// Tab 1: Summary text view - limit size to prevent layout overflow
 	fSummaryView = new BTextView("summary");
 	fSummaryView->SetStylable(false);
 	fSummaryView->MakeEditable(false);
 	fSummaryView->SetFont(be_fixed_font);
+	fSummaryView->SetExplicitMinSize(BSize(100, 100));
+	fSummaryView->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNLIMITED));
 	fSummaryScroll = new BScrollView("summaryScroll", fSummaryView,
-		B_WILL_DRAW, true, true);
+		B_WILL_DRAW | B_SUPPORTS_LAYOUT, true, true);
 	fTabView->AddTab(fSummaryScroll, new BTab());
 	fTabView->TabAt(0)->SetLabel("Summary");
 
-	// Tab 2: Descriptor tree
+	// Tab 2: Descriptor tree - limit size to prevent layout overflow
 	fTreeView = new DescriptorTreeView("tree");
+	fTreeView->SetExplicitMinSize(BSize(100, 100));
+	fTreeView->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNLIMITED));
 	fTreeScroll = new BScrollView("treeScroll", fTreeView,
-		B_WILL_DRAW, false, true);
+		B_WILL_DRAW | B_SUPPORTS_LAYOUT, false, true);
 	fTabView->AddTab(fTreeScroll, new BTab());
 	fTabView->TabAt(1)->SetLabel("Descriptors");
 
-	// Tab 3: Hex dump
+	// Tab 3: Hex dump - limit size to prevent layout overflow
 	fHexView = new HexDumpView("hex");
+	fHexView->SetExplicitMinSize(BSize(100, 100));
+	fHexView->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNLIMITED));
 	fHexScroll = new BScrollView("hexScroll", fHexView,
-		B_WILL_DRAW, true, true);
+		B_WILL_DRAW | B_SUPPORTS_LAYOUT, true, true);
 	fTabView->AddTab(fHexScroll, new BTab());
 	fTabView->TabAt(2)->SetLabel("Hex Dump");
 

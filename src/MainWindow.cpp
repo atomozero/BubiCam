@@ -327,29 +327,39 @@ MainWindow::_BuildLayout()
 
 	// Create tab view for right panel (Driver Info + Controls + Tests)
 	fRightTabView = new BTabView("rightTabs");
+	// Prevent tab view from requesting excessive size based on content
+	fRightTabView->SetExplicitMinSize(BSize(200, 200));
 
-	// Driver Info tab
+	// Driver Info tab - limit the text view size to prevent layout overflow
+	fDriverInfo->SetExplicitMinSize(BSize(200, 100));
+	fDriverInfo->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNLIMITED));
 	BScrollView* infoScroll = new BScrollView("infoScroll", fDriverInfo,
 		B_SUPPORTS_LAYOUT, false, true);
 	fRightTabView->AddTab(infoScroll, new BTab());
 	fRightTabView->TabAt(0)->SetLabel("Driver Info");
 
-	// Controls tab
+	// Controls tab - limit size to prevent layout overflow
+	fWebcamControls->SetExplicitMinSize(BSize(200, 100));
+	fWebcamControls->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNLIMITED));
 	BScrollView* controlsScroll = new BScrollView("controlsScroll",
 		fWebcamControls, B_SUPPORTS_LAYOUT, false, true);
 	fRightTabView->AddTab(controlsScroll, new BTab());
 	fRightTabView->TabAt(1)->SetLabel("Controls");
 
-	// Testing tab
+	// Testing tab - limit size to prevent layout overflow
 	fDriverTestView = new DriverTestView("driverTestView");
 	fDriverTestView->SetTarget(this);
+	fDriverTestView->SetExplicitMinSize(BSize(200, 100));
+	fDriverTestView->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNLIMITED));
 	BScrollView* testScroll = new BScrollView("testScroll",
 		fDriverTestView, B_SUPPORTS_LAYOUT, false, true);
 	fRightTabView->AddTab(testScroll, new BTab());
 	fRightTabView->TabAt(2)->SetLabel("Testing");
 
-	// USB tab
+	// USB tab - limit size to prevent layout overflow
 	fUSBPacketView = new USBPacketView("usbPacketView");
+	fUSBPacketView->SetExplicitMinSize(BSize(200, 100));
+	fUSBPacketView->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNLIMITED));
 	fRightTabView->AddTab(fUSBPacketView, new BTab());
 	fRightTabView->TabAt(3)->SetLabel("USB");
 
