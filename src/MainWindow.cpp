@@ -102,7 +102,7 @@ MainWindow::MainWindow()
 	// Allow window to be resized freely
 	BScreen screen(this);
 	BRect screenFrame = screen.Frame();
-	SetSizeLimits(800, screenFrame.Width(), 550, screenFrame.Height());
+	SetSizeLimits(800, screenFrame.Width(), 620, screenFrame.Height());
 
 	// Start syslog monitoring
 	fSyslogView->StartMonitoring();
@@ -330,13 +330,13 @@ MainWindow::_BuildLayout()
 
 	// Driver Info tab
 	BScrollView* infoScroll = new BScrollView("infoScroll", fDriverInfo,
-		0, false, true);
+		B_SUPPORTS_LAYOUT, false, true);
 	fRightTabView->AddTab(infoScroll, new BTab());
 	fRightTabView->TabAt(0)->SetLabel("Driver Info");
 
 	// Controls tab
 	BScrollView* controlsScroll = new BScrollView("controlsScroll",
-		fWebcamControls, 0, false, true);
+		fWebcamControls, B_SUPPORTS_LAYOUT, false, true);
 	fRightTabView->AddTab(controlsScroll, new BTab());
 	fRightTabView->TabAt(1)->SetLabel("Controls");
 
@@ -344,7 +344,7 @@ MainWindow::_BuildLayout()
 	fDriverTestView = new DriverTestView("driverTestView");
 	fDriverTestView->SetTarget(this);
 	BScrollView* testScroll = new BScrollView("testScroll",
-		fDriverTestView, 0, false, true);
+		fDriverTestView, B_SUPPORTS_LAYOUT, false, true);
 	fRightTabView->AddTab(testScroll, new BTab());
 	fRightTabView->TabAt(2)->SetLabel("Testing");
 
