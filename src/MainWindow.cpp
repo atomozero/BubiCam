@@ -357,7 +357,7 @@ MainWindow::_BuildLayout()
 	BBox* syslogBox = new BBox("syslogBox");
 	syslogBox->SetLabel("Syslog");
 	BScrollView* syslogScroll = new BScrollView("syslogScroll", fSyslogView,
-		0, false, true);
+		B_SUPPORTS_LAYOUT, false, true);
 	syslogBox->AddChild(BLayoutBuilder::Group<>(B_VERTICAL, 0)
 		.Add(syslogScroll)
 		.SetInsets(B_USE_SMALL_INSETS)
