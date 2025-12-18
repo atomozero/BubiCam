@@ -321,8 +321,8 @@ MainWindow::_BuildLayout()
 	BSplitView* leftSplit = new BSplitView(B_VERTICAL);
 	leftSplit->AddChild(videoBox);
 	leftSplit->AddChild(vuBox);
-	leftSplit->SetItemWeight(0, 0.82f, true);
-	leftSplit->SetItemWeight(1, 0.18f, true);
+	leftSplit->SetItemWeight(0, 0.78f, true);
+	leftSplit->SetItemWeight(1, 0.22f, true);
 	leftSplit->SetExplicitMaxSize(BSize(400, B_SIZE_UNLIMITED));
 
 	// Create tab view for right panel (Driver Info + Controls + Tests)
