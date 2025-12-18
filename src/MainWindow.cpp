@@ -367,8 +367,8 @@ MainWindow::_BuildLayout()
 	BSplitView* rightSplit = new BSplitView(B_VERTICAL);
 	rightSplit->AddChild(fRightTabView);
 	rightSplit->AddChild(syslogBox);
-	rightSplit->SetItemWeight(0, 0.50f, true);
-	rightSplit->SetItemWeight(1, 0.50f, true);
+	rightSplit->SetItemWeight(0, 0.55f, true);
+	rightSplit->SetItemWeight(1, 0.45f, true);
 
 	// Main horizontal split
 	BSplitView* mainSplit = new BSplitView(B_HORIZONTAL);
