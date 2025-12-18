@@ -323,7 +323,7 @@ MainWindow::_BuildLayout()
 	leftSplit->AddChild(vuBox);
 	leftSplit->SetItemWeight(0, 0.78f, true);
 	leftSplit->SetItemWeight(1, 0.22f, true);
-	leftSplit->SetExplicitMaxSize(BSize(400, B_SIZE_UNLIMITED));
+	leftSplit->SetExplicitMaxSize(BSize(430, B_SIZE_UNLIMITED));
 
 	// Create tab view for right panel (Driver Info + Controls + Tests)
 	fRightTabView = new BTabView("rightTabs");
