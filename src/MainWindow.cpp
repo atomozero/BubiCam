@@ -261,7 +261,7 @@ MainWindow::_BuildLayout()
 	fDriverInfo = new DriverInfoView("driverInfo");
 	fSyslogView = new SyslogView("syslogView");
 	fVUMeter = new VUMeterView("vuMeter");
-	fVUMeter->SetExplicitMinSize(BSize(B_SIZE_UNSET, 55));
+	fVUMeter->SetExplicitMinSize(BSize(B_SIZE_UNSET, 72));
 	fWebcamControls = new WebcamControlsView("webcamControls");
 
 	// Status bar (bottom)
