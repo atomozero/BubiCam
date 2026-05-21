@@ -72,7 +72,7 @@ SyslogView::AttachedToWindow()
 	font.SetSize(10);
 	SetFontAndColor(&font);
 
-	SetViewColor(make_color(250, 250, 250));
+	SetViewUIColor(B_DOCUMENT_BACKGROUND_COLOR);
 }
 
 

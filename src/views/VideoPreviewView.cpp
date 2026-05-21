@@ -7,6 +7,7 @@
 #include "VideoPreviewView.h"
 
 #include <Autolock.h>
+#include <InterfaceDefs.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -23,7 +24,9 @@ VideoPreviewView::VideoPreviewView(const char* name)
 	fVideoHeight(0),
 	fShowStats(true)
 {
-	fBackgroundColor = make_color(40, 40, 40);
+	// Use a slightly darker shade of the panel background for the video area
+	rgb_color panel = ui_color(B_PANEL_BACKGROUND_COLOR);
+	fBackgroundColor = tint_color(panel, B_DARKEN_4_TINT);
 	SetViewColor(fBackgroundColor);
 	SetLowColor(fBackgroundColor);
 }
@@ -76,7 +79,7 @@ VideoPreviewView::Draw(BRect updateRect)
 		SetHighColor(fBackgroundColor);
 		FillRect(updateRect);
 
-		SetHighColor(128, 128, 128);
+		SetHighColor(tint_color(fBackgroundColor, B_LIGHTEN_2_TINT));
 		SetDrawingMode(B_OP_OVER);
 
 		BFont font;
@@ -99,7 +102,7 @@ VideoPreviewView::Draw(BRect updateRect)
 			bounds.Width() / 2 + 30,
 			bounds.Height() / 2 - 10
 		);
-		SetHighColor(80, 80, 80);
+		SetHighColor(tint_color(fBackgroundColor, B_LIGHTEN_1_TINT));
 		StrokeRoundRect(iconRect, 5, 5);
 
 		// Lens

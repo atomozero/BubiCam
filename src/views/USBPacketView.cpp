@@ -80,7 +80,7 @@ HexDumpView::Draw(BRect updateRect)
 
 		// Address
 		sprintf(line, "%04X: ", (unsigned int)offset);
-		SetHighColor(100, 100, 100);
+		SetHighColor(tint_color(ui_color(B_PANEL_BACKGROUND_COLOR), B_DARKEN_2_TINT));
 		DrawString(line, BPoint(5, y));
 
 		// Hex bytes
@@ -108,7 +108,7 @@ HexDumpView::Draw(BRect updateRect)
 		DrawString(hexPart.String(), BPoint(50, y));
 
 		// ASCII representation
-		SetHighColor(80, 80, 180);
+		SetHighColor(tint_color(ui_color(B_CONTROL_MARK_COLOR), B_NO_TINT));
 		DrawString(ascii, BPoint(50 + fBytesPerLine * 3 * fCharWidth + fCharWidth, y));
 	}
 }
@@ -278,7 +278,7 @@ DescriptorTreeView::Draw(BRect updateRect)
 			// Type indicator
 			char typeStr[8];
 			sprintf(typeStr, "[%02X] ", info->type);
-			SetHighColor(100, 100, 100);
+			SetHighColor(tint_color(ui_color(B_PANEL_BACKGROUND_COLOR), B_DARKEN_2_TINT));
 			DrawString(typeStr, textPoint);
 			textPoint.x += StringWidth(typeStr);
 

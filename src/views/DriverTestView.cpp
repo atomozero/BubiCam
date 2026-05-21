@@ -61,11 +61,12 @@ DropFrameGraphView::Draw(BRect updateRect)
 	float height = bounds.Height();
 
 	// Background
-	SetHighColor(40, 40, 45);
+	rgb_color panel = ui_color(B_PANEL_BACKGROUND_COLOR);
+	SetHighColor(tint_color(panel, B_DARKEN_MAX_TINT));
 	FillRect(bounds);
 
 	// Border
-	SetHighColor(80, 80, 85);
+	SetHighColor(tint_color(panel, B_DARKEN_3_TINT));
 	StrokeRect(bounds);
 
 	int32 count = fDataPoints.CountItems();
@@ -73,7 +74,7 @@ DropFrameGraphView::Draw(BRect updateRect)
 		return;
 
 	// Draw grid lines
-	SetHighColor(60, 60, 65);
+	SetHighColor(tint_color(panel, B_DARKEN_4_TINT));
 	for (int i = 1; i < 4; i++) {
 		float y = height * i / 4;
 		StrokeLine(BPoint(0, y), BPoint(width, y));
@@ -119,7 +120,8 @@ DropFrameGraphView::Draw(BRect updateRect)
 	SetPenSize(1.0);
 
 	// Draw labels
-	SetHighColor(180, 180, 180);
+	rgb_color labelColor = tint_color(panel, B_LIGHTEN_2_TINT);
+	SetHighColor(labelColor);
 	BFont font(be_plain_font);
 	font.SetSize(9);
 	SetFont(&font);
@@ -132,12 +134,12 @@ DropFrameGraphView::Draw(BRect updateRect)
 	float legendX = width - 80;
 	SetHighColor(80, 200, 80);
 	FillRect(BRect(legendX, 5, legendX + 10, 10));
-	SetHighColor(180, 180, 180);
+	SetHighColor(labelColor);
 	DrawString("FPS", BPoint(legendX + 15, 12));
 
 	SetHighColor(255, 80, 80);
 	FillRect(BRect(legendX, 17, legendX + 10, 22));
-	SetHighColor(180, 180, 180);
+	SetHighColor(labelColor);
 	DrawString("Drop", BPoint(legendX + 15, 24));
 }
 

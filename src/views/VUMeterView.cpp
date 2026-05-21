@@ -113,7 +113,7 @@ void
 VUMeterView::_DrawMeter(BRect rect, float level, float peak, const char* label)
 {
 	// Draw label
-	SetHighColor(0, 0, 0);
+	SetHighUIColor(B_PANEL_TEXT_COLOR);
 	SetLowColor(ViewColor());
 	BFont font(be_bold_font);
 	font.SetSize(10);
@@ -121,11 +121,12 @@ VUMeterView::_DrawMeter(BRect rect, float level, float peak, const char* label)
 	DrawString(label, BPoint(5, rect.top + rect.Height() / 2 + 4));
 
 	// Background
-	SetHighColor(30, 30, 30);
+	rgb_color panel = ui_color(B_PANEL_BACKGROUND_COLOR);
+	SetHighColor(tint_color(panel, B_DARKEN_MAX_TINT));
 	FillRoundRect(rect, 2, 2);
 
 	// Border
-	SetHighColor(60, 60, 60);
+	SetHighColor(tint_color(panel, B_DARKEN_3_TINT));
 	StrokeRoundRect(rect, 2, 2);
 
 	// Calculate meter width
@@ -165,7 +166,7 @@ VUMeterView::_DrawMeter(BRect rect, float level, float peak, const char* label)
 void
 VUMeterView::_DrawScale(BRect rect)
 {
-	SetHighColor(80, 80, 80);
+	SetHighColor(tint_color(ui_color(B_PANEL_BACKGROUND_COLOR), B_DARKEN_2_TINT));
 	BFont font(be_plain_font);
 	font.SetSize(9);
 	SetFont(&font);
