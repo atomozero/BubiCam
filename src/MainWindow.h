@@ -89,8 +89,13 @@ private:
 	void				_SaveScreenshot(const char* path);
 	void				_SaveExport(const char* path, bool asJson);
 	void				_BuildToolbar();
+	BView*				_BuildStatsBar();
+	BTabView*			_BuildTabView();
 	void				_UpdateStatsBar();
 	void				_UpdateToolbarState();
+	void				_HandleFrameReceived(BMessage* message);
+	void				_CheckWatchdog();
+	void				_ForceStop();
 	void				_RestartMediaServices();
 	void				_DoRestartMediaServices(bool askConfirmation);
 	void				_StartRecording();

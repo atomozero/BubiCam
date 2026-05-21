@@ -287,36 +287,7 @@ MainWindow::_BuildLayout()
 	fStatusBar = new BStringView("statusBar", "No webcam selected");
 	fStatusBar->SetExplicitMinSize(BSize(B_SIZE_UNSET, 20));
 
-	// Video stats bar (under video preview)
-	BView* statsBar = new BView("statsBar", B_WILL_DRAW);
-	statsBar->SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
-	statsBar->SetExplicitMinSize(BSize(B_SIZE_UNSET, 22));
-	statsBar->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, 22));
-
-	fStatsResolution = new BStringView("statsRes", "---");
-	fStatsResolution->SetAlignment(B_ALIGN_CENTER);
-	fStatsFPS = new BStringView("statsFPS", "--- fps");
-	fStatsFPS->SetAlignment(B_ALIGN_CENTER);
-	fStatsFrames = new BStringView("statsFrames", "0 frames");
-	fStatsFrames->SetAlignment(B_ALIGN_CENTER);
-	fStatsDropped = new BStringView("statsDropped", "0 dropped");
-	fStatsDropped->SetAlignment(B_ALIGN_CENTER);
-
-	// Set font for stats
-	BFont smallFont(be_plain_font);
-	smallFont.SetSize(10);
-	fStatsResolution->SetFont(&smallFont);
-	fStatsFPS->SetFont(&smallFont);
-	fStatsFrames->SetFont(&smallFont);
-	fStatsDropped->SetFont(&smallFont);
-
-	BLayoutBuilder::Group<>(statsBar, B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
-		.SetInsets(B_USE_SMALL_INSETS, 2, B_USE_SMALL_INSETS, 2)
-		.Add(fStatsResolution)
-		.Add(fStatsFPS)
-		.Add(fStatsFrames)
-		.Add(fStatsDropped)
-		.End();
+	BView* statsBar = _BuildStatsBar();
 
 	// Create video box with toolbar, video and stats bar inside
 	BBox* videoBox = new BBox("videoBox");
@@ -344,43 +315,7 @@ MainWindow::_BuildLayout()
 	leftSplit->SetItemWeight(1, 0.22f, true);
 	leftSplit->SetExplicitMaxSize(BSize(430, B_SIZE_UNLIMITED));
 
-	// Create tab view for right panel (Driver Info + Controls + Tests)
-	fRightTabView = new BTabView("rightTabs");
-	// Prevent tab view from requesting excessive size based on content
-	fRightTabView->SetExplicitMinSize(BSize(200, 200));
-
-	// Driver Info tab - limit the text view size to prevent layout overflow
-	fDriverInfo->SetExplicitMinSize(BSize(200, 100));
-	fDriverInfo->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNLIMITED));
-	BScrollView* infoScroll = new BScrollView("infoScroll", fDriverInfo,
-		B_SUPPORTS_LAYOUT, false, true);
-	fRightTabView->AddTab(infoScroll, new BTab());
-	fRightTabView->TabAt(0)->SetLabel("Driver Info");
-
-	// Controls tab - limit size to prevent layout overflow
-	fWebcamControls->SetExplicitMinSize(BSize(200, 100));
-	fWebcamControls->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNLIMITED));
-	BScrollView* controlsScroll = new BScrollView("controlsScroll",
-		fWebcamControls, B_SUPPORTS_LAYOUT, false, true);
-	fRightTabView->AddTab(controlsScroll, new BTab());
-	fRightTabView->TabAt(1)->SetLabel("Controls");
-
-	// Testing tab - limit size to prevent layout overflow
-	fDriverTestView = new DriverTestView("driverTestView");
-	fDriverTestView->SetTarget(this);
-	fDriverTestView->SetExplicitMinSize(BSize(200, 100));
-	fDriverTestView->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNLIMITED));
-	BScrollView* testScroll = new BScrollView("testScroll",
-		fDriverTestView, B_SUPPORTS_LAYOUT, false, true);
-	fRightTabView->AddTab(testScroll, new BTab());
-	fRightTabView->TabAt(2)->SetLabel("Testing");
-
-	// USB tab - limit size to prevent layout overflow
-	fUSBPacketView = new USBPacketView("usbPacketView");
-	fUSBPacketView->SetExplicitMinSize(BSize(200, 100));
-	fUSBPacketView->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNLIMITED));
-	fRightTabView->AddTab(fUSBPacketView, new BTab());
-	fRightTabView->TabAt(3)->SetLabel("USB");
+	fRightTabView = _BuildTabView();
 
 	// Syslog box
 	BBox* syslogBox = new BBox("syslogBox");
@@ -909,77 +844,8 @@ MainWindow::MessageReceived(BMessage* message)
 			break;
 
 		case MSG_FRAME_RECEIVED:
-		{
-			// Update watchdog timestamp
-			fLastFrameReceived = system_time();
-			fDriverCrashed = false;
-
-			BBitmap* bitmap = NULL;
-			if (message->FindPointer("bitmap", (void**)&bitmap) == B_OK) {
-				fVideoPreview->SetFrame(bitmap);
-
-				// Update resolution info
-				BRect bitmapBounds = bitmap->Bounds();
-				fVideoPreview->SetResolution(
-					(int32)(bitmapBounds.Width() + 1),
-					(int32)(bitmapBounds.Height() + 1));
-
-				// Update stats from consumer
-				// CRITICAL FIX: Copy webcam pointer under lock, then release lock
-				// BEFORE calling methods that may acquire other locks. This prevents
-				// deadlock with StopCapture which holds fCaptureLock and waits for
-				// fTargetLock.
-				WebcamDevice* webcam = NULL;
-				{
-					BAutolock lock(fWebcamLock);
-					webcam = fCurrentWebcam;
-				}
-				// Lock released - safe to call methods that may acquire locks
-				if (webcam != NULL) {
-					fVideoPreview->UpdateStats(
-						webcam->CurrentFPS(),
-						webcam->FramesCaptured(),
-						webcam->FramesDropped());
-				}
-
-				// Update stats bar (every frame)
-				_UpdateStatsBar();
-
-				// Update recording status periodically
-				if (fRecorder != NULL && fRecorder->IsRecording()
-					&& (fRecorder->FramesRecorded() % 30) == 0)
-					_UpdateRecordingStatus();
-
-				// Record frame if recording is active
-				if (fRecorder != NULL && fRecorder->IsRecording())
-					fRecorder->AddFrame(bitmap);
-
-				// Keep a copy for screenshots
-				// Check bounds AND color space to ensure compatible allocation
-				if (fLastFrame == NULL ||
-					fLastFrame->Bounds() != bitmap->Bounds() ||
-					fLastFrame->ColorSpace() != bitmap->ColorSpace()) {
-					delete fLastFrame;
-					fLastFrame = new BBitmap(bitmap->Bounds(),
-						bitmap->ColorSpace());
-					if (fLastFrame == NULL || !fLastFrame->IsValid()) {
-						delete fLastFrame;
-						fLastFrame = NULL;
-						fprintf(stderr, "MainWindow: Failed to allocate screenshot bitmap\n");
-					} else {
-						// Enable screenshot button now that we have a frame
-						_UpdateToolbarState();
-					}
-				}
-				// Verify buffer sizes match before copying
-				if (fLastFrame != NULL && fLastFrame->IsValid() &&
-					fLastFrame->BitsLength() >= bitmap->BitsLength()) {
-					memcpy(fLastFrame->Bits(), bitmap->Bits(),
-						bitmap->BitsLength());
-				}
-			}
+			_HandleFrameReceived(message);
 			break;
-		}
 
 		case MSG_AUDIO_LEVEL:
 		{
@@ -1137,72 +1003,218 @@ MainWindow::MessageReceived(BMessage* message)
 			break;
 
 		case MSG_WATCHDOG_CHECK:
-		{
-			// Check if driver appears frozen (no frames for 5+ seconds)
-			if (fIsPreviewActive && fLastFrameReceived > 0) {
-				bigtime_t timeSinceLastFrame = system_time() - fLastFrameReceived;
-				if (timeSinceLastFrame > 5000000) {  // 5 seconds
-					fDriverCrashed = true;
-					BString warning;
-					warning.SetToFormat("WARNING: No frames for %.0f seconds - driver may be frozen!",
-						timeSinceLastFrame / 1000000.0);
-					fStatusBar->SetText(warning.String());
-					fStatusBar->SetHighColor(200, 0, 0);  // Red text
-
-					// Show alert once
-					if (!fWatchdogAlertShown) {
-						fWatchdogAlertShown = true;
-						BAlert* alert = new BAlert("Driver Frozen",
-							"The webcam driver appears to be frozen.\n\n"
-							"No video frames have been received for several seconds.\n\n"
-							"Use Control → Force Stop to safely stop the preview,\n"
-							"or close the application (it will exit cleanly).",
-							"OK", NULL, NULL, B_WIDTH_AS_USUAL, B_WARNING_ALERT);
-						alert->Go(NULL);  // Async alert, don't block
-					}
-				}
-			}
+			_CheckWatchdog();
 			break;
-		}
 
 		case MSG_FORCE_STOP:
-		{
-			// Force stop without waiting for driver
-			fprintf(stderr, "MainWindow: Force stop requested\n");
-
-			// Stop watchdog
-			delete fWatchdogRunner;
-			fWatchdogRunner = NULL;
-
-			// Mark as crashed so QuitRequested skips cleanup
-			fDriverCrashed = true;
-			fIsPreviewActive = false;
-
-			// Clear UI
-			fVideoPreview->ClearFrame();
-			fVUMeter->SetLevel(0.0f, 0.0f);
-			fStatsResolution->SetText("---");
-			fStatsFPS->SetText("--- fps");
-			fStatsFrames->SetText("0 frames");
-			fStatsDropped->SetText("0 dropped");
-			fStatsDropped->SetHighUIColor(B_PANEL_TEXT_COLOR);
-
-			// Update toolbar
-			_UpdateToolbarState();
-
-			fStatusBar->SetText("Preview force-stopped (driver was frozen)");
-			fStatusBar->SetHighUIColor(B_PANEL_TEXT_COLOR);
-
-			// Note: We don't call fCurrentWebcam->StopCapture() because it would hang
-			// The webcam object is left in an inconsistent state, but we can still
-			// close the app cleanly
+			_ForceStop();
 			break;
-		}
 
 		default:
 			BWindow::MessageReceived(message);
 			break;
 	}
+}
+
+
+BView*
+MainWindow::_BuildStatsBar()
+{
+	BView* statsBar = new BView("statsBar", B_WILL_DRAW);
+	statsBar->SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
+	statsBar->SetExplicitMinSize(BSize(B_SIZE_UNSET, 22));
+	statsBar->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, 22));
+
+	fStatsResolution = new BStringView("statsRes", "---");
+	fStatsResolution->SetAlignment(B_ALIGN_CENTER);
+	fStatsFPS = new BStringView("statsFPS", "--- fps");
+	fStatsFPS->SetAlignment(B_ALIGN_CENTER);
+	fStatsFrames = new BStringView("statsFrames", "0 frames");
+	fStatsFrames->SetAlignment(B_ALIGN_CENTER);
+	fStatsDropped = new BStringView("statsDropped", "0 dropped");
+	fStatsDropped->SetAlignment(B_ALIGN_CENTER);
+
+	BFont smallFont(be_plain_font);
+	smallFont.SetSize(10);
+	fStatsResolution->SetFont(&smallFont);
+	fStatsFPS->SetFont(&smallFont);
+	fStatsFrames->SetFont(&smallFont);
+	fStatsDropped->SetFont(&smallFont);
+
+	BLayoutBuilder::Group<>(statsBar, B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
+		.SetInsets(B_USE_SMALL_INSETS, 2, B_USE_SMALL_INSETS, 2)
+		.Add(fStatsResolution)
+		.Add(fStatsFPS)
+		.Add(fStatsFrames)
+		.Add(fStatsDropped)
+		.End();
+
+	return statsBar;
+}
+
+
+BTabView*
+MainWindow::_BuildTabView()
+{
+	BTabView* tabView = new BTabView("rightTabs");
+	tabView->SetExplicitMinSize(BSize(200, 200));
+
+	// Driver Info tab
+	fDriverInfo->SetExplicitMinSize(BSize(200, 100));
+	fDriverInfo->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNLIMITED));
+	BScrollView* infoScroll = new BScrollView("infoScroll", fDriverInfo,
+		B_SUPPORTS_LAYOUT, false, true);
+	tabView->AddTab(infoScroll, new BTab());
+	tabView->TabAt(0)->SetLabel("Driver Info");
+
+	// Controls tab
+	fWebcamControls->SetExplicitMinSize(BSize(200, 100));
+	fWebcamControls->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNLIMITED));
+	BScrollView* controlsScroll = new BScrollView("controlsScroll",
+		fWebcamControls, B_SUPPORTS_LAYOUT, false, true);
+	tabView->AddTab(controlsScroll, new BTab());
+	tabView->TabAt(1)->SetLabel("Controls");
+
+	// Testing tab
+	fDriverTestView = new DriverTestView("driverTestView");
+	fDriverTestView->SetTarget(this);
+	fDriverTestView->SetExplicitMinSize(BSize(200, 100));
+	fDriverTestView->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNLIMITED));
+	BScrollView* testScroll = new BScrollView("testScroll",
+		fDriverTestView, B_SUPPORTS_LAYOUT, false, true);
+	tabView->AddTab(testScroll, new BTab());
+	tabView->TabAt(2)->SetLabel("Testing");
+
+	// USB tab
+	fUSBPacketView = new USBPacketView("usbPacketView");
+	fUSBPacketView->SetExplicitMinSize(BSize(200, 100));
+	fUSBPacketView->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNLIMITED));
+	tabView->AddTab(fUSBPacketView, new BTab());
+	tabView->TabAt(3)->SetLabel("USB");
+
+	return tabView;
+}
+
+
+void
+MainWindow::_HandleFrameReceived(BMessage* message)
+{
+	fLastFrameReceived = system_time();
+	fDriverCrashed = false;
+
+	BBitmap* bitmap = NULL;
+	if (message->FindPointer("bitmap", (void**)&bitmap) != B_OK)
+		return;
+
+	fVideoPreview->SetFrame(bitmap);
+
+	// Update resolution info
+	BRect bitmapBounds = bitmap->Bounds();
+	fVideoPreview->SetResolution(
+		(int32)(bitmapBounds.Width() + 1),
+		(int32)(bitmapBounds.Height() + 1));
+
+	// CRITICAL FIX: Copy webcam pointer under lock, then release lock
+	// BEFORE calling methods that may acquire other locks. This prevents
+	// deadlock with StopCapture which holds fCaptureLock and waits for
+	// fTargetLock.
+	WebcamDevice* webcam = NULL;
+	{
+		BAutolock lock(fWebcamLock);
+		webcam = fCurrentWebcam;
+	}
+	if (webcam != NULL) {
+		fVideoPreview->UpdateStats(
+			webcam->CurrentFPS(),
+			webcam->FramesCaptured(),
+			webcam->FramesDropped());
+	}
+
+	_UpdateStatsBar();
+
+	// Update recording status periodically
+	if (fRecorder != NULL && fRecorder->IsRecording()
+		&& (fRecorder->FramesRecorded() % 30) == 0)
+		_UpdateRecordingStatus();
+
+	// Record frame if recording is active
+	if (fRecorder != NULL && fRecorder->IsRecording())
+		fRecorder->AddFrame(bitmap);
+
+	// Keep a copy for screenshots
+	if (fLastFrame == NULL ||
+		fLastFrame->Bounds() != bitmap->Bounds() ||
+		fLastFrame->ColorSpace() != bitmap->ColorSpace()) {
+		delete fLastFrame;
+		fLastFrame = new BBitmap(bitmap->Bounds(), bitmap->ColorSpace());
+		if (fLastFrame == NULL || !fLastFrame->IsValid()) {
+			delete fLastFrame;
+			fLastFrame = NULL;
+			fprintf(stderr, "MainWindow: Failed to allocate screenshot bitmap\n");
+		} else {
+			_UpdateToolbarState();
+		}
+	}
+	if (fLastFrame != NULL && fLastFrame->IsValid() &&
+		fLastFrame->BitsLength() >= bitmap->BitsLength()) {
+		memcpy(fLastFrame->Bits(), bitmap->Bits(), bitmap->BitsLength());
+	}
+}
+
+
+void
+MainWindow::_CheckWatchdog()
+{
+	if (!fIsPreviewActive || fLastFrameReceived == 0)
+		return;
+
+	bigtime_t timeSinceLastFrame = system_time() - fLastFrameReceived;
+	if (timeSinceLastFrame <= 5000000)
+		return;
+
+	fDriverCrashed = true;
+	BString warning;
+	warning.SetToFormat("WARNING: No frames for %.0f seconds - driver may be frozen!",
+		timeSinceLastFrame / 1000000.0);
+	fStatusBar->SetText(warning.String());
+	fStatusBar->SetHighColor(200, 0, 0);
+
+	if (!fWatchdogAlertShown) {
+		fWatchdogAlertShown = true;
+		BAlert* alert = new BAlert("Driver Frozen",
+			"The webcam driver appears to be frozen.\n\n"
+			"No video frames have been received for several seconds.\n\n"
+			"Use Control \xe2\x86\x92 Force Stop to safely stop the preview,\n"
+			"or close the application (it will exit cleanly).",
+			"OK", NULL, NULL, B_WIDTH_AS_USUAL, B_WARNING_ALERT);
+		alert->Go(NULL);
+	}
+}
+
+
+void
+MainWindow::_ForceStop()
+{
+	fprintf(stderr, "MainWindow: Force stop requested\n");
+
+	delete fWatchdogRunner;
+	fWatchdogRunner = NULL;
+
+	fDriverCrashed = true;
+	fIsPreviewActive = false;
+
+	fVideoPreview->ClearFrame();
+	fVUMeter->SetLevel(0.0f, 0.0f);
+	fStatsResolution->SetText("---");
+	fStatsFPS->SetText("--- fps");
+	fStatsFrames->SetText("0 frames");
+	fStatsDropped->SetText("0 dropped");
+	fStatsDropped->SetHighUIColor(B_PANEL_TEXT_COLOR);
+
+	_UpdateToolbarState();
+
+	fStatusBar->SetText("Preview force-stopped (driver was frozen)");
+	fStatusBar->SetHighUIColor(B_PANEL_TEXT_COLOR);
 }
 
 
