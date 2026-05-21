@@ -207,6 +207,11 @@ MainWindow::_BuildMenu()
 	noiseFilterItem->SetMarked(true);
 	fToolsMenu->AddItem(noiseFilterItem);
 	fToolsMenu->AddSeparatorItem();
+	fToolsMenu->AddItem(new BMenuItem("Toggle Histogram",
+		new BMessage(MSG_TOGGLE_HISTOGRAM), 'H'));
+	fToolsMenu->AddItem(new BMenuItem("Reset Zoom",
+		new BMessage(MSG_RESET_ZOOM), '0'));
+	fToolsMenu->AddSeparatorItem();
 	fToolsMenu->AddItem(new BMenuItem("Restart Media Services" B_UTF8_ELLIPSIS,
 		new BMessage(MSG_RESTART_MEDIA), 'M', B_SHIFT_KEY));
 	fToolsMenu->AddSeparatorItem();
@@ -985,6 +990,22 @@ MainWindow::MessageReceived(BMessage* message)
 			}
 			break;
 		}
+
+		case MSG_TOGGLE_HISTOGRAM:
+		{
+			// Toggle histogram overlay on the preview
+			static bool histogramShown = false;
+			histogramShown = !histogramShown;
+			fVideoPreview->SetShowHistogram(histogramShown);
+			BMenuItem* item = fToolsMenu->FindItem(MSG_TOGGLE_HISTOGRAM);
+			if (item != NULL)
+				item->SetMarked(histogramShown);
+			break;
+		}
+
+		case MSG_RESET_ZOOM:
+			fVideoPreview->ResetZoom();
+			break;
 
 		case MSG_RECORD_START:
 			_StartRecording();

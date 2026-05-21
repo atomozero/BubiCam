@@ -22,8 +22,17 @@ VideoPreviewView::VideoPreviewView(const char* name)
 	fFramesDropped(0),
 	fVideoWidth(0),
 	fVideoHeight(0),
-	fShowStats(true)
+	fShowStats(true),
+	fShowHistogram(false),
+	fZoomLevel(1.0f),
+	fPanOffset(0, 0),
+	fLastMousePos(0, 0),
+	fIsPanning(false),
+	fHistogramDirty(true)
 {
+	memset(fHistR, 0, sizeof(fHistR));
+	memset(fHistG, 0, sizeof(fHistG));
+	memset(fHistB, 0, sizeof(fHistB));
 	// Use a slightly darker shade of the panel background for the video area
 	rgb_color panel = ui_color(B_PANEL_BACKGROUND_COLOR);
 	fBackgroundColor = tint_color(panel, B_DARKEN_4_TINT);
@@ -55,25 +64,37 @@ VideoPreviewView::Draw(BRect updateRect)
 	BRect bounds = Bounds();
 
 	if (fCurrentFrame != NULL && fCurrentFrame->IsValid()) {
-		// Draw the video frame scaled to fit
+		// Apply zoom: scale the video rect around its center
+		BRect destRect = fVideoRect;
+		if (fZoomLevel > 1.0f) {
+			float cx = (destRect.left + destRect.right) / 2 + fPanOffset.x;
+			float cy = (destRect.top + destRect.bottom) / 2 + fPanOffset.y;
+			float hw = destRect.Width() * fZoomLevel / 2;
+			float hh = destRect.Height() * fZoomLevel / 2;
+			destRect.Set(cx - hw, cy - hh, cx + hw, cy + hh);
+		}
+
 		SetDrawingMode(B_OP_COPY);
-		DrawBitmap(fCurrentFrame, fCurrentFrame->Bounds(), fVideoRect);
+		DrawBitmap(fCurrentFrame, fCurrentFrame->Bounds(), destRect);
 
-		// Draw black bars if needed
+		// Draw background around the frame
 		SetHighColor(fBackgroundColor);
-
-		if (fVideoRect.left > 0) {
-			FillRect(BRect(0, 0, fVideoRect.left - 1, bounds.bottom));
-			FillRect(BRect(fVideoRect.right + 1, 0, bounds.right, bounds.bottom));
-		}
-		if (fVideoRect.top > 0) {
-			FillRect(BRect(0, 0, bounds.right, fVideoRect.top - 1));
-			FillRect(BRect(0, fVideoRect.bottom + 1, bounds.right, bounds.bottom));
-		}
+		if (destRect.left > 0)
+			FillRect(BRect(0, 0, destRect.left - 1, bounds.bottom));
+		if (destRect.right < bounds.right)
+			FillRect(BRect(destRect.right + 1, 0, bounds.right, bounds.bottom));
+		if (destRect.top > 0)
+			FillRect(BRect(destRect.left, 0, destRect.right, destRect.top - 1));
+		if (destRect.bottom < bounds.bottom)
+			FillRect(BRect(destRect.left, destRect.bottom + 1, destRect.right, bounds.bottom));
 
 		// Draw stats overlay
 		if (fShowStats)
 			_DrawStats();
+
+		// Draw histogram overlay
+		if (fShowHistogram)
+			_DrawHistogram();
 	} else {
 		// No frame - draw placeholder
 		SetHighColor(fBackgroundColor);
@@ -122,6 +143,83 @@ VideoPreviewView::FrameResized(float newWidth, float newHeight)
 
 
 void
+VideoPreviewView::MouseWheelChanged(BMessage* message)
+{
+	float deltaY = 0;
+	if (message->FindFloat("be:wheel_delta_y", &deltaY) != B_OK)
+		return;
+
+	float oldZoom = fZoomLevel;
+	fZoomLevel -= deltaY * 0.25f;
+	if (fZoomLevel < 1.0f)
+		fZoomLevel = 1.0f;
+	if (fZoomLevel > 8.0f)
+		fZoomLevel = 8.0f;
+
+	// Reset pan when zooming back to 1x
+	if (fZoomLevel == 1.0f)
+		fPanOffset.Set(0, 0);
+
+	if (fZoomLevel != oldZoom)
+		Invalidate();
+}
+
+
+void
+VideoPreviewView::MouseDown(BPoint where)
+{
+	uint32 buttons;
+	GetMouse(&where, &buttons);
+
+	if (buttons & B_PRIMARY_MOUSE_BUTTON && fZoomLevel > 1.0f) {
+		fIsPanning = true;
+		fLastMousePos = where;
+		SetMouseEventMask(B_POINTER_EVENTS, B_NO_POINTER_HISTORY);
+	}
+}
+
+
+void
+VideoPreviewView::MouseMoved(BPoint where, uint32 transit, const BMessage* msg)
+{
+	if (fIsPanning) {
+		if (transit == B_EXITED_VIEW || !(modifiers() & B_PRIMARY_MOUSE_BUTTON)) {
+			fIsPanning = false;
+			return;
+		}
+
+		fPanOffset.x += where.x - fLastMousePos.x;
+		fPanOffset.y += where.y - fLastMousePos.y;
+		fLastMousePos = where;
+		Invalidate();
+	}
+}
+
+
+void
+VideoPreviewView::SetShowHistogram(bool show)
+{
+	fShowHistogram = show;
+	if (LockLooper()) {
+		Invalidate();
+		UnlockLooper();
+	}
+}
+
+
+void
+VideoPreviewView::ResetZoom()
+{
+	fZoomLevel = 1.0f;
+	fPanOffset.Set(0, 0);
+	if (LockLooper()) {
+		Invalidate();
+		UnlockLooper();
+	}
+}
+
+
+void
 VideoPreviewView::SetFrame(BBitmap* bitmap)
 {
 	if (bitmap == NULL)
@@ -147,6 +245,7 @@ VideoPreviewView::SetFrame(BBitmap* bitmap)
 	if (fCurrentFrame != NULL && fCurrentFrame->IsValid() &&
 		fCurrentFrame->BitsLength() >= bitmap->BitsLength()) {
 		memcpy(fCurrentFrame->Bits(), bitmap->Bits(), bitmap->BitsLength());
+		fHistogramDirty = true;
 	}
 
 	lock.Unlock();
@@ -304,6 +403,110 @@ VideoPreviewView::_DrawStats()
 	if (fFramesDropped > 0)
 		SetHighColor(255, 100, 100);  // Red for drops
 	DrawString(dropStr.String(), BPoint(x + 75, y));
+
+	SetDrawingMode(B_OP_COPY);
+}
+
+
+void
+VideoPreviewView::_ComputeHistogram()
+{
+	if (fCurrentFrame == NULL || !fCurrentFrame->IsValid())
+		return;
+
+	memset(fHistR, 0, sizeof(fHistR));
+	memset(fHistG, 0, sizeof(fHistG));
+	memset(fHistB, 0, sizeof(fHistB));
+
+	const uint8* bits = static_cast<const uint8*>(fCurrentFrame->Bits());
+	int32 width = (int32)(fCurrentFrame->Bounds().Width() + 1);
+	int32 height = (int32)(fCurrentFrame->Bounds().Height() + 1);
+	int32 bpr = fCurrentFrame->BytesPerRow();
+
+	// Sample every 2nd pixel for speed
+	for (int32 y = 0; y < height; y += 2) {
+		const uint8* row = bits + y * bpr;
+		for (int32 x = 0; x < width; x += 2) {
+			int32 off = x * 4;
+			fHistB[row[off + 0]]++;
+			fHistG[row[off + 1]]++;
+			fHistR[row[off + 2]]++;
+		}
+	}
+
+	fHistogramDirty = false;
+}
+
+
+void
+VideoPreviewView::_DrawHistogram()
+{
+	if (fCurrentFrame == NULL)
+		return;
+
+	if (fHistogramDirty)
+		_ComputeHistogram();
+
+	BRect bounds = Bounds();
+	float histW = 258;
+	float histH = 100;
+	BRect histRect(
+		bounds.right - histW - 5, bounds.bottom - histH - 5,
+		bounds.right - 5, bounds.bottom - 5);
+
+	// Semi-transparent background
+	SetDrawingMode(B_OP_ALPHA);
+	SetHighColor(0, 0, 0, 180);
+	FillRoundRect(histRect, 4, 4);
+
+	// Find max value for normalization
+	uint32 maxVal = 1;
+	for (int i = 0; i < 256; i++) {
+		if (fHistR[i] > maxVal) maxVal = fHistR[i];
+		if (fHistG[i] > maxVal) maxVal = fHistG[i];
+		if (fHistB[i] > maxVal) maxVal = fHistB[i];
+	}
+
+	float baseY = histRect.bottom - 2;
+	float scaleY = (histH - 4) / (float)maxVal;
+	float baseX = histRect.left + 1;
+
+	// Draw R, G, B channels with additive blending
+	SetDrawingMode(B_OP_ALPHA);
+	for (int i = 0; i < 256; i++) {
+		float x = baseX + i;
+
+		float rH = fHistR[i] * scaleY;
+		float gH = fHistG[i] * scaleY;
+		float bH = fHistB[i] * scaleY;
+
+		if (rH > 1) {
+			SetHighColor(220, 40, 40, 100);
+			StrokeLine(BPoint(x, baseY), BPoint(x, baseY - rH));
+		}
+		if (gH > 1) {
+			SetHighColor(40, 200, 40, 100);
+			StrokeLine(BPoint(x, baseY), BPoint(x, baseY - gH));
+		}
+		if (bH > 1) {
+			SetHighColor(60, 60, 220, 100);
+			StrokeLine(BPoint(x, baseY), BPoint(x, baseY - bH));
+		}
+	}
+
+	// Label
+	SetHighColor(255, 255, 255, 200);
+	BFont font(be_plain_font);
+	font.SetSize(9);
+	SetFont(&font);
+	DrawString("Histogram", BPoint(histRect.left + 5, histRect.top + 11));
+
+	// Zoom indicator
+	if (fZoomLevel > 1.0f) {
+		BString zoomStr;
+		zoomStr.SetToFormat("%.1fx", fZoomLevel);
+		DrawString(zoomStr.String(), BPoint(histRect.right - 30, histRect.top + 11));
+	}
 
 	SetDrawingMode(B_OP_COPY);
 }

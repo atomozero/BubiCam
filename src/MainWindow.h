@@ -62,7 +62,9 @@ enum {
 	MSG_SHOW_DRIVER_TESTS	= 'sdtv',
 	MSG_SHOW_USB_VIEWER		= 'susb',
 	MSG_RECORD_START		= 'rcst',
-	MSG_RECORD_STOP			= 'rcsp'
+	MSG_RECORD_STOP			= 'rcsp',
+	MSG_TOGGLE_HISTOGRAM	= 'tghi',
+	MSG_RESET_ZOOM			= 'rszm'
 };
 
 

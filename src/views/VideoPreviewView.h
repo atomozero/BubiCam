@@ -20,6 +20,9 @@ public:
 	virtual void		Draw(BRect updateRect);
 	virtual void		FrameResized(float newWidth, float newHeight);
 	virtual void		AttachedToWindow();
+	virtual void		MouseWheelChanged(BMessage* message);
+	virtual void		MouseDown(BPoint where);
+	virtual void		MouseMoved(BPoint where, uint32 transit, const BMessage* msg);
 
 	void				SetFrame(BBitmap* bitmap);
 	void				ClearFrame();
@@ -28,6 +31,8 @@ public:
 	void				UpdateStats(float fps, uint32 received, uint32 dropped);
 	void				SetResolution(int32 width, int32 height);
 	void				SetShowStats(bool show);
+	void				SetShowHistogram(bool show);
+	void				ResetZoom();
 
 	// Getters for external stats bar
 	float				CurrentFPS() const { return fCurrentFPS; }
@@ -41,6 +46,8 @@ public:
 private:
 	void				_CalculateVideoRect();
 	void				_DrawStats();
+	void				_DrawHistogram();
+	void				_ComputeHistogram();
 
 	BBitmap*			fCurrentFrame;
 	BLocker				fFrameLock;
@@ -54,6 +61,19 @@ private:
 	int32				fVideoWidth;
 	int32				fVideoHeight;
 	bool				fShowStats;
+	bool				fShowHistogram;
+
+	// Zoom and pan
+	float				fZoomLevel;
+	BPoint				fPanOffset;
+	BPoint				fLastMousePos;
+	bool				fIsPanning;
+
+	// Histogram data (256 bins per channel)
+	uint32				fHistR[256];
+	uint32				fHistG[256];
+	uint32				fHistB[256];
+	bool				fHistogramDirty;
 };
 
 #endif // VIDEO_PREVIEW_VIEW_H
