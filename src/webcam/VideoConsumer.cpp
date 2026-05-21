@@ -22,6 +22,10 @@
 #include <stdlib.h>
 #include <setjmp.h>
 
+#ifdef __x86_64__
+#include <emmintrin.h>  // SSE2
+#endif
+
 
 // Maximum acceptable latency for video buffer processing (in microseconds).
 // 50ms is chosen as a balance between:
@@ -749,12 +753,103 @@ VideoConsumer::_ConvertYUV422ToBGRA(const uint8* src, uint8* dst,
 {
 	int32 dstBytesPerRow = fBitmapWidth * 4;
 	int32 srcBytesPerRow = width * 2;
+	int32 effectiveWidth = min_c(width, fBitmapWidth);
 
 	for (int32 y = 0; y < height && y < fBitmapHeight; y++) {
 		const uint8* srcRow = src + y * srcBytesPerRow;
 		uint8* dstRow = dst + y * dstBytesPerRow;
+		int32 x = 0;
 
-		for (int32 x = 0; x < width && x < fBitmapWidth; x += 2) {
+#ifdef __x86_64__
+		// SSE2 path: process 8 pixels (4 YUYV pairs = 16 src bytes) at a time
+		const __m128i zero = _mm_setzero_si128();
+		const __m128i c16  = _mm_set1_epi16(16);
+		const __m128i c128 = _mm_set1_epi16(128);
+		const __m128i c298 = _mm_set1_epi16(298);
+		const __m128i c409 = _mm_set1_epi16(409);
+		const __m128i c100 = _mm_set1_epi16(100);
+		const __m128i c208 = _mm_set1_epi16(208);
+		const __m128i c516 = _mm_set1_epi16(516);
+		const __m128i cBias = _mm_set1_epi16(128);
+		const __m128i alpha = _mm_set1_epi32(0xFF000000);
+
+		for (; x + 7 < effectiveWidth; x += 8) {
+			// Load 16 bytes: Y0 U0 Y1 V0 Y2 U1 Y3 V1 Y4 U2 Y5 V2 Y6 U3 Y7 V3
+			__m128i packed = _mm_loadu_si128(
+				reinterpret_cast<const __m128i*>(srcRow + x * 2));
+
+			// Extract Y values (even bytes): Y0 Y1 Y2 Y3 Y4 Y5 Y6 Y7
+			__m128i yLo = _mm_and_si128(packed, _mm_set1_epi16(0x00FF));
+
+			// Extract U values (bytes 1,5,9,13) and V values (bytes 3,7,11,15)
+			// Shift right by 8 to get odd bytes: U0 V0 U1 V1 U2 V2 U3 V3
+			__m128i uvPacked = _mm_srli_epi16(packed, 8);
+
+			// Separate U and V, then duplicate each for the pair of Y pixels
+			// U values at positions 0,2,4,6 and V at 1,3,5,7
+			__m128i uRaw = _mm_and_si128(uvPacked, _mm_set1_epi32(0x0000FFFF));
+			__m128i vRaw = _mm_srli_epi32(uvPacked, 16);
+
+			// Duplicate U and V for each pair: U0 U0 U1 U1 U2 U2 U3 U3
+			__m128i uDup = _mm_or_si128(uRaw, _mm_slli_epi32(uRaw, 16));
+			__m128i vDup = _mm_or_si128(vRaw, _mm_slli_epi32(vRaw, 16));
+
+			// c = Y - 16, d = U - 128, e = V - 128
+			__m128i c_val = _mm_sub_epi16(yLo, c16);
+			__m128i d_val = _mm_sub_epi16(uDup, c128);
+			__m128i e_val = _mm_sub_epi16(vDup, c128);
+
+			// R = (298*c + 409*e + 128) >> 8
+			__m128i r16 = _mm_srai_epi16(
+				_mm_add_epi16(_mm_add_epi16(
+					_mm_mullo_epi16(c298, c_val),
+					_mm_mullo_epi16(c409, e_val)), cBias), 8);
+
+			// G = (298*c - 100*d - 208*e + 128) >> 8
+			__m128i g16 = _mm_srai_epi16(
+				_mm_add_epi16(_mm_sub_epi16(_mm_sub_epi16(
+					_mm_mullo_epi16(c298, c_val),
+					_mm_mullo_epi16(c100, d_val)),
+					_mm_mullo_epi16(c208, e_val)), cBias), 8);
+
+			// B = (298*c + 516*d + 128) >> 8
+			__m128i b16 = _mm_srai_epi16(
+				_mm_add_epi16(_mm_add_epi16(
+					_mm_mullo_epi16(c298, c_val),
+					_mm_mullo_epi16(c516, d_val)), cBias), 8);
+
+			// Clamp to [0, 255]
+			r16 = _mm_max_epi16(_mm_min_epi16(r16, _mm_set1_epi16(255)), zero);
+			g16 = _mm_max_epi16(_mm_min_epi16(g16, _mm_set1_epi16(255)), zero);
+			b16 = _mm_max_epi16(_mm_min_epi16(b16, _mm_set1_epi16(255)), zero);
+
+			// Pack to 8-bit: each contains 8 values in low bytes
+			__m128i r8 = _mm_packus_epi16(r16, zero);
+			__m128i g8 = _mm_packus_epi16(g16, zero);
+			__m128i b8 = _mm_packus_epi16(b16, zero);
+
+			// Interleave to BGRA format
+			// First interleave B and G: B0 G0 B1 G1 ...
+			__m128i bg = _mm_unpacklo_epi8(b8, g8);
+			// Then interleave R and A(0): R0 0 R1 0 ...
+			__m128i ra = _mm_unpacklo_epi8(r8, _mm_setzero_si128());
+
+			// Combine: B0 G0 R0 0  B1 G1 R1 0 ...
+			__m128i bgra_lo = _mm_unpacklo_epi16(bg, ra);
+			__m128i bgra_hi = _mm_unpackhi_epi16(bg, ra);
+
+			// Set alpha to 0xFF
+			bgra_lo = _mm_or_si128(bgra_lo, alpha);
+			bgra_hi = _mm_or_si128(bgra_hi, alpha);
+
+			// Store 8 BGRA pixels (32 bytes)
+			_mm_storeu_si128(reinterpret_cast<__m128i*>(dstRow + x * 4), bgra_lo);
+			_mm_storeu_si128(reinterpret_cast<__m128i*>(dstRow + x * 4 + 16), bgra_hi);
+		}
+#endif
+
+		// Scalar fallback for remaining pixels
+		for (; x + 1 < effectiveWidth; x += 2) {
 			int32 y0 = srcRow[x * 2 + 0];
 			int32 u  = srcRow[x * 2 + 1];
 			int32 y1 = srcRow[x * 2 + 2];
@@ -778,12 +873,10 @@ VideoConsumer::_ConvertYUV422ToBGRA(const uint8* src, uint8* dst,
 			g = (298 * c - 100 * d - 208 * e + 128) >> 8;
 			b = (298 * c + 516 * d + 128) >> 8;
 
-			if (x + 1 < fBitmapWidth) {
-				dstRow[(x + 1) * 4 + 0] = (uint8)max_c(0, min_c(255, b));
-				dstRow[(x + 1) * 4 + 1] = (uint8)max_c(0, min_c(255, g));
-				dstRow[(x + 1) * 4 + 2] = (uint8)max_c(0, min_c(255, r));
-				dstRow[(x + 1) * 4 + 3] = 255;
-			}
+			dstRow[(x + 1) * 4 + 0] = (uint8)max_c(0, min_c(255, b));
+			dstRow[(x + 1) * 4 + 1] = (uint8)max_c(0, min_c(255, g));
+			dstRow[(x + 1) * 4 + 2] = (uint8)max_c(0, min_c(255, r));
+			dstRow[(x + 1) * 4 + 3] = 255;
 		}
 	}
 }
@@ -794,18 +887,89 @@ VideoConsumer::_ConvertYUV420ToBGRA(const uint8* src, uint8* dst,
 	int32 width, int32 height)
 {
 	int32 dstBytesPerRow = fBitmapWidth * 4;
+	int32 effectiveWidth = min_c(width, fBitmapWidth);
 
 	const uint8* yPlane = src;
 	const uint8* uPlane = src + width * height;
 	const uint8* vPlane = uPlane + (width * height) / 4;
 
 	for (int32 y = 0; y < height && y < fBitmapHeight; y++) {
+		const uint8* yRow = yPlane + y * width;
+		const uint8* uRow = uPlane + (y / 2) * (width / 2);
+		const uint8* vRow = vPlane + (y / 2) * (width / 2);
 		uint8* dstRow = dst + y * dstBytesPerRow;
+		int32 x = 0;
 
-		for (int32 x = 0; x < width && x < fBitmapWidth; x++) {
-			int32 yValue = yPlane[y * width + x];
-			int32 u = uPlane[(y / 2) * (width / 2) + (x / 2)];
-			int32 v = vPlane[(y / 2) * (width / 2) + (x / 2)];
+#ifdef __x86_64__
+		const __m128i zero = _mm_setzero_si128();
+		const __m128i c16  = _mm_set1_epi16(16);
+		const __m128i c128 = _mm_set1_epi16(128);
+		const __m128i c298 = _mm_set1_epi16(298);
+		const __m128i c409 = _mm_set1_epi16(409);
+		const __m128i c100 = _mm_set1_epi16(100);
+		const __m128i c208 = _mm_set1_epi16(208);
+		const __m128i c516 = _mm_set1_epi16(516);
+		const __m128i cBias = _mm_set1_epi16(128);
+		const __m128i alpha = _mm_set1_epi32(0xFF000000);
+
+		for (; x + 7 < effectiveWidth; x += 8) {
+			// Load 8 Y values
+			__m128i yRaw = _mm_loadl_epi64(
+				reinterpret_cast<const __m128i*>(yRow + x));
+			__m128i y16 = _mm_unpacklo_epi8(yRaw, zero);
+
+			// Load 4 U and 4 V values, duplicate each for 2 horizontal pixels
+			uint8 uBuf[8], vBuf[8];
+			for (int i = 0; i < 4; i++) {
+				uBuf[i * 2] = uBuf[i * 2 + 1] = uRow[(x / 2) + i];
+				vBuf[i * 2] = vBuf[i * 2 + 1] = vRow[(x / 2) + i];
+			}
+			__m128i u16 = _mm_unpacklo_epi8(
+				_mm_loadl_epi64(reinterpret_cast<const __m128i*>(uBuf)), zero);
+			__m128i v16 = _mm_unpacklo_epi8(
+				_mm_loadl_epi64(reinterpret_cast<const __m128i*>(vBuf)), zero);
+
+			__m128i c_val = _mm_sub_epi16(y16, c16);
+			__m128i d_val = _mm_sub_epi16(u16, c128);
+			__m128i e_val = _mm_sub_epi16(v16, c128);
+
+			__m128i r16 = _mm_srai_epi16(
+				_mm_add_epi16(_mm_add_epi16(
+					_mm_mullo_epi16(c298, c_val),
+					_mm_mullo_epi16(c409, e_val)), cBias), 8);
+			__m128i g16 = _mm_srai_epi16(
+				_mm_add_epi16(_mm_sub_epi16(_mm_sub_epi16(
+					_mm_mullo_epi16(c298, c_val),
+					_mm_mullo_epi16(c100, d_val)),
+					_mm_mullo_epi16(c208, e_val)), cBias), 8);
+			__m128i b16 = _mm_srai_epi16(
+				_mm_add_epi16(_mm_add_epi16(
+					_mm_mullo_epi16(c298, c_val),
+					_mm_mullo_epi16(c516, d_val)), cBias), 8);
+
+			r16 = _mm_max_epi16(_mm_min_epi16(r16, _mm_set1_epi16(255)), zero);
+			g16 = _mm_max_epi16(_mm_min_epi16(g16, _mm_set1_epi16(255)), zero);
+			b16 = _mm_max_epi16(_mm_min_epi16(b16, _mm_set1_epi16(255)), zero);
+
+			__m128i r8 = _mm_packus_epi16(r16, zero);
+			__m128i g8 = _mm_packus_epi16(g16, zero);
+			__m128i b8 = _mm_packus_epi16(b16, zero);
+
+			__m128i bg = _mm_unpacklo_epi8(b8, g8);
+			__m128i ra = _mm_unpacklo_epi8(r8, _mm_setzero_si128());
+			__m128i bgra_lo = _mm_or_si128(_mm_unpacklo_epi16(bg, ra), alpha);
+			__m128i bgra_hi = _mm_or_si128(_mm_unpackhi_epi16(bg, ra), alpha);
+
+			_mm_storeu_si128(reinterpret_cast<__m128i*>(dstRow + x * 4), bgra_lo);
+			_mm_storeu_si128(reinterpret_cast<__m128i*>(dstRow + x * 4 + 16), bgra_hi);
+		}
+#endif
+
+		// Scalar fallback
+		for (; x < effectiveWidth; x++) {
+			int32 yValue = yRow[x];
+			int32 u = uRow[x / 2];
+			int32 v = vRow[x / 2];
 
 			int32 c = yValue - 16;
 			int32 d = u - 128;
