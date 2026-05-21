@@ -53,6 +53,7 @@ enum {
 	MSG_TEST_START_LATENCY		= 'tstl',
 	MSG_TEST_START_FORMAT		= 'tstf',
 	MSG_TEST_START_MEMORY		= 'tstm',
+	MSG_TEST_START_CYCLE		= 'tstc',
 	MSG_TEST_EXPORT_REPORT		= 'texp',
 	MSG_TEST_STOP				= 'tstp',
 	MSG_TEST_PROGRESS			= 'tprg',
@@ -120,12 +121,14 @@ private:
 	void				_RunLatencyTest();
 	void				_RunFormatBenchmark();
 	void				_RunMemoryTest();
+	void				_RunCycleTest();
 
 	// Test thread entry points
 	static int32		_StressTestThread(void* data);
 	static int32		_LatencyTestThread(void* data);
 	static int32		_FormatTestThread(void* data);
 	static int32		_MemoryTestThread(void* data);
+	static int32		_CycleTestThread(void* data);
 
 	void				_TestComplete(TestResult* result);
 	void				_UpdateProgress(float percent, const char* status);
@@ -135,6 +138,7 @@ private:
 	BButton*			fLatencyTestButton;
 	BButton*			fFormatTestButton;
 	BButton*			fMemoryTestButton;
+	BButton*			fCycleTestButton;
 	BButton*			fExportReportButton;
 	BButton*			fStopButton;
 	BTextView*			fLogView;

@@ -264,6 +264,10 @@ DriverTestView::_BuildLayout()
 		new BMessage(MSG_TEST_START_MEMORY));
 	fMemoryTestButton->SetToolTip("Check for memory leaks during extended capture");
 
+	fCycleTestButton = new BButton("cycleTest", "Cycle Test",
+		new BMessage(MSG_TEST_START_CYCLE));
+	fCycleTestButton->SetToolTip("Simulate connect/disconnect cycles to test hot-plug robustness");
+
 	fExportReportButton = new BButton("exportReport", "Export Report",
 		new BMessage(MSG_TEST_EXPORT_REPORT));
 	fExportReportButton->SetToolTip("Generate diagnostic report for bug reports");
@@ -309,6 +313,7 @@ DriverTestView::_BuildLayout()
 	fLatencyTestButton->SetTarget(this);
 	fFormatTestButton->SetTarget(this);
 	fMemoryTestButton->SetTarget(this);
+	fCycleTestButton->SetTarget(this);
 	fExportReportButton->SetTarget(this);
 	fStopButton->SetTarget(this);
 
@@ -322,6 +327,7 @@ DriverTestView::_BuildLayout()
 			.Add(fLatencyTestButton, 1, 0)
 			.Add(fFormatTestButton, 0, 1)
 			.Add(fMemoryTestButton, 1, 1)
+			.Add(fCycleTestButton, 0, 2)
 			.End()
 		.AddStrut(B_USE_SMALL_SPACING)
 		.Add(fStressIterationsCheck)
@@ -380,6 +386,10 @@ DriverTestView::MessageReceived(BMessage* message)
 
 		case MSG_TEST_START_MEMORY:
 			_RunMemoryTest();
+			break;
+
+		case MSG_TEST_START_CYCLE:
+			_RunCycleTest();
 			break;
 
 		case MSG_TEST_EXPORT_REPORT:
@@ -529,6 +539,7 @@ DriverTestView::_UpdateButtonStates()
 	fLatencyTestButton->SetEnabled(canRun);
 	fFormatTestButton->SetEnabled(canRun);
 	fMemoryTestButton->SetEnabled(canRun);
+	fCycleTestButton->SetEnabled(canRun);
 	fExportReportButton->SetEnabled(hasDevice);
 	fStopButton->SetEnabled(fTestRunning);
 }
@@ -1258,4 +1269,151 @@ DriverTestView::GenerateDiagnosticReport()
 	report << "========================================\n";
 
 	return report;
+}
+
+
+// ============================================================================
+// Cycle Test - Simulate connect/disconnect to test hot-plug robustness
+// ============================================================================
+
+void
+DriverTestView::_RunCycleTest()
+{
+	if (fDevice == NULL || fTestRunning)
+		return;
+
+	_ClearLog();
+	_AppendLog("Starting Cycle Test...", fInfoColor);
+	_AppendLog("Simulates connect/disconnect by releasing and re-acquiring the media node.");
+	_AppendLog("This tests driver robustness during hot-plug scenarios.");
+
+	fDropGraph->Clear();
+	fTestRunning = true;
+	fStopRequested = false;
+	_UpdateButtonStates();
+
+	fTestThread = spawn_thread(_CycleTestThread, "cycle_test",
+		B_NORMAL_PRIORITY, this);
+	if (fTestThread >= 0) {
+		resume_thread(fTestThread);
+	} else {
+		_AppendLog("Failed to start test thread!", fErrorColor);
+		fTestRunning = false;
+		_UpdateButtonStates();
+	}
+}
+
+
+int32
+DriverTestView::_CycleTestThread(void* data)
+{
+	DriverTestView* view = static_cast<DriverTestView*>(data);
+	WebcamDevice* device = view->fDevice;
+	BLooper* target = view->fTarget;
+
+	if (device == NULL || target == NULL)
+		return -1;
+
+	TestResult* result = new TestResult();
+	result->testName = "Cycle Test";
+
+	bool extended = view->fStressIterationsCheck->Value() == B_CONTROL_ON;
+	int32 cycles = extended ? 50 : 10;
+	int32 failures = 0;
+	int32 frameFailures = 0;
+	bigtime_t startTime = system_time();
+
+	BString status;
+	BString logMsg;
+
+	for (int32 i = 0; i < cycles && !view->fStopRequested; i++) {
+		status.SetToFormat("Cycle %d/%d: connecting...", (int)(i + 1), (int)cycles);
+		view->_UpdateProgress((i * 100.0f) / cycles, status.String());
+
+		// Phase 1: Start capture (simulate connect)
+		status_t err = device->StartCapture(target);
+		if (err != B_OK) {
+			logMsg.SetToFormat("Cycle %d: connect failed: %s",
+				(int)(i + 1), strerror(err));
+			BMessage msg('_log');
+			msg.AddString("text", logMsg.String());
+			msg.AddBool("error", true);
+			BMessenger(view).SendMessage(&msg);
+			failures++;
+
+			// Wait before retrying
+			snooze(1000000);
+			continue;
+		}
+
+		// Phase 2: Wait for frames to arrive
+		snooze(1000000);  // 1 second warm-up
+
+		uint32 framesBefore = device->FramesCaptured();
+		snooze(1000000);  // 1 second capture window
+		uint32 framesAfter = device->FramesCaptured();
+		uint32 framesInWindow = framesAfter - framesBefore;
+
+		float fps = device->CurrentFPS();
+
+		// Report frame data to graph
+		BMessage frameMsg(MSG_TEST_FRAME_TIMING);
+		frameMsg.AddBool("dropped", framesInWindow == 0);
+		frameMsg.AddFloat("fps", fps);
+		BMessenger(view).SendMessage(&frameMsg);
+
+		if (framesInWindow == 0) {
+			logMsg.SetToFormat("Cycle %d: no frames received after connect!",
+				(int)(i + 1));
+			BMessage msg('_log');
+			msg.AddString("text", logMsg.String());
+			msg.AddBool("error", true);
+			BMessenger(view).SendMessage(&msg);
+			frameFailures++;
+		} else {
+			logMsg.SetToFormat("Cycle %d: OK - %u frames, %.1f fps",
+				(int)(i + 1), (unsigned)framesInWindow, fps);
+			BMessage msg('_log');
+			msg.AddString("text", logMsg.String());
+			msg.AddBool("error", false);
+			BMessenger(view).SendMessage(&msg);
+		}
+
+		// Phase 3: Stop capture (simulate disconnect)
+		status.SetToFormat("Cycle %d/%d: disconnecting...", (int)(i + 1), (int)cycles);
+		view->_UpdateProgress(((i * 2 + 1) * 50.0f) / cycles, status.String());
+
+		device->StopCapture();
+
+		// Phase 4: Variable disconnect duration to test timing edge cases
+		bigtime_t disconnectTime;
+		switch (i % 4) {
+			case 0: disconnectTime = 100000;  break;   // 100ms - quick reconnect
+			case 1: disconnectTime = 500000;  break;   // 500ms - normal
+			case 2: disconnectTime = 1000000; break;   // 1s - slow
+			case 3: disconnectTime = 2000000; break;   // 2s - very slow
+		}
+		snooze(disconnectTime);
+	}
+
+	result->duration = system_time() - startTime;
+	result->iterations = cycles;
+	result->failures = failures + frameFailures;
+	result->passed = (failures == 0 && frameFailures == 0);
+
+	BString details;
+	details.SetToFormat(
+		"Cycles: %d\n"
+		"Connect failures: %d\n"
+		"Frame delivery failures: %d\n"
+		"Success rate: %.1f%%",
+		(int)cycles, (int)failures, (int)frameFailures,
+		100.0f * (cycles - failures) / cycles);
+	result->details = details;
+
+	BMessage msg(MSG_TEST_COMPLETE);
+	msg.AddPointer("result", result);
+	BMessenger(view).SendMessage(&msg);
+
+	return 0;
 }
