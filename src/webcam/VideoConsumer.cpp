@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <setjmp.h>
 
 
 // Maximum acceptable latency for video buffer processing (in microseconds).
@@ -546,30 +547,42 @@ VideoConsumer::_HandleBuffer(BBuffer* buffer)
 
 	bigtime_t now = system_time();
 
-	// Find which bitmap this buffer corresponds to
-	// If we created the buffers, we can find the matching bitmap
-	BBitmap* srcBitmap = NULL;
-	for (int i = 0; i < NUM_BUFFERS; i++) {
-		if (fBufferMap[i] == buffer && fBitmap[i] != NULL) {
-			srcBitmap = fBitmap[i];
-			break;
-		}
-	}
+	// Check if buffer contains MJPEG data (regardless of negotiated format)
+	const uint8* bufData = static_cast<const uint8*>(buffer->Data());
+	size_t bufSize = buffer->SizeUsed();
 
-	// If we found a matching bitmap, we can send it directly
-	// Otherwise, convert the buffer data to our display bitmap
-	if (srcBitmap != NULL) {
-		// Buffer is one of ours - send the bitmap directly
-		_SendFrameToTarget(srcBitmap);
+	if (_IsMJPEGData(bufData, bufSize)) {
+		// MJPEG frame - decompress to display bitmap
+		BBitmap* dest = fDisplayBitmap;
+		if (dest == NULL && fBitmap[0] != NULL)
+			dest = fBitmap[0];
+
+		if (dest != NULL && _DecompressMJPEG(bufData, bufSize, dest)) {
+			_SendFrameToTarget(dest);
+		} else {
+			fFramesDropped++;
+		}
 	} else {
-		// Buffer is from producer's own allocation - convert it
-		if (fDisplayBitmap != NULL) {
-			_ConvertBuffer(buffer, fDisplayBitmap);
-			_SendFrameToTarget(fDisplayBitmap);
-		} else if (fBitmap[0] != NULL) {
-			// Use first buffer bitmap as fallback
-			_ConvertBuffer(buffer, fBitmap[0]);
-			_SendFrameToTarget(fBitmap[0]);
+		// Raw video frame - use original logic
+		// Find which bitmap this buffer corresponds to
+		BBitmap* srcBitmap = NULL;
+		for (int i = 0; i < NUM_BUFFERS; i++) {
+			if (fBufferMap[i] == buffer && fBitmap[i] != NULL) {
+				srcBitmap = fBitmap[i];
+				break;
+			}
+		}
+
+		if (srcBitmap != NULL) {
+			_SendFrameToTarget(srcBitmap);
+		} else {
+			if (fDisplayBitmap != NULL) {
+				_ConvertBuffer(buffer, fDisplayBitmap);
+				_SendFrameToTarget(fDisplayBitmap);
+			} else if (fBitmap[0] != NULL) {
+				_ConvertBuffer(buffer, fBitmap[0]);
+				_SendFrameToTarget(fBitmap[0]);
+			}
 		}
 	}
 
@@ -789,6 +802,88 @@ VideoConsumer::_ConvertYUV420ToBGRA(const uint8* src, uint8* dst,
 			dstRow[x * 4 + 3] = 255;
 		}
 	}
+}
+
+
+bool
+VideoConsumer::_IsMJPEGData(const uint8* data, size_t size) const
+{
+	// JPEG/MJPEG frames start with SOI marker 0xFFD8
+	return size >= 2 && data[0] == 0xFF && data[1] == 0xD8;
+}
+
+
+bool
+VideoConsumer::_DecompressMJPEG(const uint8* src, size_t srcSize,
+	BBitmap* destBitmap)
+{
+	if (src == NULL || srcSize < 2 || destBitmap == NULL)
+		return false;
+
+	struct jpeg_decompress_struct cinfo;
+	struct jpeg_error_mgr jerr;
+
+	cinfo.err = jpeg_std_error(&jerr);
+
+	// Override error_exit to prevent libjpeg from calling exit()
+	jerr.error_exit = [](j_common_ptr cinfo) {
+		// longjmp back to our setjmp point
+		// We use the client_data field to store the jmp_buf pointer
+		jmp_buf* jumpBuffer = static_cast<jmp_buf*>(cinfo->client_data);
+		longjmp(*jumpBuffer, 1);
+	};
+
+	jmp_buf jumpBuffer;
+	cinfo.client_data = &jumpBuffer;
+
+	if (setjmp(jumpBuffer)) {
+		// Error during decompression
+		jpeg_destroy_decompress(&cinfo);
+		static int32 sErrorCount = 0;
+		if (++sErrorCount <= 5)
+			LOG_ERROR("MJPEG decompress failed (error %d)", (int)sErrorCount);
+		return false;
+	}
+
+	jpeg_create_decompress(&cinfo);
+	jpeg_mem_src(&cinfo, src, srcSize);
+
+	if (jpeg_read_header(&cinfo, TRUE) != JPEG_HEADER_OK) {
+		jpeg_destroy_decompress(&cinfo);
+		return false;
+	}
+
+	// Request BGRA output (Haiku's native B_RGB32 is actually BGRA)
+	cinfo.out_color_space = JCS_EXT_BGRA;
+
+	jpeg_start_decompress(&cinfo);
+
+	uint8* dst = static_cast<uint8*>(destBitmap->Bits());
+	int32 dstBytesPerRow = destBitmap->BytesPerRow();
+	int32 destHeight = destBitmap->Bounds().IntegerHeight() + 1;
+
+	// If the JPEG dimensions differ from the bitmap, we need a new display bitmap
+	// For now, decompress what fits
+	int32 rows = min_c((int32)cinfo.output_height, destHeight);
+
+	while (cinfo.output_scanline < (JDIMENSION)rows) {
+		uint8* rowPtr = dst + cinfo.output_scanline * dstBytesPerRow;
+		JSAMPROW scanline = rowPtr;
+		jpeg_read_scanlines(&cinfo, &scanline, 1);
+	}
+
+	jpeg_finish_decompress(&cinfo);
+	jpeg_destroy_decompress(&cinfo);
+
+	static int32 sDecodeCount = 0;
+	sDecodeCount++;
+	if (sDecodeCount <= 2 || (sDecodeCount % 500) == 0) {
+		LOG_DEBUG("MJPEG decoded #%d: %dx%d from %zu bytes",
+			(int)sDecodeCount, (int)cinfo.output_width,
+			(int)cinfo.output_height, srcSize);
+	}
+
+	return true;
 }
 
 

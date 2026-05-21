@@ -26,7 +26,7 @@ SRCS = \
 
 RDEFS = resources/BubiCam.rdef
 
-LIBS = be media tracker translation localestub device shared network $(STDCPPLIBS)
+LIBS = be media tracker translation localestub device shared network jpeg $(STDCPPLIBS)
 
 LIBPATHS =
 

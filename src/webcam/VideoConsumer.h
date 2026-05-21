@@ -18,6 +18,9 @@
 #include <Looper.h>
 #include <TimedEventQueue.h>
 
+#include <stdio.h>
+#include <jpeglib.h>
+
 // Number of buffers in the shared buffer group for video frames.
 // 3 is the standard for webcam applications (CodyCam pattern):
 // - One buffer being filled by producer
@@ -98,6 +101,9 @@ private:
 							int32 width, int32 height);
 	void				_ConvertYUV420ToBGRA(const uint8* src, uint8* dst,
 							int32 width, int32 height);
+	bool				_DecompressMJPEG(const uint8* src, size_t srcSize,
+							BBitmap* destBitmap);
+	bool				_IsMJPEGData(const uint8* data, size_t size) const;
 	void				_SendFrameToTarget(BBitmap* bitmap);
 
 	BLooper*			fTarget;
