@@ -7,6 +7,7 @@
 #include "DriverTestView.h"
 #include "WebcamDevice.h"
 #include "MainWindow.h"
+#include "ExportUtils.h"
 
 #include <LayoutBuilder.h>
 #include <ScrollView.h>
@@ -272,6 +273,14 @@ DriverTestView::_BuildLayout()
 		new BMessage(MSG_TEST_EXPORT_REPORT));
 	fExportReportButton->SetToolTip("Generate diagnostic report for bug reports");
 
+	fExportCSVButton = new BButton("exportCSV", "Export CSV",
+		new BMessage(MSG_TEST_EXPORT_CSV));
+	fExportCSVButton->SetToolTip("Export test results as CSV for spreadsheet analysis");
+
+	fExportJSONButton = new BButton("exportJSON", "Export JSON",
+		new BMessage(MSG_TEST_EXPORT_JSON));
+	fExportJSONButton->SetToolTip("Export test results as structured JSON");
+
 	fStopButton = new BButton("stop", "Stop Test",
 		new BMessage(MSG_TEST_STOP));
 	fStopButton->SetEnabled(false);
@@ -315,6 +324,8 @@ DriverTestView::_BuildLayout()
 	fMemoryTestButton->SetTarget(this);
 	fCycleTestButton->SetTarget(this);
 	fExportReportButton->SetTarget(this);
+	fExportCSVButton->SetTarget(this);
+	fExportJSONButton->SetTarget(this);
 	fStopButton->SetTarget(this);
 
 	// Buttons box
@@ -335,6 +346,8 @@ DriverTestView::_BuildLayout()
 		.AddStrut(B_USE_SMALL_SPACING)
 		.AddGroup(B_HORIZONTAL)
 			.Add(fExportReportButton)
+			.Add(fExportCSVButton)
+			.Add(fExportJSONButton)
 			.AddGlue()
 			.Add(fStopButton)
 			.End()
@@ -409,6 +422,40 @@ DriverTestView::MessageReceived(BMessage* message)
 				_AppendLog(msg.String(), fSuccessColor);
 			} else {
 				_AppendLog("Failed to save report!", fErrorColor);
+			}
+			break;
+		}
+
+		case MSG_TEST_EXPORT_CSV:
+		case MSG_TEST_EXPORT_JSON:
+		{
+			if (fResults.CountItems() == 0) {
+				_AppendLog("No test results to export. Run a test first.", fWarningColor);
+				break;
+			}
+
+			bool asJson = (message->what == MSG_TEST_EXPORT_JSON);
+			const char* ext = asJson ? ".json" : ".csv";
+
+			BPath path;
+			find_directory(B_USER_DIRECTORY, &path);
+			BString filename("BubiCam_TestResults_");
+			filename << ExportUtils::GetTimestamp() << ext;
+			path.Append(filename.String());
+
+			const char* deviceName = fDevice != NULL ? fDevice->Name() : "unknown";
+			status_t status;
+			if (asJson)
+				status = ExportUtils::ExportTestResultsAsJSON(fResults, deviceName, path.Path());
+			else
+				status = ExportUtils::ExportTestResultsAsCSV(fResults, deviceName, path.Path());
+
+			if (status == B_OK) {
+				BString msg;
+				msg.SetToFormat("Results exported to:\n%s", path.Path());
+				_AppendLog(msg.String(), fSuccessColor);
+			} else {
+				_AppendLog("Failed to export results!", fErrorColor);
 			}
 			break;
 		}
@@ -540,7 +587,10 @@ DriverTestView::_UpdateButtonStates()
 	fFormatTestButton->SetEnabled(canRun);
 	fMemoryTestButton->SetEnabled(canRun);
 	fCycleTestButton->SetEnabled(canRun);
+	bool hasResults = fResults.CountItems() > 0;
 	fExportReportButton->SetEnabled(hasDevice);
+	fExportCSVButton->SetEnabled(hasResults);
+	fExportJSONButton->SetEnabled(hasResults);
 	fStopButton->SetEnabled(fTestRunning);
 }
 

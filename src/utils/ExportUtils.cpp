@@ -6,6 +6,7 @@
 
 #include "ExportUtils.h"
 #include "WebcamDevice.h"
+#include "DriverTestView.h"
 
 // Logging macros using centralized ErrorUtils
 #define LOG_MODULE "ExportUtils"
@@ -294,4 +295,119 @@ ExportUtils::_WriteToFile(const char* path, const BString& content)
 		return B_IO_ERROR;
 
 	return B_OK;
+}
+
+
+static BString
+_EscapeCSV(const BString& input)
+{
+	BString escaped(input);
+	// Replace newlines with spaces for CSV single-cell
+	escaped.ReplaceAll("\n", " | ");
+	// If field contains commas or quotes, wrap in quotes
+	if (escaped.FindFirst(',') >= 0 || escaped.FindFirst('"') >= 0) {
+		escaped.ReplaceAll("\"", "\"\"");
+		escaped.Prepend("\"");
+		escaped.Append("\"");
+	}
+	return escaped;
+}
+
+
+static BString
+_EscapeJSON(const BString& input)
+{
+	BString escaped(input);
+	escaped.ReplaceAll("\\", "\\\\");
+	escaped.ReplaceAll("\"", "\\\"");
+	escaped.ReplaceAll("\n", "\\n");
+	escaped.ReplaceAll("\t", "\\t");
+	return escaped;
+}
+
+
+status_t
+ExportUtils::ExportTestResultsAsCSV(const BObjectList<TestResult>& results,
+	const char* deviceName, const char* path)
+{
+	if (results.CountItems() == 0)
+		return B_BAD_VALUE;
+
+	BString csv;
+
+	// Header
+	csv << "timestamp,device,test_name,passed,duration_ms,iterations,"
+		   "failures,details\n";
+
+	BString timestamp = GetTimestamp();
+
+	for (int32 i = 0; i < results.CountItems(); i++) {
+		TestResult* r = results.ItemAt(i);
+		if (r == NULL)
+			continue;
+
+		csv << timestamp << ",";
+		csv << _EscapeCSV(BString(deviceName)) << ",";
+		csv << _EscapeCSV(r->testName) << ",";
+		csv << (r->passed ? "PASS" : "FAIL") << ",";
+
+		BString dur;
+		dur.SetToFormat("%.2f", r->duration / 1000.0);
+		csv << dur << ",";
+
+		BString iter;
+		iter.SetToFormat("%d", (int)r->iterations);
+		csv << iter << ",";
+
+		BString fail;
+		fail.SetToFormat("%d", (int)r->failures);
+		csv << fail << ",";
+
+		csv << _EscapeCSV(r->details) << "\n";
+	}
+
+	return _WriteToFile(path, csv);
+}
+
+
+status_t
+ExportUtils::ExportTestResultsAsJSON(const BObjectList<TestResult>& results,
+	const char* deviceName, const char* path)
+{
+	if (results.CountItems() == 0)
+		return B_BAD_VALUE;
+
+	BString json;
+
+	json << "{\n";
+	json << "  \"export_timestamp\": \"" << GetTimestamp() << "\",\n";
+	json << "  \"device\": \"" << _EscapeJSON(BString(deviceName)) << "\",\n";
+	json << "  \"results\": [\n";
+
+	for (int32 i = 0; i < results.CountItems(); i++) {
+		TestResult* r = results.ItemAt(i);
+		if (r == NULL)
+			continue;
+
+		if (i > 0)
+			json << ",\n";
+
+		json << "    {\n";
+		json << "      \"test_name\": \"" << _EscapeJSON(r->testName) << "\",\n";
+		json << "      \"passed\": " << (r->passed ? "true" : "false") << ",\n";
+
+		BString dur;
+		dur.SetToFormat("%.2f", r->duration / 1000.0);
+		json << "      \"duration_ms\": " << dur << ",\n";
+
+		json << "      \"iterations\": " << r->iterations << ",\n";
+		json << "      \"failures\": " << r->failures << ",\n";
+		json << "      \"details\": \"" << _EscapeJSON(r->details) << "\"\n";
+		json << "    }";
+	}
+
+	json << "\n  ]\n";
+	json << "}\n";
+
+	return _WriteToFile(path, json);
 }

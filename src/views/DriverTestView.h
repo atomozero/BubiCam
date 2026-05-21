@@ -55,6 +55,8 @@ enum {
 	MSG_TEST_START_MEMORY		= 'tstm',
 	MSG_TEST_START_CYCLE		= 'tstc',
 	MSG_TEST_EXPORT_REPORT		= 'texp',
+	MSG_TEST_EXPORT_CSV			= 'texc',
+	MSG_TEST_EXPORT_JSON		= 'texj',
 	MSG_TEST_STOP				= 'tstp',
 	MSG_TEST_PROGRESS			= 'tprg',
 	MSG_TEST_COMPLETE			= 'tcmp',
@@ -140,6 +142,8 @@ private:
 	BButton*			fMemoryTestButton;
 	BButton*			fCycleTestButton;
 	BButton*			fExportReportButton;
+	BButton*			fExportCSVButton;
+	BButton*			fExportJSONButton;
 	BButton*			fStopButton;
 	BTextView*			fLogView;
 	BStatusBar*			fProgressBar;

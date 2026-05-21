@@ -10,8 +10,10 @@
 #include <Bitmap.h>
 #include <String.h>
 #include <Path.h>
+#include <ObjectList.h>
 
 class WebcamDevice;
+struct TestResult;
 
 class ExportUtils {
 public:
@@ -28,6 +30,14 @@ public:
 							const char* path);
 	static status_t		ExportDriverInfoAsText(WebcamDevice* device,
 							const char* path);
+
+	// Test results export
+	static status_t		ExportTestResultsAsCSV(
+								const BObjectList<TestResult>& results,
+								const char* deviceName, const char* path);
+	static status_t		ExportTestResultsAsJSON(
+								const BObjectList<TestResult>& results,
+								const char* deviceName, const char* path);
 
 	// Utility
 	static BString		GetTimestamp();
