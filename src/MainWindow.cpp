@@ -212,6 +212,13 @@ MainWindow::_BuildMenu()
 	fToolsMenu->AddItem(new BMenuItem("Reset Zoom",
 		new BMessage(MSG_RESET_ZOOM), '0'));
 	fToolsMenu->AddSeparatorItem();
+	fToolsMenu->AddItem(new BMenuItem("Capture Reference Frame",
+		new BMessage(MSG_CAPTURE_REFERENCE), 'B'));
+	fToolsMenu->AddItem(new BMenuItem("A/B Compare Mode",
+		new BMessage(MSG_TOGGLE_COMPARE), 'B', B_SHIFT_KEY));
+	fToolsMenu->AddItem(new BMenuItem("Clear Reference",
+		new BMessage(MSG_CLEAR_REFERENCE)));
+	fToolsMenu->AddSeparatorItem();
 	fToolsMenu->AddItem(new BMenuItem("Restart Media Services" B_UTF8_ELLIPSIS,
 		new BMessage(MSG_RESTART_MEDIA), 'M', B_SHIFT_KEY));
 	fToolsMenu->AddSeparatorItem();
@@ -1005,6 +1012,38 @@ MainWindow::MessageReceived(BMessage* message)
 
 		case MSG_RESET_ZOOM:
 			fVideoPreview->ResetZoom();
+			break;
+
+		case MSG_CAPTURE_REFERENCE:
+			fVideoPreview->CaptureReference();
+			fStatusBar->SetText("Reference frame captured for A/B comparison");
+			break;
+
+		case MSG_TOGGLE_COMPARE:
+		{
+			if (!fVideoPreview->HasReference()) {
+				// Auto-capture if no reference exists
+				fVideoPreview->CaptureReference();
+			}
+			bool compare = !fVideoPreview->CompareMode();
+			fVideoPreview->SetCompareMode(compare);
+			BMenuItem* item = fToolsMenu->FindItem(MSG_TOGGLE_COMPARE);
+			if (item != NULL)
+				item->SetMarked(compare);
+			fStatusBar->SetText(compare
+				? "A/B Compare: Reference (left) vs Live (right)"
+				: "Compare mode off");
+			break;
+		}
+
+		case MSG_CLEAR_REFERENCE:
+			fVideoPreview->ClearReference();
+			{
+				BMenuItem* item = fToolsMenu->FindItem(MSG_TOGGLE_COMPARE);
+				if (item != NULL)
+					item->SetMarked(false);
+			}
+			fStatusBar->SetText("Reference frame cleared");
 			break;
 
 		case MSG_RECORD_START:

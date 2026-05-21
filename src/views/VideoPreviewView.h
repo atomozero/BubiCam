@@ -33,6 +33,11 @@ public:
 	void				SetShowStats(bool show);
 	void				SetShowHistogram(bool show);
 	void				ResetZoom();
+	void				CaptureReference();
+	void				ClearReference();
+	void				SetCompareMode(bool enabled);
+	bool				CompareMode() const { return fCompareMode; }
+	bool				HasReference() const { return fReferenceFrame != NULL; }
 
 	// Getters for external stats bar
 	float				CurrentFPS() const { return fCurrentFPS; }
@@ -48,8 +53,11 @@ private:
 	void				_DrawStats();
 	void				_DrawHistogram();
 	void				_ComputeHistogram();
+	void				_DrawCompareMode();
 
 	BBitmap*			fCurrentFrame;
+	BBitmap*			fReferenceFrame;
+	bool				fCompareMode;
 	BLocker				fFrameLock;
 	BRect				fVideoRect;
 	rgb_color			fBackgroundColor;

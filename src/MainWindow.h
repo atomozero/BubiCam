@@ -64,7 +64,10 @@ enum {
 	MSG_RECORD_START		= 'rcst',
 	MSG_RECORD_STOP			= 'rcsp',
 	MSG_TOGGLE_HISTOGRAM	= 'tghi',
-	MSG_RESET_ZOOM			= 'rszm'
+	MSG_RESET_ZOOM			= 'rszm',
+	MSG_CAPTURE_REFERENCE	= 'cprf',
+	MSG_TOGGLE_COMPARE		= 'tgcm',
+	MSG_CLEAR_REFERENCE		= 'clrf'
 };
 
 

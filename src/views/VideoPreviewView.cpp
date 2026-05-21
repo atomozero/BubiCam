@@ -16,6 +16,8 @@ VideoPreviewView::VideoPreviewView(const char* name)
 	:
 	BView(name, B_WILL_DRAW | B_FRAME_EVENTS | B_FULL_UPDATE_ON_RESIZE),
 	fCurrentFrame(NULL),
+	fReferenceFrame(NULL),
+	fCompareMode(false),
 	fFrameLock("frame lock"),
 	fCurrentFPS(0.0f),
 	fFramesReceived(0),
@@ -45,6 +47,7 @@ VideoPreviewView::~VideoPreviewView()
 {
 	BAutolock lock(fFrameLock);
 	delete fCurrentFrame;
+	delete fReferenceFrame;
 }
 
 
@@ -64,29 +67,33 @@ VideoPreviewView::Draw(BRect updateRect)
 	BRect bounds = Bounds();
 
 	if (fCurrentFrame != NULL && fCurrentFrame->IsValid()) {
-		// Apply zoom: scale the video rect around its center
-		BRect destRect = fVideoRect;
-		if (fZoomLevel > 1.0f) {
-			float cx = (destRect.left + destRect.right) / 2 + fPanOffset.x;
-			float cy = (destRect.top + destRect.bottom) / 2 + fPanOffset.y;
-			float hw = destRect.Width() * fZoomLevel / 2;
-			float hh = destRect.Height() * fZoomLevel / 2;
-			destRect.Set(cx - hw, cy - hh, cx + hw, cy + hh);
+		if (fCompareMode && fReferenceFrame != NULL) {
+			_DrawCompareMode();
+		} else {
+			// Apply zoom: scale the video rect around its center
+			BRect destRect = fVideoRect;
+			if (fZoomLevel > 1.0f) {
+				float cx = (destRect.left + destRect.right) / 2 + fPanOffset.x;
+				float cy = (destRect.top + destRect.bottom) / 2 + fPanOffset.y;
+				float hw = destRect.Width() * fZoomLevel / 2;
+				float hh = destRect.Height() * fZoomLevel / 2;
+				destRect.Set(cx - hw, cy - hh, cx + hw, cy + hh);
+			}
+
+			SetDrawingMode(B_OP_COPY);
+			DrawBitmap(fCurrentFrame, fCurrentFrame->Bounds(), destRect);
+
+			// Draw background around the frame
+			SetHighColor(fBackgroundColor);
+			if (destRect.left > 0)
+				FillRect(BRect(0, 0, destRect.left - 1, bounds.bottom));
+			if (destRect.right < bounds.right)
+				FillRect(BRect(destRect.right + 1, 0, bounds.right, bounds.bottom));
+			if (destRect.top > 0)
+				FillRect(BRect(destRect.left, 0, destRect.right, destRect.top - 1));
+			if (destRect.bottom < bounds.bottom)
+				FillRect(BRect(destRect.left, destRect.bottom + 1, destRect.right, bounds.bottom));
 		}
-
-		SetDrawingMode(B_OP_COPY);
-		DrawBitmap(fCurrentFrame, fCurrentFrame->Bounds(), destRect);
-
-		// Draw background around the frame
-		SetHighColor(fBackgroundColor);
-		if (destRect.left > 0)
-			FillRect(BRect(0, 0, destRect.left - 1, bounds.bottom));
-		if (destRect.right < bounds.right)
-			FillRect(BRect(destRect.right + 1, 0, bounds.right, bounds.bottom));
-		if (destRect.top > 0)
-			FillRect(BRect(destRect.left, 0, destRect.right, destRect.top - 1));
-		if (destRect.bottom < bounds.bottom)
-			FillRect(BRect(destRect.left, destRect.bottom + 1, destRect.right, bounds.bottom));
 
 		// Draw stats overlay
 		if (fShowStats)
@@ -212,6 +219,56 @@ VideoPreviewView::ResetZoom()
 {
 	fZoomLevel = 1.0f;
 	fPanOffset.Set(0, 0);
+	if (LockLooper()) {
+		Invalidate();
+		UnlockLooper();
+	}
+}
+
+
+void
+VideoPreviewView::CaptureReference()
+{
+	BAutolock lock(fFrameLock);
+
+	if (fCurrentFrame == NULL || !fCurrentFrame->IsValid())
+		return;
+
+	delete fReferenceFrame;
+	fReferenceFrame = new BBitmap(fCurrentFrame->Bounds(),
+		fCurrentFrame->ColorSpace());
+	if (fReferenceFrame != NULL && fReferenceFrame->IsValid() &&
+		fReferenceFrame->BitsLength() >= fCurrentFrame->BitsLength()) {
+		memcpy(fReferenceFrame->Bits(), fCurrentFrame->Bits(),
+			fCurrentFrame->BitsLength());
+	} else {
+		delete fReferenceFrame;
+		fReferenceFrame = NULL;
+	}
+}
+
+
+void
+VideoPreviewView::ClearReference()
+{
+	BAutolock lock(fFrameLock);
+	delete fReferenceFrame;
+	fReferenceFrame = NULL;
+	fCompareMode = false;
+
+	lock.Unlock();
+
+	if (LockLooper()) {
+		Invalidate();
+		UnlockLooper();
+	}
+}
+
+
+void
+VideoPreviewView::SetCompareMode(bool enabled)
+{
+	fCompareMode = enabled;
 	if (LockLooper()) {
 		Invalidate();
 		UnlockLooper();
@@ -507,6 +564,85 @@ VideoPreviewView::_DrawHistogram()
 		zoomStr.SetToFormat("%.1fx", fZoomLevel);
 		DrawString(zoomStr.String(), BPoint(histRect.right - 30, histRect.top + 11));
 	}
+
+	SetDrawingMode(B_OP_COPY);
+}
+
+
+void
+VideoPreviewView::_DrawCompareMode()
+{
+	BRect bounds = Bounds();
+	float midX = bounds.Width() / 2;
+
+	SetDrawingMode(B_OP_COPY);
+	SetHighColor(fBackgroundColor);
+	FillRect(bounds);
+
+	// Left half: reference frame
+	if (fReferenceFrame != NULL && fReferenceFrame->IsValid()) {
+		BRect leftDest(bounds.left, bounds.top, midX - 1, bounds.bottom);
+		BRect srcBounds = fReferenceFrame->Bounds();
+		float srcAspect = (srcBounds.Width() + 1) / (srcBounds.Height() + 1);
+		float destW = leftDest.Width();
+		float destH = leftDest.Height();
+		float destAspect = destW / destH;
+
+		BRect scaledDest;
+		if (destAspect > srcAspect) {
+			float w = destH * srcAspect;
+			float offset = (destW - w) / 2;
+			scaledDest.Set(leftDest.left + offset, leftDest.top,
+				leftDest.left + offset + w, leftDest.bottom);
+		} else {
+			float h = destW / srcAspect;
+			float offset = (destH - h) / 2;
+			scaledDest.Set(leftDest.left, leftDest.top + offset,
+				leftDest.right, leftDest.top + offset + h);
+		}
+		DrawBitmap(fReferenceFrame, srcBounds, scaledDest);
+	}
+
+	// Right half: live frame
+	if (fCurrentFrame != NULL && fCurrentFrame->IsValid()) {
+		BRect rightDest(midX + 1, bounds.top, bounds.right, bounds.bottom);
+		BRect srcBounds = fCurrentFrame->Bounds();
+		float srcAspect = (srcBounds.Width() + 1) / (srcBounds.Height() + 1);
+		float destW = rightDest.Width();
+		float destH = rightDest.Height();
+		float destAspect = destW / destH;
+
+		BRect scaledDest;
+		if (destAspect > srcAspect) {
+			float w = destH * srcAspect;
+			float offset = (destW - w) / 2;
+			scaledDest.Set(rightDest.left + offset, rightDest.top,
+				rightDest.left + offset + w, rightDest.bottom);
+		} else {
+			float h = destW / srcAspect;
+			float offset = (destH - h) / 2;
+			scaledDest.Set(rightDest.left, rightDest.top + offset,
+				rightDest.right, rightDest.top + offset + h);
+		}
+		DrawBitmap(fCurrentFrame, srcBounds, scaledDest);
+	}
+
+	// Draw divider line
+	SetHighColor(255, 255, 0);
+	StrokeLine(BPoint(midX, bounds.top), BPoint(midX, bounds.bottom));
+
+	// Labels
+	SetDrawingMode(B_OP_ALPHA);
+	SetHighColor(0, 0, 0, 160);
+	FillRoundRect(BRect(5, 5, 85, 22), 3, 3);
+	FillRoundRect(BRect(midX + 5, 5, midX + 65, 22), 3, 3);
+
+	SetHighColor(255, 255, 255, 220);
+	BFont font(be_bold_font);
+	font.SetSize(10);
+	SetFont(&font);
+	DrawString("Reference", BPoint(10, 18));
+	DrawString("Live", BPoint(midX + 10, 18));
 
 	SetDrawingMode(B_OP_COPY);
 }
