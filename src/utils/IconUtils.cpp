@@ -231,3 +231,45 @@ IconUtils::CreateScreenshotIcon(int32 size)
 
 	return bitmap;
 }
+
+
+BBitmap*
+IconUtils::CreateRecordIcon(int32 size)
+{
+	BBitmap* bitmap = new BBitmap(BRect(0, 0, size - 1, size - 1), B_RGBA32);
+	if (bitmap == NULL || !bitmap->IsValid()) {
+		delete bitmap;
+		return NULL;
+	}
+	memset(bitmap->Bits(), 0, bitmap->BitsLength());
+
+	// Red filled circle (record button)
+	int cx = size / 2;
+	int cy = size / 2;
+	int r = size / 2 - 4;
+	_FillCircle(bitmap, cx, cy, r, 220, 40, 40);
+
+	return bitmap;
+}
+
+
+BBitmap*
+IconUtils::CreateRecordStopIcon(int32 size)
+{
+	BBitmap* bitmap = new BBitmap(BRect(0, 0, size - 1, size - 1), B_RGBA32);
+	if (bitmap == NULL || !bitmap->IsValid()) {
+		delete bitmap;
+		return NULL;
+	}
+	memset(bitmap->Bits(), 0, bitmap->BitsLength());
+
+	// Red circle with white square inside (stop recording)
+	int cx = size / 2;
+	int cy = size / 2;
+	int r = size / 2 - 4;
+	_FillCircle(bitmap, cx, cy, r, 220, 40, 40);
+	int sq = r / 2;
+	_FillRect(bitmap, cx - sq, cy - sq, cx + sq, cy + sq, 255, 255, 255);
+
+	return bitmap;
+}

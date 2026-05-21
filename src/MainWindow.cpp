@@ -17,6 +17,7 @@
 #include "MCPServer.h"
 #include "ExportUtils.h"
 #include "IconUtils.h"
+#include "VideoRecorder.h"
 
 // Logging macros using centralized ErrorUtils
 #define LOG_MODULE "MainWindow"
@@ -85,6 +86,7 @@ MainWindow::MainWindow()
 	fSavingJson(false),
 	fMCPServer(NULL),
 	fMCPMenuItem(NULL),
+	fRecorder(NULL),
 	fDriverCrashed(false),
 	fWatchdogAlertShown(false),
 	fLastFrameReceived(0),
@@ -130,6 +132,7 @@ MainWindow::~MainWindow()
 	delete fWebcamRoster;
 	delete fSavePanel;
 	delete fLastFrame;
+	delete fRecorder;
 
 	// Stop and delete MCP server
 	if (fMCPServer != NULL) {
@@ -152,6 +155,10 @@ MainWindow::_BuildMenu()
 	fileMenu->AddSeparatorItem();
 	fileMenu->AddItem(new BMenuItem("Take Screenshot",
 		new BMessage(MSG_SCREENSHOT), 'P'));
+	fileMenu->AddItem(new BMenuItem("Start Recording",
+		new BMessage(MSG_RECORD_START), 'G'));
+	fileMenu->AddItem(new BMenuItem("Stop Recording",
+		new BMessage(MSG_RECORD_STOP), 'G', B_SHIFT_KEY));
 	fileMenu->AddItem(new BMenuItem("Export Info as Text" B_UTF8_ELLIPSIS,
 		new BMessage(MSG_EXPORT_INFO), 'E'));
 	fileMenu->AddItem(new BMenuItem("Export Info as JSON" B_UTF8_ELLIPSIS,
@@ -232,17 +239,29 @@ MainWindow::_BuildToolbar()
 	fToolbar->AddSeparator();
 	fToolbar->AddAction(MSG_SCREENSHOT, this, screenshotIcon,
 		"Take screenshot (Cmd+P)", "Screenshot");
+
+	BBitmap* recordIcon = IconUtils::CreateRecordIcon(24);
+	BBitmap* recordStopIcon = IconUtils::CreateRecordStopIcon(24);
+	fToolbar->AddSeparator();
+	fToolbar->AddAction(MSG_RECORD_START, this, recordIcon,
+		"Start recording (Cmd+G)", "Record");
+	fToolbar->AddAction(MSG_RECORD_STOP, this, recordStopIcon,
+		"Stop recording (Cmd+Shift+G)", "Stop Rec");
 	fToolbar->AddGlue();
 
 	// Initial state
 	fToolbar->SetActionEnabled(MSG_WEBCAM_STOP, false);
 	fToolbar->SetActionEnabled(MSG_SCREENSHOT, false);
+	fToolbar->SetActionEnabled(MSG_RECORD_START, false);
+	fToolbar->SetActionEnabled(MSG_RECORD_STOP, false);
 
 	// Clean up icons (BToolBar makes copies)
 	delete refreshIcon;
 	delete startIcon;
 	delete stopIcon;
 	delete screenshotIcon;
+	delete recordIcon;
+	delete recordStopIcon;
 }
 
 
@@ -644,6 +663,10 @@ MainWindow::_StopPreview()
 	// Reset watchdog alert state for next session
 	fWatchdogAlertShown = false;
 
+	// Stop recording if active
+	if (fRecorder != NULL && fRecorder->IsRecording())
+		_StopRecording();
+
 	if (fCurrentWebcam != NULL && fIsPreviewActive) {
 		fCurrentWebcam->StopCapture();
 		fIsPreviewActive = false;
@@ -735,9 +758,13 @@ MainWindow::_UpdateToolbarState()
 	bool hasWebcam = (fCurrentWebcam != NULL);
 	bool isActive = fIsPreviewActive;
 
+	bool isRecording = (fRecorder != NULL && fRecorder->IsRecording());
+
 	fToolbar->SetActionEnabled(MSG_WEBCAM_START, hasWebcam && !isActive);
 	fToolbar->SetActionEnabled(MSG_WEBCAM_STOP, hasWebcam && isActive);
 	fToolbar->SetActionEnabled(MSG_SCREENSHOT, isActive && fLastFrame != NULL);
+	fToolbar->SetActionEnabled(MSG_RECORD_START, isActive && !isRecording);
+	fToolbar->SetActionEnabled(MSG_RECORD_STOP, isRecording);
 }
 
 
@@ -918,6 +945,15 @@ MainWindow::MessageReceived(BMessage* message)
 				// Update stats bar (every frame)
 				_UpdateStatsBar();
 
+				// Update recording status periodically
+				if (fRecorder != NULL && fRecorder->IsRecording()
+					&& (fRecorder->FramesRecorded() % 30) == 0)
+					_UpdateRecordingStatus();
+
+				// Record frame if recording is active
+				if (fRecorder != NULL && fRecorder->IsRecording())
+					fRecorder->AddFrame(bitmap);
+
 				// Keep a copy for screenshots
 				// Check bounds AND color space to ensure compatible allocation
 				if (fLastFrame == NULL ||
@@ -1084,6 +1120,14 @@ MainWindow::MessageReceived(BMessage* message)
 			break;
 		}
 
+		case MSG_RECORD_START:
+			_StartRecording();
+			break;
+
+		case MSG_RECORD_STOP:
+			_StopRecording();
+			break;
+
 		case MSG_RESTART_PREVIEW:
 			// Called from MCP server when resolution is changed
 			if (fIsPreviewActive) {
@@ -1221,6 +1265,93 @@ MainWindow::_DoRestartMediaServices(bool askConfirmation)
 	_PopulateWebcamMenu();
 
 	fStatusBar->SetText("Media services restarted - select a webcam");
+}
+
+
+void
+MainWindow::_StartRecording()
+{
+	if (!fIsPreviewActive || fLastFrame == NULL) {
+		BAlert* alert = new BAlert("Error",
+			"Start the video preview first.", "OK");
+		alert->Go();
+		return;
+	}
+
+	if (fRecorder != NULL && fRecorder->IsRecording())
+		return;
+
+	// Generate filename
+	BPath dirPath = ExportUtils::GetScreenshotDirectory();
+
+	BString filename("BubiCam_");
+	filename << ExportUtils::GetTimestamp();
+	filename << ".avi";
+
+	BPath filePath(dirPath);
+	filePath.Append(filename.String());
+
+	// Get resolution from current frame
+	int32 width = (int32)(fLastFrame->Bounds().Width() + 1);
+	int32 height = (int32)(fLastFrame->Bounds().Height() + 1);
+
+	// Get FPS from preview
+	float fps = fVideoPreview->CurrentFPS();
+	if (fps < 1.0f)
+		fps = 30.0f;  // Default if not yet available
+
+	if (fRecorder == NULL)
+		fRecorder = new VideoRecorder();
+
+	status_t status = fRecorder->Start(filePath.Path(), width, height, fps);
+	if (status != B_OK) {
+		BString error;
+		error.SetToFormat("Failed to start recording:\n%s", strerror(status));
+		BAlert* alert = new BAlert("Error", error.String(), "OK");
+		alert->Go();
+		return;
+	}
+
+	BString statusMsg;
+	statusMsg.SetToFormat("Recording to %s", filename.String());
+	fStatusBar->SetText(statusMsg.String());
+
+	_UpdateToolbarState();
+}
+
+
+void
+MainWindow::_StopRecording()
+{
+	if (fRecorder == NULL || !fRecorder->IsRecording())
+		return;
+
+	uint32 frames = fRecorder->FramesRecorded();
+	bigtime_t duration = fRecorder->Duration();
+
+	fRecorder->Stop();
+
+	BString statusMsg;
+	statusMsg.SetToFormat("Recording saved: %u frames, %.1f seconds",
+		(unsigned)frames, duration / 1000000.0);
+	fStatusBar->SetText(statusMsg.String());
+
+	_UpdateToolbarState();
+}
+
+
+void
+MainWindow::_UpdateRecordingStatus()
+{
+	if (fRecorder == NULL || !fRecorder->IsRecording())
+		return;
+
+	BString statusMsg;
+	statusMsg.SetToFormat("REC: %u frames (%.1f s, %.1f MB)",
+		(unsigned)fRecorder->FramesRecorded(),
+		fRecorder->Duration() / 1000000.0,
+		fRecorder->FileSize() / (1024.0 * 1024.0));
+	fStatusBar->SetText(statusMsg.String());
 }
 
 

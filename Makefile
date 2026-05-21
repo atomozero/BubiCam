@@ -22,7 +22,8 @@ SRCS = \
 	src/webcam/USBVideoParser.cpp \
 	src/mcp/MCPServer.cpp \
 	src/utils/ExportUtils.cpp \
-	src/utils/IconUtils.cpp
+	src/utils/IconUtils.cpp \
+	src/utils/VideoRecorder.cpp
 
 RDEFS = resources/BubiCam.rdef
 

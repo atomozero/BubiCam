@@ -30,6 +30,7 @@ class WebcamControlsView;
 class WebcamRoster;
 class WebcamDevice;
 class MCPServer;
+class VideoRecorder;
 
 // Message constants
 enum {
@@ -59,7 +60,9 @@ enum {
 	MSG_WATCHDOG_CHECK		= 'wdck',
 	MSG_FORCE_STOP			= 'fstp',
 	MSG_SHOW_DRIVER_TESTS	= 'sdtv',
-	MSG_SHOW_USB_VIEWER		= 'susb'
+	MSG_SHOW_USB_VIEWER		= 'susb',
+	MSG_RECORD_START		= 'rcst',
+	MSG_RECORD_STOP			= 'rcsp'
 };
 
 
@@ -90,6 +93,9 @@ private:
 	void				_UpdateToolbarState();
 	void				_RestartMediaServices();
 	void				_DoRestartMediaServices(bool askConfirmation);
+	void				_StartRecording();
+	void				_StopRecording();
+	void				_UpdateRecordingStatus();
 
 	BMenuBar*			fMenuBar;
 	BMenu*				fWebcamMenu;
@@ -129,6 +135,9 @@ private:
 	// MCP Server
 	MCPServer*			fMCPServer;
 	BMenuItem*			fMCPMenuItem;
+
+	// Video recording
+	VideoRecorder*		fRecorder;
 
 	// Driver crash protection
 	bool				fDriverCrashed;

@@ -15,6 +15,8 @@ public:
 	static BBitmap*	CreateStartIcon(int32 size = 24);
 	static BBitmap*	CreateStopIcon(int32 size = 24);
 	static BBitmap*	CreateScreenshotIcon(int32 size = 24);
+	static BBitmap*	CreateRecordIcon(int32 size = 24);
+	static BBitmap*	CreateRecordStopIcon(int32 size = 24);
 
 private:
 	static void		_SetPixel(BBitmap* bitmap, int x, int y, uint8 r, uint8 g, uint8 b, uint8 a = 255);
