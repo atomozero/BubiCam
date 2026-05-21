@@ -342,6 +342,10 @@ VideoConsumer::AcceptFormat(const media_destination& dest, media_format* format)
 			case B_YUV422:
 			case B_YCbCr420:
 			case B_YUV420:
+			case B_YCbCr444:
+			case B_YUV444:
+			case B_YUV9:
+			case B_YUV12:
 				return B_OK;
 
 			case B_NO_COLOR_SPACE:
@@ -707,8 +711,23 @@ VideoConsumer::_ConvertBuffer(BBuffer* buffer, BBitmap* destBitmap)
 
 		case B_YCbCr420:
 		case B_YUV420:
-			_ConvertYUV420ToBGRA(src, dst, width, height);
+		case B_YUV9:
+		case B_YUV12:
+		{
+			// YUV 4:2:0 comes in two layouts:
+			//   Planar I420: Y plane, then U plane, then V plane (each separate)
+			//   Semi-planar NV12: Y plane, then interleaved UV pairs
+			//   Semi-planar NV21: Y plane, then interleaved VU pairs
+			// Detect based on buffer size: both are width*height*3/2 bytes,
+			// but we try NV12 for B_YUV12 and I420 as default for B_YCbCr420.
+			if (srcFormat == B_YUV12)
+				_ConvertNV12ToBGRA(src, dst, width, height);
+			else if (srcFormat == B_YUV9)
+				_ConvertNV21ToBGRA(src, dst, width, height);
+			else
+				_ConvertYUV420ToBGRA(src, dst, width, height);
 			break;
+		}
 
 		default:
 			// Unknown format - fill with checkerboard test pattern
@@ -787,6 +806,78 @@ VideoConsumer::_ConvertYUV420ToBGRA(const uint8* src, uint8* dst,
 			int32 yValue = yPlane[y * width + x];
 			int32 u = uPlane[(y / 2) * (width / 2) + (x / 2)];
 			int32 v = vPlane[(y / 2) * (width / 2) + (x / 2)];
+
+			int32 c = yValue - 16;
+			int32 d = u - 128;
+			int32 e = v - 128;
+
+			int32 r = (298 * c + 409 * e + 128) >> 8;
+			int32 g = (298 * c - 100 * d - 208 * e + 128) >> 8;
+			int32 b = (298 * c + 516 * d + 128) >> 8;
+
+			dstRow[x * 4 + 0] = (uint8)max_c(0, min_c(255, b));
+			dstRow[x * 4 + 1] = (uint8)max_c(0, min_c(255, g));
+			dstRow[x * 4 + 2] = (uint8)max_c(0, min_c(255, r));
+			dstRow[x * 4 + 3] = 255;
+		}
+	}
+}
+
+
+void
+VideoConsumer::_ConvertNV12ToBGRA(const uint8* src, uint8* dst,
+	int32 width, int32 height)
+{
+	// NV12: Y plane followed by interleaved UV plane
+	int32 dstBytesPerRow = fBitmapWidth * 4;
+
+	const uint8* yPlane = src;
+	const uint8* uvPlane = src + width * height;
+
+	for (int32 y = 0; y < height && y < fBitmapHeight; y++) {
+		uint8* dstRow = dst + y * dstBytesPerRow;
+		const uint8* uvRow = uvPlane + (y / 2) * width;
+
+		for (int32 x = 0; x < width && x < fBitmapWidth; x++) {
+			int32 yValue = yPlane[y * width + x];
+			int32 u = uvRow[(x & ~1) + 0];
+			int32 v = uvRow[(x & ~1) + 1];
+
+			int32 c = yValue - 16;
+			int32 d = u - 128;
+			int32 e = v - 128;
+
+			int32 r = (298 * c + 409 * e + 128) >> 8;
+			int32 g = (298 * c - 100 * d - 208 * e + 128) >> 8;
+			int32 b = (298 * c + 516 * d + 128) >> 8;
+
+			dstRow[x * 4 + 0] = (uint8)max_c(0, min_c(255, b));
+			dstRow[x * 4 + 1] = (uint8)max_c(0, min_c(255, g));
+			dstRow[x * 4 + 2] = (uint8)max_c(0, min_c(255, r));
+			dstRow[x * 4 + 3] = 255;
+		}
+	}
+}
+
+
+void
+VideoConsumer::_ConvertNV21ToBGRA(const uint8* src, uint8* dst,
+	int32 width, int32 height)
+{
+	// NV21: Y plane followed by interleaved VU plane (V first, then U)
+	int32 dstBytesPerRow = fBitmapWidth * 4;
+
+	const uint8* yPlane = src;
+	const uint8* vuPlane = src + width * height;
+
+	for (int32 y = 0; y < height && y < fBitmapHeight; y++) {
+		uint8* dstRow = dst + y * dstBytesPerRow;
+		const uint8* vuRow = vuPlane + (y / 2) * width;
+
+		for (int32 x = 0; x < width && x < fBitmapWidth; x++) {
+			int32 yValue = yPlane[y * width + x];
+			int32 v = vuRow[(x & ~1) + 0];
+			int32 u = vuRow[(x & ~1) + 1];
 
 			int32 c = yValue - 16;
 			int32 d = u - 128;

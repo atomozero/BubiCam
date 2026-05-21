@@ -101,6 +101,10 @@ private:
 							int32 width, int32 height);
 	void				_ConvertYUV420ToBGRA(const uint8* src, uint8* dst,
 							int32 width, int32 height);
+	void				_ConvertNV12ToBGRA(const uint8* src, uint8* dst,
+							int32 width, int32 height);
+	void				_ConvertNV21ToBGRA(const uint8* src, uint8* dst,
+							int32 width, int32 height);
 	bool				_DecompressMJPEG(const uint8* src, size_t srcSize,
 							BBitmap* destBitmap);
 	bool				_IsMJPEGData(const uint8* data, size_t size) const;
