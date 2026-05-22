@@ -27,9 +27,63 @@
 #include <FindDirectory.h>
 #include <USBKit.h>
 
+#include <OS.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+
+// Helper: call roster->StopNode() in a thread with a 3-second timeout.
+// Returns B_TIMED_OUT if the call doesn't complete in time.
+struct StopNodeData {
+	BMediaRoster*	roster;
+	media_node		node;
+	volatile bool	done;
+};
+
+static int32
+_StopNodeThread(void* data)
+{
+	StopNodeData* snd = static_cast<StopNodeData*>(data);
+	snd->roster->StopNode(snd->node, 0, true);
+	snd->done = true;
+	return 0;
+}
+
+static status_t
+StopNodeWithTimeout(BMediaRoster* roster, const media_node& node,
+	bigtime_t timeout = 3000000)
+{
+	StopNodeData data;
+	data.roster = roster;
+	data.node = node;
+	data.done = false;
+
+	thread_id tid = spawn_thread(_StopNodeThread, "stop_node",
+		B_NORMAL_PRIORITY, &data);
+	if (tid < 0)
+		return roster->StopNode(node, 0, true);  // fallback
+
+	resume_thread(tid);
+
+	bigtime_t deadline = system_time() + timeout;
+	while (!data.done && system_time() < deadline)
+		snooze(50000);  // 50ms poll
+
+	if (data.done) {
+		status_t exitValue;
+		wait_for_thread(tid, &exitValue);
+		return B_OK;
+	}
+
+	// Timed out - the thread is stuck in StopNode IPC.
+	// We can't safely kill it (it holds roster state), but we return
+	// so the caller can continue cleanup.
+	fprintf(stderr, "WebcamDevice: StopNode timed out after %.1f s\n",
+		timeout / 1000000.0);
+	return B_TIMED_OUT;
+}
 
 
 // Timing constants for media operations (in microseconds)
@@ -639,13 +693,13 @@ WebcamDevice::StopCapture()
 		audioConsumer->SetTarget(NULL);
 	}
 
-	// Stop nodes
+	// Stop nodes with timeout to prevent hanging on frozen drivers
 	if (nodeWasInstantiated)
-		roster->StopNode(producerNode, 0, true);
+		StopNodeWithTimeout(roster, producerNode);
 	if (videoConsumerNode.node > 0)
-		roster->StopNode(videoConsumerNode, 0, true);
+		StopNodeWithTimeout(roster, videoConsumerNode);
 	if (audioConsumerNode.node > 0)
-		roster->StopNode(audioConsumerNode, 0, true);
+		StopNodeWithTimeout(roster, audioConsumerNode);
 
 	// Disconnect
 	if (wasVideoConnected)

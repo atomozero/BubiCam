@@ -89,7 +89,17 @@ VideoConsumer::~VideoConsumer()
 {
 	LOG_DEBUG("~VideoConsumer cleanup");
 
-	Quit();
+	// Stop the event looper and wait for its thread to exit
+	// before deleting any shared resources
+	{
+		thread_id looperThread = ControlThread();
+		Quit();
+		if (looperThread >= 0) {
+			status_t exitValue;
+			wait_for_thread(looperThread, &exitValue);
+		}
+	}
+
 	DeleteBuffers();
 
 	delete fDisplayBitmap;
@@ -491,6 +501,7 @@ VideoConsumer::Connected(const media_source& producer,
 		}
 	} else {
 		LOG_ERROR("CreateBuffers failed: %s", strerror(status));
+		return status;
 	}
 
 	fConnected = true;
@@ -1127,6 +1138,10 @@ VideoConsumer::_DecompressMJPEG(const uint8* src, size_t srcSize,
 		jpeg_read_scanlines(&cinfo, &scanline, 1);
 	}
 
+	// Save dimensions before destroying the decompressor
+	int32 decodedWidth = (int32)cinfo.output_width;
+	int32 decodedHeight = (int32)cinfo.output_height;
+
 	jpeg_finish_decompress(&cinfo);
 	jpeg_destroy_decompress(&cinfo);
 
@@ -1134,8 +1149,8 @@ VideoConsumer::_DecompressMJPEG(const uint8* src, size_t srcSize,
 	sDecodeCount++;
 	if (sDecodeCount <= 2 || (sDecodeCount % 500) == 0) {
 		LOG_DEBUG("MJPEG decoded #%d: %dx%d from %zu bytes",
-			(int)sDecodeCount, (int)cinfo.output_width,
-			(int)cinfo.output_height, srcSize);
+			(int)sDecodeCount, (int)decodedWidth,
+			(int)decodedHeight, srcSize);
 	}
 
 	return true;

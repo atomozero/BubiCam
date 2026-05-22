@@ -497,6 +497,17 @@ DriverTestView::MessageReceived(BMessage* message)
 			break;
 		}
 
+		case '_log':
+		{
+			const char* text;
+			if (message->FindString("text", &text) == B_OK) {
+				bool isError = false;
+				message->FindBool("error", &isError);
+				_AppendLog(text, isError ? fErrorColor : fSuccessColor);
+			}
+			break;
+		}
+
 		default:
 			BView::MessageReceived(message);
 			break;
@@ -562,10 +573,28 @@ DriverTestView::StopCurrentTest()
 	_AppendLog("Stopping test...", fWarningColor);
 	fStopRequested = true;
 
-	// Wait for thread with timeout
+	// Wait for thread with timeout (5 seconds max)
 	if (fTestThread >= 0) {
 		status_t exitValue;
-		wait_for_thread(fTestThread, &exitValue);
+		bigtime_t deadline = system_time() + 5000000;
+		bool threadExited = false;
+
+		while (system_time() < deadline) {
+			// Try a non-blocking check by snoozing briefly
+			snooze(100000);  // 100ms
+			thread_info info;
+			if (get_thread_info(fTestThread, &info) != B_OK) {
+				threadExited = true;
+				break;
+			}
+		}
+
+		if (threadExited) {
+			wait_for_thread(fTestThread, &exitValue);
+		} else {
+			_AppendLog("Test thread did not respond, force-killing", fErrorColor);
+			kill_thread(fTestThread);
+		}
 		fTestThread = -1;
 	}
 

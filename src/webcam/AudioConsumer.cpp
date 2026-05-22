@@ -43,7 +43,14 @@ AudioConsumer::AudioConsumer(const char* name, BLooper* target,
 
 AudioConsumer::~AudioConsumer()
 {
+	// Stop the event looper and wait for its thread to exit
+	// before destroying member locks/state
+	thread_id looperThread = ControlThread();
 	Quit();
+	if (looperThread >= 0) {
+		status_t exitValue;
+		wait_for_thread(looperThread, &exitValue);
+	}
 }
 
 
@@ -254,13 +261,18 @@ AudioConsumer::_HandleBuffer(BBuffer* buffer)
 	float left = 0.0f, right = 0.0f;
 	_CalculateLevels(buffer->Data(), buffer->SizeUsed(), &left, &right);
 
-	// Send levels to target (thread-safe with lock)
-	BAutolock lock(fTargetLock);
-	if (fTarget != NULL) {
+	// Copy target under lock, then post message outside lock
+	// to prevent deadlock with StopCapture → SetTarget(NULL)
+	BLooper* target = NULL;
+	{
+		BAutolock lock(fTargetLock);
+		target = fTarget;
+	}
+	if (target != NULL) {
 		BMessage msg(fLevelMessage);
 		msg.AddFloat("left", left);
 		msg.AddFloat("right", right);
-		fTarget->PostMessage(&msg);
+		target->PostMessage(&msg);
 	}
 }
 

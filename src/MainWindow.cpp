@@ -1252,6 +1252,21 @@ MainWindow::_CheckWatchdog()
 }
 
 
+struct ForceStopData {
+	WebcamDevice*	device;
+};
+
+static int32
+_ForceStopThread(void* data)
+{
+	ForceStopData* fsd = static_cast<ForceStopData*>(data);
+	if (fsd->device != NULL)
+		fsd->device->StopCapture();
+	delete fsd;
+	return 0;
+}
+
+
 void
 MainWindow::_ForceStop()
 {
@@ -1262,6 +1277,19 @@ MainWindow::_ForceStop()
 
 	fDriverCrashed = true;
 	fIsPreviewActive = false;
+
+	// Attempt to stop capture in a background thread so the UI
+	// remains responsive even if StopCapture blocks on a frozen driver
+	if (fCurrentWebcam != NULL) {
+		ForceStopData* fsd = new ForceStopData();
+		fsd->device = fCurrentWebcam;
+		thread_id tid = spawn_thread(_ForceStopThread, "force_stop",
+			B_LOW_PRIORITY, fsd);
+		if (tid >= 0)
+			resume_thread(tid);
+		else
+			delete fsd;
+	}
 
 	fVideoPreview->ClearFrame();
 	fVUMeter->SetLevel(0.0f, 0.0f);
