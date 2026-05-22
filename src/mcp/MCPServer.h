@@ -12,6 +12,7 @@
 #include <Looper.h>
 #include <String.h>
 #include <ObjectList.h>
+#include <Locker.h>
 #include <Messenger.h>
 #include <NetworkAddress.h>
 #include <atomic>
@@ -106,9 +107,14 @@ private:
 	// Logging
 	void				_Log(const char* format, ...);
 
+	// Thread-safe device access helper
+	WebcamDevice*		_LockDevice();
+	void				_UnlockDevice();
+
 	// Member variables
 	BMessenger			fTarget;
 	WebcamDevice*		fWebcamDevice;
+	BLocker				fDeviceLock;
 	BObjectList<MCPTool, true>	fTools;
 
 	std::atomic<bool>	fRunning;		// Thread-safe flag for server state

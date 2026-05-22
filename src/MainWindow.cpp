@@ -366,6 +366,18 @@ MainWindow::_BuildLayout()
 void
 MainWindow::_PopulateWebcamMenu()
 {
+	// Stop preview and clear current device before re-enumerating,
+	// since EnumerateDevices() deletes all existing device objects
+	_StopPreview();
+	{
+		BAutolock lock(fWebcamLock);
+		fCurrentWebcam = NULL;
+		fCurrentWebcamIndex = -1;
+	}
+	if (fMCPServer != NULL)
+		fMCPServer->SetWebcamDevice(NULL);
+	fDriverTestView->SetDevice(NULL);
+
 	// Remove old webcam items (keep "Refresh Devices" and separator)
 	while (fWebcamMenu->CountItems() > 2)
 		delete fWebcamMenu->RemoveItem(2);
@@ -1280,9 +1292,17 @@ MainWindow::_ForceStop()
 
 	// Attempt to stop capture in a background thread so the UI
 	// remains responsive even if StopCapture blocks on a frozen driver
-	if (fCurrentWebcam != NULL) {
+	WebcamDevice* deviceToStop = NULL;
+	{
+		BAutolock lock(fWebcamLock);
+		deviceToStop = fCurrentWebcam;
+		// Do NOT clear fCurrentWebcam here - _SelectWebcam needs to see it
+		// is not NULL to know the device exists. The background thread only
+		// calls StopCapture which is safe even if called multiple times.
+	}
+	if (deviceToStop != NULL) {
 		ForceStopData* fsd = new ForceStopData();
-		fsd->device = fCurrentWebcam;
+		fsd->device = deviceToStop;
 		thread_id tid = spawn_thread(_ForceStopThread, "force_stop",
 			B_LOW_PRIORITY, fsd);
 		if (tid >= 0)

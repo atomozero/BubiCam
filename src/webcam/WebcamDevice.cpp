@@ -40,6 +40,7 @@ struct StopNodeData {
 	BMediaRoster*	roster;
 	media_node		node;
 	volatile bool	done;
+	bool			callerOwns;  // true = caller deletes, false = thread deletes
 };
 
 static int32
@@ -48,6 +49,9 @@ _StopNodeThread(void* data)
 	StopNodeData* snd = static_cast<StopNodeData*>(data);
 	snd->roster->StopNode(snd->node, 0, true);
 	snd->done = true;
+	// If caller timed out, we own the data and must clean up
+	if (!snd->callerOwns)
+		delete snd;
 	return 0;
 }
 
@@ -55,31 +59,35 @@ static status_t
 StopNodeWithTimeout(BMediaRoster* roster, const media_node& node,
 	bigtime_t timeout = 3000000)
 {
-	StopNodeData data;
-	data.roster = roster;
-	data.node = node;
-	data.done = false;
+	// Heap-allocate to avoid stack corruption if the thread outlives us
+	StopNodeData* data = new StopNodeData();
+	data->roster = roster;
+	data->node = node;
+	data->done = false;
+	data->callerOwns = true;
 
 	thread_id tid = spawn_thread(_StopNodeThread, "stop_node",
-		B_NORMAL_PRIORITY, &data);
-	if (tid < 0)
+		B_NORMAL_PRIORITY, data);
+	if (tid < 0) {
+		delete data;
 		return roster->StopNode(node, 0, true);  // fallback
+	}
 
 	resume_thread(tid);
 
 	bigtime_t deadline = system_time() + timeout;
-	while (!data.done && system_time() < deadline)
+	while (!data->done && system_time() < deadline)
 		snooze(50000);  // 50ms poll
 
-	if (data.done) {
+	if (data->done) {
 		status_t exitValue;
 		wait_for_thread(tid, &exitValue);
+		delete data;
 		return B_OK;
 	}
 
-	// Timed out - the thread is stuck in StopNode IPC.
-	// We can't safely kill it (it holds roster state), but we return
-	// so the caller can continue cleanup.
+	// Timed out - hand ownership to the thread so it can clean up
+	data->callerOwns = false;
 	fprintf(stderr, "WebcamDevice: StopNode timed out after %.1f s\n",
 		timeout / 1000000.0);
 	return B_TIMED_OUT;
@@ -463,6 +471,9 @@ WebcamDevice::_GatherVideoFormats()
 void
 WebcamDevice::_GatherAudioInfo()
 {
+	if (!fNodeInstantiated)
+		return;
+
 	BMediaRoster* roster = BMediaRoster::Roster();
 	if (roster == NULL)
 		return;
@@ -506,6 +517,8 @@ status_t
 WebcamDevice::StartCapture(BLooper* target)
 {
 	LOG_INFO("Starting capture for '%s'", fName.String());
+
+	BAutolock startLock(fCaptureLock);
 
 	if (fIsCapturing) {
 		LOG_WARNING("Already capturing");
@@ -613,6 +626,9 @@ WebcamDevice::StartCapture(BLooper* target)
 void
 WebcamDevice::StopCapture()
 {
+	// Acquire lock to prevent overlap with StartCapture
+	BAutolock stopLock(fCaptureLock);
+
 	if (!fIsCapturing)
 		return;
 
@@ -621,7 +637,6 @@ WebcamDevice::StopCapture()
 	BMediaRoster* roster = BMediaRoster::Roster();
 	if (roster == NULL) {
 		LOG_WARNING("BMediaRoster is NULL during cleanup");
-		BAutolock lock(fCaptureLock);
 		fIsCapturing = false;
 		fTarget = NULL;
 		return;
@@ -646,41 +661,39 @@ WebcamDevice::StopCapture()
 	// Phase 1: Copy pointers and clear members under lock
 	// Phase 2: Call SetTarget() OUTSIDE lock to avoid deadlock with PostMessage
 
-	// Phase 1: Copy and clear under lock
-	{
-		BAutolock lock(fCaptureLock);
+	// Phase 1: Copy and clear state (already under fCaptureLock from caller)
+	videoConsumer = fVideoConsumer;
+	audioConsumer = fAudioConsumer;
 
-		videoConsumer = fVideoConsumer;
-		audioConsumer = fAudioConsumer;
-
-		// Get node info while we have valid pointers
-		if (videoConsumer != NULL) {
-			videoConsumerNode = videoConsumer->Node();
-		}
-		if (audioConsumer != NULL) {
-			audioConsumerNode = audioConsumer->Node();
-		}
-
-		// Save state for cleanup
-		producerNode = fMediaNode;
-		wasVideoConnected = fVideoConnected;
-		wasAudioConnected = fAudioConnected;
-		nodeWasInstantiated = fNodeInstantiated;
-		usedLiveNode = fUsedLiveNode;
-		videoOutput = fVideoOutput;
-		videoInput = fVideoInput;
-		audioOutput = fAudioOutput;
-		audioInput = fAudioInput;
-
-		// Clear member pointers FIRST - this prevents any new messages from being
-		// processed that reference these consumers
-		fIsCapturing = false;
-		fVideoConsumer = NULL;
-		fAudioConsumer = NULL;
-		fVideoConnected = false;
-		fAudioConnected = false;
+	// Get node info while we have valid pointers
+	if (videoConsumer != NULL) {
+		videoConsumerNode = videoConsumer->Node();
 	}
-	// Lock released here
+	if (audioConsumer != NULL) {
+		audioConsumerNode = audioConsumer->Node();
+	}
+
+	// Save state for cleanup
+	producerNode = fMediaNode;
+	wasVideoConnected = fVideoConnected;
+	wasAudioConnected = fAudioConnected;
+	nodeWasInstantiated = fNodeInstantiated;
+	usedLiveNode = fUsedLiveNode;
+	videoOutput = fVideoOutput;
+	videoInput = fVideoInput;
+	audioOutput = fAudioOutput;
+	audioInput = fAudioInput;
+
+	// Clear member pointers FIRST - this prevents any new messages from being
+	// processed that reference these consumers
+	fIsCapturing = false;
+	fVideoConsumer = NULL;
+	fAudioConsumer = NULL;
+	fVideoConnected = false;
+	fAudioConnected = false;
+
+	// Release lock before blocking operations (SetTarget, StopNode, etc.)
+	stopLock.Unlock();
 
 	// Phase 2: Tell consumers to stop sending messages OUTSIDE lock.
 	// This is safe because we've already cleared member pointers, so no other

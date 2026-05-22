@@ -10,6 +10,7 @@
 #include "ErrorUtils.h"
 
 #include <Application.h>
+#include <Autolock.h>
 #include <Bitmap.h>
 #include <BitmapStream.h>
 #include <File.h>
@@ -235,7 +236,27 @@ MCPServer::GetStats() const
 void
 MCPServer::SetWebcamDevice(WebcamDevice* device)
 {
+	BAutolock lock(fDeviceLock);
 	fWebcamDevice = device;
+}
+
+
+WebcamDevice*
+MCPServer::_LockDevice()
+{
+	fDeviceLock.Lock();
+	if (fWebcamDevice == NULL) {
+		fDeviceLock.Unlock();
+		return NULL;
+	}
+	return fWebcamDevice;
+}
+
+
+void
+MCPServer::_UnlockDevice()
+{
+	fDeviceLock.Unlock();
 }
 
 
@@ -515,11 +536,13 @@ MCPServer::_HandleToolCall(const BString& id, const BString& toolName,
 BString
 MCPServer::_ToolCaptureFrame(const BString& arguments)
 {
-	if (fWebcamDevice == NULL)
+	WebcamDevice* device = _LockDevice();
+	if (device == NULL)
 		return "{\"error\":\"No webcam device available\"}";
 
 	// Get current frame from video consumer
-	BBitmap* bitmap = fWebcamDevice->GetCurrentFrame();
+	BBitmap* bitmap = device->GetCurrentFrame();
+	_UnlockDevice();
 	if (bitmap == NULL)
 		return "{\"error\":\"No frame available - is webcam streaming?\"}";
 
@@ -575,16 +598,18 @@ MCPServer::_ToolCaptureFrame(const BString& arguments)
 BString
 MCPServer::_ToolGetDriverInfo(const BString& arguments)
 {
-	if (fWebcamDevice == NULL)
+	WebcamDevice* device = _LockDevice();
+	if (device == NULL)
 		return "{\"error\":\"No webcam device available\"}";
 
 	BString result;
 	result << "{";
-	result << "\"name\":\"" << fWebcamDevice->Name() << "\",";
-	result << "\"driver\":\"" << fWebcamDevice->DriverName() << "\",";
-	result << "\"version\":\"" << fWebcamDevice->DriverVersion() << "\"";
+	result << "\"name\":\"" << device->Name() << "\",";
+	result << "\"driver\":\"" << device->DriverName() << "\",";
+	result << "\"version\":\"" << device->DriverVersion() << "\"";
 	result << "}";
 
+	_UnlockDevice();
 	return result;
 }
 
@@ -592,9 +617,6 @@ MCPServer::_ToolGetDriverInfo(const BString& arguments)
 BString
 MCPServer::_ToolSetResolution(const BString& arguments)
 {
-	if (fWebcamDevice == NULL)
-		return "{\"error\":\"No webcam device available\"}";
-
 	// Parse width and height from arguments
 	BString widthStr = _ExtractJsonString(arguments, "width");
 	BString heightStr = _ExtractJsonString(arguments, "height");
@@ -605,18 +627,23 @@ MCPServer::_ToolSetResolution(const BString& arguments)
 	if (width <= 0 || height <= 0)
 		return "{\"error\":\"Invalid resolution\"}";
 
+	WebcamDevice* device = _LockDevice();
+	if (device == NULL)
+		return "{\"error\":\"No webcam device available\"}";
+
 	// Find matching format
-	const BObjectList<VideoFormat>& formats = fWebcamDevice->SupportedFormats();
+	const BObjectList<VideoFormat>& formats = device->SupportedFormats();
 	bool found = false;
 
 	for (int32 i = 0; i < formats.CountItems(); i++) {
 		VideoFormat* fmt = formats.ItemAt(i);
 		if (fmt->width == width && fmt->height == height) {
 			found = true;
-			fWebcamDevice->SetRequestedFormat(*fmt);
+			device->SetRequestedFormat(*fmt);
 			break;
 		}
 	}
+	_UnlockDevice();
 
 	if (!found) {
 		BString error;
@@ -640,17 +667,20 @@ MCPServer::_ToolSetResolution(const BString& arguments)
 BString
 MCPServer::_ToolGetStatus(const BString& arguments)
 {
-	if (fWebcamDevice == NULL)
+	WebcamDevice* device = _LockDevice();
+	if (device == NULL)
 		return "{\"error\":\"No webcam device available\"}";
 
-	VideoFormat currentFormat = fWebcamDevice->CurrentFormat();
-	uint32 framesReceived = fWebcamDevice->FramesCaptured();
-	uint32 framesDropped = fWebcamDevice->FramesDropped();
-	float actualFPS = fWebcamDevice->CurrentFPS();
+	VideoFormat currentFormat = device->CurrentFormat();
+	uint32 framesReceived = device->FramesCaptured();
+	uint32 framesDropped = device->FramesDropped();
+	float actualFPS = device->CurrentFPS();
+	bool isCapturing = device->IsCapturing();
+	_UnlockDevice();
 
 	BString result;
 	result << "{";
-	result << "\"streaming\":" << (fWebcamDevice->IsCapturing() ? "true" : "false") << ",";
+	result << "\"streaming\":" << (isCapturing ? "true" : "false") << ",";
 	result << "\"resolution\":{";
 	result << "\"width\":" << currentFormat.width << ",";
 	result << "\"height\":" << currentFormat.height;
@@ -670,10 +700,11 @@ MCPServer::_ToolGetStatus(const BString& arguments)
 BString
 MCPServer::_ToolGetSupportedFormats(const BString& arguments)
 {
-	if (fWebcamDevice == NULL)
+	WebcamDevice* device = _LockDevice();
+	if (device == NULL)
 		return "{\"error\":\"No webcam device available\"}";
 
-	const BObjectList<VideoFormat>& formats = fWebcamDevice->SupportedFormats();
+	const BObjectList<VideoFormat>& formats = device->SupportedFormats();
 
 	BString result;
 	result << "{\"formats\":[";
@@ -690,6 +721,7 @@ MCPServer::_ToolGetSupportedFormats(const BString& arguments)
 		result << "}";
 	}
 
+	_UnlockDevice();
 	result << "]}";
 
 	return result;

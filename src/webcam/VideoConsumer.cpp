@@ -677,6 +677,34 @@ VideoConsumer::_ConvertBuffer(BBuffer* buffer, BBitmap* destBitmap)
 		return;
 	}
 
+	// Validate buffer size against expected minimum
+	{
+		size_t expectedMin = 0;
+		switch (srcFormat) {
+			case B_YCbCr420:
+			case B_YUV420:
+				expectedMin = (size_t)(width * height * 3 / 2);
+				break;
+			case B_YCbCr422:
+			case B_YUV422:
+				expectedMin = (size_t)(width * height * 2);
+				break;
+			default:
+				expectedMin = (size_t)(height * srcBytesPerRow);
+				break;
+		}
+		if (srcSize < expectedMin) {
+			static int32 sTruncWarnCount = 0;
+			if (++sTruncWarnCount <= 5) {
+				LOG_WARNING("Truncated buffer: got %zu, expected %zu",
+					srcSize, expectedMin);
+			}
+			// Fill destination with error pattern and return
+			memset(dst, 0x20, destBitmap->BitsLength());
+			return;
+		}
+	}
+
 	switch (srcFormat) {
 		case B_RGB32:
 		case B_RGBA32:
