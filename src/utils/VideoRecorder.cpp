@@ -393,27 +393,51 @@ VideoRecorder::_FinalizeAVI()
 	// Seek to end to write index
 	fFile.Seek(moviEnd, SEEK_SET);
 
-	// Write 'idx1' index (video + audio entries)
+	// Write 'idx1' index - must reflect actual chunk order in the file
+	// Build a merged index sorted by file offset
+	struct IndexItem {
+		off_t		offset;
+		uint32		size;
+		bool		isVideo;
+	};
+
 	int32 totalEntries = fVideoIndex.CountItems() + fAudioIndex.CountItems();
+	BObjectList<IndexItem> merged(totalEntries);
+
+	for (int32 i = 0; i < fVideoIndex.CountItems(); i++) {
+		AVIIndexEntry* e = fVideoIndex.ItemAt(i);
+		IndexItem* item = new IndexItem();
+		item->offset = e->offset;
+		item->size = e->size;
+		item->isVideo = true;
+		merged.AddItem(item);
+	}
+
+	for (int32 i = 0; i < fAudioIndex.CountItems(); i++) {
+		AVIIndexEntry* e = fAudioIndex.ItemAt(i);
+		IndexItem* item = new IndexItem();
+		item->offset = e->offset;
+		item->size = e->size;
+		item->isVideo = false;
+		merged.AddItem(item);
+	}
+
+	// Sort by file offset to match actual chunk order
+	merged.SortItems([](const IndexItem* a, const IndexItem* b) -> int {
+		if (a->offset < b->offset) return -1;
+		if (a->offset > b->offset) return 1;
+		return 0;
+	});
+
 	_WriteFourCC("idx1");
 	_WriteUInt32(totalEntries * 16);
 
-	// Video index entries
-	for (int32 i = 0; i < fVideoIndex.CountItems(); i++) {
-		AVIIndexEntry* entry = fVideoIndex.ItemAt(i);
-		_WriteFourCC("00dc");               // ckid (stream 0, compressed video)
-		_WriteUInt32(0x10);                 // dwFlags: AVIIF_KEYFRAME
-		_WriteUInt32((uint32)entry->offset); // dwOffset (from movi start)
-		_WriteUInt32(entry->size);          // dwSize
-	}
-
-	// Audio index entries
-	for (int32 i = 0; i < fAudioIndex.CountItems(); i++) {
-		AVIIndexEntry* entry = fAudioIndex.ItemAt(i);
-		_WriteFourCC("01wb");               // ckid (stream 1, audio data)
-		_WriteUInt32(0x10);                 // dwFlags: AVIIF_KEYFRAME
-		_WriteUInt32((uint32)entry->offset);
-		_WriteUInt32(entry->size);
+	for (int32 i = 0; i < merged.CountItems(); i++) {
+		IndexItem* item = merged.ItemAt(i);
+		_WriteFourCC(item->isVideo ? "00dc" : "01wb");
+		_WriteUInt32(item->isVideo ? 0x10 : 0x00);  // KEYFRAME for video
+		_WriteUInt32((uint32)item->offset);
+		_WriteUInt32(item->size);
 	}
 
 	// Fix RIFF size
@@ -436,11 +460,12 @@ VideoRecorder::_FinalizeAVI()
 		uint32 audioSamples = blockAlign > 0 ? fTotalAudioBytes / blockAlign : 0;
 		// Audio strh dwLength is at: avih end + video strl size + audio strh offset
 		// Video strl: LIST(8) + 4 + strh(8+56) + strf(8+40) = 124
-		// Audio strh dwLength offset: 12 + 8 + 64 + 124 + 8 + 4 + strh(8+...)
-		// = hdrl_start(12) + avih(64+8) + video_strl(124) + LIST(8) + "strl"(4) + strh(8) + fccType(4) + fccHandler(4) + dwFlags(4) + wPriority(2) + wLanguage(2) + dwInitialFrames(4) + dwScale(4) + dwRate(4) + dwStart(4) = +40 = dwLength
-		// Simpler: save the position during header write... but we didn't.
-		// Calculate: offset = 12 + 72 + 124 + 12 + 8 + 40 = 268
-		fFile.Seek(268, SEEK_SET);
+		// Audio strh dwLength is at fixed offset 264:
+		// RIFF(8) + "AVI "(4) + LIST(8) + "hdrl"(4) + avih(64)
+		// + video_strl(LIST(8)+"strl"(4)+strh(64)+strf(48)=124)
+		// + audio LIST(8) + "strl"(4) + "strh"(8) + 32 bytes into strh data
+		// = 12 + 12 + 64 + 124 + 12 + 8 + 32 = 264
+		fFile.Seek(264, SEEK_SET);
 		_WriteUInt32(audioSamples);
 	}
 
