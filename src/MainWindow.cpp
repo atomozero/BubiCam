@@ -38,6 +38,7 @@
 #include <Path.h>
 #include <Entry.h>
 #include <Screen.h>
+#include <MediaAddOn.h>
 #include <MediaRoster.h>
 #include <Roster.h>
 
@@ -64,6 +65,7 @@ MainWindow::MainWindow()
 	fControlMenu(NULL),
 	fFormatMenu(NULL),
 	fToolsMenu(NULL),
+	fAudioMenu(NULL),
 	fVideoPreview(NULL),
 	fDriverInfo(NULL),
 	fDriverTestView(NULL),
@@ -81,6 +83,7 @@ MainWindow::MainWindow()
 	fWebcamRoster(NULL),
 	fCurrentWebcam(NULL),
 	fCurrentWebcamIndex(-1),
+	fSelectedAudioNodeID(-1),
 	fIsPreviewActive(false),
 	fSavePanel(NULL),
 	fLastFrame(NULL),
@@ -216,6 +219,11 @@ MainWindow::_BuildMenu()
 	fMenuBar->AddItem(fControlMenu);
 
 	// Tools menu
+	// Audio menu
+	fAudioMenu = new BMenu("Audio");
+	_PopulateAudioMenu();
+	fMenuBar->AddItem(fAudioMenu);
+
 	fToolsMenu = new BMenu("Tools");
 	fToolsMenu->AddItem(new BMenuItem("Driver Tests" B_UTF8_ELLIPSIS,
 		new BMessage(MSG_SHOW_DRIVER_TESTS), 'D'));
@@ -491,6 +499,102 @@ MainWindow::_PopulateFormatMenu()
 
 
 void
+MainWindow::_PopulateAudioMenu()
+{
+	// Clear existing items
+	while (fAudioMenu->CountItems() > 0)
+		delete fAudioMenu->RemoveItem((int32)0);
+
+	// "Auto" option - uses system default
+	BMessage* autoMsg = new BMessage(MSG_AUDIO_SOURCE);
+	autoMsg->AddInt32("node_id", -1);
+	BMenuItem* autoItem = new BMenuItem("Auto (System Default)", autoMsg);
+	autoItem->SetMarked(fSelectedAudioNodeID == -1);
+	fAudioMenu->AddItem(autoItem);
+
+	// "None" option - disable audio
+	BMessage* noneMsg = new BMessage(MSG_AUDIO_NONE);
+	BMenuItem* noneItem = new BMenuItem("None (Disable Audio)", noneMsg);
+	noneItem->SetMarked(fSelectedAudioNodeID == 0);
+	fAudioMenu->AddItem(noneItem);
+
+	fAudioMenu->AddSeparatorItem();
+
+	// Enumerate audio input nodes
+	BMediaRoster* roster = BMediaRoster::Roster();
+	if (roster == NULL)
+		return;
+
+	// Get all live audio input nodes
+	live_node_info liveNodes[32];
+	int32 liveCount = 32;
+	status_t status = roster->GetLiveNodes(liveNodes, &liveCount, NULL, NULL,
+		NULL, B_BUFFER_PRODUCER);
+
+	if (status == B_OK) {
+		for (int32 i = 0; i < liveCount; i++) {
+			// Check if this node has audio outputs
+			media_output outputs[4];
+			int32 outputCount = 0;
+			if (roster->GetFreeOutputsFor(liveNodes[i].node, outputs, 4,
+				&outputCount, B_MEDIA_RAW_AUDIO) == B_OK && outputCount > 0) {
+
+				BMessage* msg = new BMessage(MSG_AUDIO_SOURCE);
+				msg->AddInt32("node_id", liveNodes[i].node.node);
+				BMenuItem* item = new BMenuItem(liveNodes[i].name, msg);
+				if (fSelectedAudioNodeID == liveNodes[i].node.node)
+					item->SetMarked(true);
+				fAudioMenu->AddItem(item);
+			}
+		}
+	}
+
+	// Also list dormant audio producer nodes
+	const int32 kMaxDormant = 32;
+	dormant_node_info dormantNodes[kMaxDormant];
+	int32 dormantCount = kMaxDormant;
+	status = roster->GetDormantNodes(dormantNodes, &dormantCount,
+		NULL, NULL, NULL, B_BUFFER_PRODUCER, 0);
+
+	if (status == B_OK && dormantCount > 0) {
+		bool addedSeparator = false;
+		for (int32 i = 0; i < dormantCount; i++) {
+			// Check the dormant node's flavor for audio output
+			dormant_flavor_info flavorInfo;
+			if (roster->GetDormantFlavorInfoFor(dormantNodes[i], &flavorInfo) == B_OK) {
+				bool hasAudio = false;
+				for (int32 j = 0; j < flavorInfo.out_format_count; j++) {
+					if (flavorInfo.out_formats[j].type == B_MEDIA_RAW_AUDIO) {
+						hasAudio = true;
+						break;
+					}
+				}
+				if (hasAudio) {
+					if (!addedSeparator) {
+						fAudioMenu->AddSeparatorItem();
+						addedSeparator = true;
+					}
+					// Use negative addon+flavor as unique ID for dormant nodes
+					int32 dormantID = -(dormantNodes[i].addon * 100
+						+ dormantNodes[i].flavor_id + 1);
+					BMessage* msg = new BMessage(MSG_AUDIO_SOURCE);
+					msg->AddInt32("node_id", dormantID);
+					msg->AddInt32("addon", dormantNodes[i].addon);
+					msg->AddInt32("flavor_id", dormantNodes[i].flavor_id);
+					BString label(dormantNodes[i].name);
+					label << " (dormant)";
+					BMenuItem* item = new BMenuItem(label.String(), msg);
+					if (fSelectedAudioNodeID == dormantID)
+						item->SetMarked(true);
+					fAudioMenu->AddItem(item);
+				}
+			}
+		}
+	}
+}
+
+
+void
 MainWindow::_SelectWebcam(int32 index)
 {
 	_StopPreview();
@@ -513,6 +617,9 @@ MainWindow::_SelectWebcam(int32 index)
 		if (item != NULL)
 			item->SetMarked(i - 2 == index);
 	}
+
+	// Pass audio selection to device before starting
+	device->SetAudioNodeID(fSelectedAudioNodeID);
 
 	// Start preview FIRST - this instantiates the media node
 	// which is required before we can access parameters
@@ -1271,6 +1378,67 @@ MainWindow::MessageReceived(BMessage* message)
 		case MSG_EXPORT_RAW_FRAME:
 			_ExportRawFrame();
 			break;
+
+		case MSG_AUDIO_SOURCE:
+		{
+			int32 nodeID;
+			if (message->FindInt32("node_id", &nodeID) == B_OK) {
+				fSelectedAudioNodeID = nodeID;
+				// Update menu marks
+				for (int32 i = 0; i < fAudioMenu->CountItems(); i++) {
+					BMenuItem* item = fAudioMenu->ItemAt(i);
+					if (item != NULL)
+						item->SetMarked(false);
+				}
+				BMenuItem* srcItem = fAudioMenu->FindItem(message->what);
+				if (srcItem != NULL) {
+					// Find the item that sent this message
+					for (int32 i = 0; i < fAudioMenu->CountItems(); i++) {
+						BMenuItem* item = fAudioMenu->ItemAt(i);
+						if (item != NULL && item->Message() != NULL
+							&& item->Message()->what == MSG_AUDIO_SOURCE) {
+							int32 itemNodeID;
+							if (item->Message()->FindInt32("node_id", &itemNodeID) == B_OK
+								&& itemNodeID == nodeID) {
+								item->SetMarked(true);
+								break;
+							}
+						}
+					}
+				}
+				// Apply: restart preview to reconnect audio
+				if (fCurrentWebcam != NULL) {
+					fCurrentWebcam->SetAudioNodeID(nodeID);
+					if (fIsPreviewActive) {
+						_StopPreview();
+						_StartPreview();
+						fStatusBar->SetText("Audio source changed, preview restarted");
+					}
+				}
+			}
+			break;
+		}
+
+		case MSG_AUDIO_NONE:
+		{
+			fSelectedAudioNodeID = 0;
+			for (int32 i = 0; i < fAudioMenu->CountItems(); i++) {
+				BMenuItem* item = fAudioMenu->ItemAt(i);
+				if (item != NULL)
+					item->SetMarked(item->Message() != NULL
+						&& item->Message()->what == MSG_AUDIO_NONE);
+			}
+			if (fCurrentWebcam != NULL) {
+				fCurrentWebcam->SetAudioNodeID(0);
+				if (fIsPreviewActive) {
+					_StopPreview();
+					_StartPreview();
+					fStatusBar->SetText("Audio disabled, preview restarted");
+				}
+			}
+			fVUMeter->SetLevel(0.0f, 0.0f);
+			break;
+		}
 
 		default:
 			BWindow::MessageReceived(message);

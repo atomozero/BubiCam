@@ -129,6 +129,10 @@ public:
 	void				StopCapture();
 	bool				IsCapturing() const { return fIsCapturing; }
 
+	// Audio source selection (-1 = auto, 0 = none, >0 = specific node ID)
+	void				SetAudioNodeID(int32 nodeID) { fAudioNodeID = nodeID; }
+	int32				AudioNodeID() const { return fAudioNodeID; }
+
 	// Frame access (for MCP server)
 	BBitmap*			GetCurrentFrame() const;
 
@@ -207,6 +211,7 @@ private:
 	bool				fIsCapturing;
 	BLooper*			fTarget;
 	bool				fUsedLiveNode;	// True if we used an existing live node
+	int32				fAudioNodeID;	// -1=auto, 0=none, >0=specific node
 	mutable BLocker		fCaptureLock;	// Protects consumer pointers during capture/stop
 
 	// USB Video Class descriptor info

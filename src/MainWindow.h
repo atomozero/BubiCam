@@ -76,7 +76,9 @@ enum {
 	MSG_TOGGLE_GRID			= 'tggr',
 	MSG_GRID_MODE			= 'grmd',
 	MSG_FULLSCREEN			= 'fscr',
-	MSG_EXPORT_RAW_FRAME	= 'exrf'
+	MSG_EXPORT_RAW_FRAME	= 'exrf',
+	MSG_AUDIO_SOURCE		= 'auds',
+	MSG_AUDIO_NONE			= 'audn'
 };
 
 
@@ -119,6 +121,9 @@ private:
 	void				_SaveSettings();
 	void				_LoadSettings();
 	void				_ExportRawFrame();
+	void				_PopulateAudioMenu();
+	void				_ConnectAudioSource(int32 nodeID);
+	void				_DisconnectAudio();
 
 	bool				fIsFullscreen;
 	BRect				fSavedFrame;
@@ -130,6 +135,7 @@ private:
 	BMenu*				fControlMenu;
 	BMenu*				fFormatMenu;
 	BMenu*				fToolsMenu;
+	BMenu*				fAudioMenu;
 
 	VideoPreviewView*	fVideoPreview;
 	DriverInfoView*		fDriverInfo;
@@ -155,6 +161,7 @@ private:
 	WebcamDevice*		fCurrentWebcam;
 	mutable BLocker		fWebcamLock;	// Protects fCurrentWebcam access
 	int32				fCurrentWebcamIndex;
+	int32				fSelectedAudioNodeID;  // -1 = auto, 0 = none, >0 = specific node
 	bool				fIsPreviewActive;
 
 	BFilePanel*			fSavePanel;

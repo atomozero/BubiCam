@@ -129,7 +129,8 @@ WebcamDevice::WebcamDevice(const media_node& node, const dormant_node_info& info
 	fAudioConnected(false),
 	fIsCapturing(false),
 	fTarget(NULL),
-	fUsedLiveNode(false)
+	fUsedLiveNode(false),
+	fAudioNodeID(-1)
 {
 	fName = info.name;
 	fSupportedFormats.MakeEmpty();
@@ -159,7 +160,8 @@ WebcamDevice::WebcamDevice(const dormant_node_info& info, status_t instantiateEr
 	fAudioConnected(false),
 	fIsCapturing(false),
 	fTarget(NULL),
-	fUsedLiveNode(false)
+	fUsedLiveNode(false),
+	fAudioNodeID(-1)
 {
 	fName = info.name;
 	fSupportedFormats.MakeEmpty();
@@ -568,10 +570,8 @@ WebcamDevice::StartCapture(BLooper* target)
 		return status;
 	}
 
-	// Always try audio connection - fSupportsAudio may be false because
-	// GatherDeviceInfo() runs before the node is instantiated. The actual
-	// audio availability can only be determined once the node is live.
-	{
+	// Set up audio if not disabled by user
+	if (fAudioNodeID != 0) {
 		status = _SetupAudioConnection();
 		if (status == B_OK) {
 			fSupportsAudio = true;
@@ -579,6 +579,8 @@ WebcamDevice::StartCapture(BLooper* target)
 		} else {
 			LOG_DEBUG("Audio not available: %s", strerror(status));
 		}
+	} else {
+		LOG_DEBUG("Audio disabled by user");
 	}
 
 	// Get the time source
@@ -1276,29 +1278,39 @@ WebcamDevice::_SetupAudioConnection()
 		B_MEDIA_RAW_AUDIO);
 
 	if (status != B_OK || outputCount == 0) {
-		// Strategy 2: Use the system default audio input.
-		// We intentionally skip instantiating dormant nodes from the same
-		// addon because some webcam drivers (e.g., aukey_webcam_v4) have a
-		// buggy AudioProducer::Connect() that crashes with a divide-by-zero.
-		// The system audio input is configured via MediaPrefs and may already
-		// point to the webcam's USB audio interface.
-		LOG_DEBUG("No audio output on video node, trying system audio input...");
+		LOG_DEBUG("No audio output on video node, trying fallback...");
 
 		media_node audioNode;
 		bool foundAudioNode = false;
 
-		status = roster->GetAudioInput(&audioNode);
-		if (status == B_OK) {
-			status = roster->GetFreeOutputsFor(audioNode, outputs, 10,
-				&outputCount, B_MEDIA_RAW_AUDIO);
-			if (status == B_OK && outputCount > 0) {
-				foundAudioNode = true;
-				LOG_INFO("Using system audio input for VU meter");
+		// If user selected a specific live node, use that
+		if (fAudioNodeID > 0) {
+			status = roster->GetNodeFor(fAudioNodeID, &audioNode);
+			if (status == B_OK) {
+				status = roster->GetFreeOutputsFor(audioNode, outputs, 10,
+					&outputCount, B_MEDIA_RAW_AUDIO);
+				if (status == B_OK && outputCount > 0) {
+					foundAudioNode = true;
+					LOG_INFO("Using user-selected audio node ID=%d", fAudioNodeID);
+				}
+			}
+		}
+
+		// Otherwise use system default audio input
+		if (!foundAudioNode) {
+			status = roster->GetAudioInput(&audioNode);
+			if (status == B_OK) {
+				status = roster->GetFreeOutputsFor(audioNode, outputs, 10,
+					&outputCount, B_MEDIA_RAW_AUDIO);
+				if (status == B_OK && outputCount > 0) {
+					foundAudioNode = true;
+					LOG_INFO("Using system audio input for VU meter");
+				}
 			}
 		}
 
 		if (!foundAudioNode) {
-			LOG_DEBUG("No system audio input available");
+			LOG_DEBUG("No audio input available");
 			roster->UnregisterNode(fAudioConsumer);
 			delete fAudioConsumer;
 			fAudioConsumer = NULL;
