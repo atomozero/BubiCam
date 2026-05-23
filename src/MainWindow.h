@@ -67,7 +67,8 @@ enum {
 	MSG_RESET_ZOOM			= 'rszm',
 	MSG_CAPTURE_REFERENCE	= 'cprf',
 	MSG_TOGGLE_COMPARE		= 'tgcm',
-	MSG_CLEAR_REFERENCE		= 'clrf'
+	MSG_CLEAR_REFERENCE		= 'clrf',
+	MSG_TOGGLE_AUTO_PREVIEW	= 'tgap'
 };
 
 
@@ -150,6 +151,9 @@ private:
 
 	// Video recording
 	VideoRecorder*		fRecorder;
+
+	// Settings
+	bool				fAutoStartPreview;
 
 	// Driver crash protection
 	bool				fDriverCrashed;

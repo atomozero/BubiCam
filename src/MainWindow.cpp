@@ -87,6 +87,7 @@ MainWindow::MainWindow()
 	fMCPServer(NULL),
 	fMCPMenuItem(NULL),
 	fRecorder(NULL),
+	fAutoStartPreview(true),
 	fDriverCrashed(false),
 	fWatchdogAlertShown(false),
 	fLastFrameReceived(0),
@@ -201,6 +202,13 @@ MainWindow::_BuildMenu()
 	fControlMenu->AddSeparatorItem();
 	fControlMenu->AddItem(new BMenuItem("Show Controls Panel",
 		new BMessage(MSG_TOGGLE_CONTROLS), 'K'));
+	fControlMenu->AddSeparatorItem();
+	{
+		BMenuItem* autoPreviewItem = new BMenuItem("Auto-start Preview on Launch",
+			new BMessage(MSG_TOGGLE_AUTO_PREVIEW));
+		autoPreviewItem->SetMarked(fAutoStartPreview);
+		fControlMenu->AddItem(autoPreviewItem);
+	}
 	fMenuBar->AddItem(fControlMenu);
 
 	// Tools menu
@@ -852,6 +860,18 @@ MainWindow::MessageReceived(BMessage* message)
 		case MSG_REFRESH_DEVICES:
 			_PopulateWebcamMenu();
 			break;
+
+		case MSG_TOGGLE_AUTO_PREVIEW:
+		{
+			fAutoStartPreview = !fAutoStartPreview;
+			BMenuItem* item = fControlMenu->FindItem(MSG_TOGGLE_AUTO_PREVIEW);
+			if (item != NULL)
+				item->SetMarked(fAutoStartPreview);
+			fStatusBar->SetText(fAutoStartPreview
+				? "Auto-start preview enabled"
+				: "Auto-start preview disabled");
+			break;
+		}
 
 		case MSG_DEVICES_CHANGED:
 		{
@@ -1578,9 +1598,8 @@ MainWindow::_SaveSettings()
 	if (fCurrentWebcam != NULL)
 		settings.AddString("last_device", fCurrentWebcam->Name());
 
-	// Preview options
-	settings.AddBool("show_histogram", fVideoPreview->CurrentFPS() >= 0
-		&& fVideoPreview != NULL);
+	// Auto-start preview
+	settings.AddBool("auto_start_preview", fAutoStartPreview);
 
 	// Write to settings file
 	BPath path;
@@ -1631,13 +1650,41 @@ MainWindow::_LoadSettings()
 		}
 	}
 
+	// Restore auto-start preview setting
+	bool autoPreview;
+	if (settings.FindBool("auto_start_preview", &autoPreview) == B_OK) {
+		fAutoStartPreview = autoPreview;
+		BMenuItem* item = fControlMenu->FindItem(MSG_TOGGLE_AUTO_PREVIEW);
+		if (item != NULL)
+			item->SetMarked(fAutoStartPreview);
+	}
+
 	// Restore last selected webcam
 	const char* lastDevice;
 	if (settings.FindString("last_device", &lastDevice) == B_OK) {
 		for (int32 i = 0; i < fWebcamRoster->CountDevices(); i++) {
 			WebcamDevice* device = fWebcamRoster->DeviceAt(i);
 			if (device != NULL && strcmp(device->Name(), lastDevice) == 0) {
-				_SelectWebcam(i);
+				if (fAutoStartPreview) {
+					_SelectWebcam(i);
+				} else {
+					// Select device without starting preview
+					BAutolock lock(fWebcamLock);
+					fCurrentWebcam = device;
+					fCurrentWebcamIndex = i;
+
+					// Update menu checkmarks
+					for (int32 j = 2; j < fWebcamMenu->CountItems(); j++) {
+						BMenuItem* menuItem = fWebcamMenu->ItemAt(j);
+						if (menuItem != NULL)
+							menuItem->SetMarked(j - 2 == i);
+					}
+
+					BString status;
+					status.SetToFormat("Selected: %s (preview disabled)",
+						device->Name());
+					fStatusBar->SetText(status.String());
+				}
 				break;
 			}
 		}
