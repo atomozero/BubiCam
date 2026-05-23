@@ -12,6 +12,7 @@
 #include "SyslogView.h"
 #include "VUMeterView.h"
 #include "WebcamControlsView.h"
+#include "LEDView.h"
 #include "WebcamRoster.h"
 #include "WebcamDevice.h"
 #include "MCPServer.h"
@@ -619,6 +620,10 @@ MainWindow::_StartPreview()
 	fDriverCrashed = false;
 	fStatusBar->SetText("Preview active");
 
+	// LED on (green, steady)
+	fCamLED->SetBlinking(false);
+	fCamLED->SetState(LED_GREEN);
+
 	// Start watchdog timer (check every 2 seconds)
 	delete fWatchdogRunner;
 	fWatchdogRunner = new BMessageRunner(BMessenger(this),
@@ -652,6 +657,10 @@ MainWindow::_StopPreview()
 		fIsPreviewActive = false;
 		fVideoPreview->ClearFrame();
 		fVUMeter->SetLevel(0.0f, 0.0f);
+
+		// LED off (red)
+		fCamLED->SetBlinking(false);
+		fCamLED->SetState(LED_RED);
 
 		// Reset stats bar
 		fStatsResolution->SetText("---");
@@ -1201,8 +1210,11 @@ MainWindow::_BuildStatsBar()
 	fStatsFrames->SetFont(&smallFont);
 	fStatsDropped->SetFont(&smallFont);
 
+	fCamLED = new LEDView("camLED");
+
 	BLayoutBuilder::Group<>(statsBar, B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
 		.SetInsets(B_USE_SMALL_INSETS, 2, B_USE_SMALL_INSETS, 2)
+		.Add(fCamLED)
 		.Add(fStatsResolution)
 		.Add(fStatsFPS)
 		.Add(fStatsFrames)
@@ -1333,6 +1345,11 @@ MainWindow::_CheckWatchdog()
 		return;
 
 	fDriverCrashed = true;
+
+	// LED yellow blinking = driver frozen
+	fCamLED->SetState(LED_YELLOW);
+	fCamLED->SetBlinking(true);
+
 	BString warning;
 	warning.SetToFormat("WARNING: No frames for %.0f seconds - driver may be frozen!",
 		timeSinceLastFrame / 1000000.0);
@@ -1377,6 +1394,10 @@ MainWindow::_ForceStop()
 
 	fDriverCrashed = true;
 	fIsPreviewActive = false;
+
+	// LED off
+	fCamLED->SetBlinking(false);
+	fCamLED->SetState(LED_OFF);
 
 	// Attempt to stop capture in a background thread so the UI
 	// remains responsive even if StopCapture blocks on a frozen driver

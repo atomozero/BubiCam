@@ -15,6 +15,7 @@ SRCS = \
 	src/views/SyslogView.cpp \
 	src/views/VUMeterView.cpp \
 	src/views/WebcamControlsView.cpp \
+	src/views/LEDView.cpp \
 	src/webcam/WebcamRoster.cpp \
 	src/webcam/WebcamDevice.cpp \
 	src/webcam/VideoConsumer.cpp \

@@ -20,6 +20,7 @@
 #include <Locker.h>
 #include <ToolBar.h>
 
+class LEDView;
 class VideoPreviewView;
 class DriverInfoView;
 class DriverTestView;
@@ -131,6 +132,7 @@ private:
 	BToolBar*			fToolbar;
 
 	// Video stats bar
+	LEDView*			fCamLED;
 	BStringView*		fStatsResolution;
 	BStringView*		fStatsFPS;
 	BStringView*		fStatsFrames;
