@@ -1627,64 +1627,29 @@ MainWindow::QuitRequested()
 		return true;
 	}
 
-	// Normal shutdown path - run cleanup in a thread with a global timeout
-	// to prevent the process from hanging indefinitely
-	{
-		struct ShutdownData {
-			MainWindow*		window;
-			WebcamRoster*	roster;
-			volatile bool	done;
-		};
+	// Spawn a watchdog thread that will force-exit after 5 seconds
+	// in case _StopPreview or roster cleanup gets stuck in Media Kit IPC
+	thread_id exitWatchdog = spawn_thread([](void* /*data*/) -> int32 {
+		snooze(5000000);  // 5 seconds
+		fprintf(stderr, "MainWindow: Shutdown watchdog triggered - forcing exit\n");
+		exit(0);
+		return 0;
+	}, "exit_watchdog", B_LOW_PRIORITY, NULL);
+	if (exitWatchdog >= 0)
+		resume_thread(exitWatchdog);
 
-		ShutdownData* sd = new ShutdownData();
-		sd->window = this;
-		sd->roster = fWebcamRoster;
-		sd->done = false;
+	// Stop preview directly on the window thread (we are in QuitRequested
+	// which runs on the window thread, so _StopPreview is safe to call).
+	// StopCapture internally uses StopNodeWithTimeout (3s per node).
+	_StopPreview();
 
-		thread_id shutdownThread = spawn_thread([](void* data) -> int32 {
-			ShutdownData* sd = static_cast<ShutdownData*>(data);
-
-			// Stop preview (calls StopCapture with timeouts)
-			if (sd->window->LockLooper()) {
-				sd->window->_StopPreview();
-				sd->window->UnlockLooper();
-			}
-
-			// Release all webcam devices
-			if (sd->roster != NULL) {
-				fprintf(stderr, "  Clearing webcam roster...\n");
-				sd->roster->Clear();
-			}
-
-			sd->done = true;
-			return 0;
-		}, "shutdown_cleanup", B_NORMAL_PRIORITY, sd);
-
-		if (shutdownThread >= 0) {
-			resume_thread(shutdownThread);
-
-			// Wait up to 5 seconds for clean shutdown
-			bigtime_t deadline = system_time() + 5000000;
-			while (!sd->done && system_time() < deadline)
-				snooze(100000);
-
-			if (sd->done) {
-				status_t exitValue;
-				wait_for_thread(shutdownThread, &exitValue);
-				fprintf(stderr, "MainWindow::QuitRequested() - Clean shutdown complete\n");
-			} else {
-				fprintf(stderr, "MainWindow::QuitRequested() - Shutdown timed out after 5s, forcing exit\n");
-				// Don't wait for the thread - it's stuck in Media Kit IPC.
-				// The process will exit and the OS will clean up.
-			}
-		} else {
-			// Fallback: direct cleanup (may hang)
-			_StopPreview();
-		}
-
-		delete sd;
+	// Release all webcam devices
+	if (fWebcamRoster != NULL) {
+		fprintf(stderr, "MainWindow::QuitRequested() - Clearing webcam roster\n");
+		fWebcamRoster->Clear();
 	}
 
+	fprintf(stderr, "MainWindow::QuitRequested() - Shutdown complete\n");
 	be_app->PostMessage(B_QUIT_REQUESTED);
 	return true;
 }
