@@ -515,6 +515,9 @@ MainWindow::_SelectWebcam(int32 index)
 	// Update MCP server with new device
 	if (fMCPServer != NULL)
 		fMCPServer->SetWebcamDevice(device);
+
+	// Save settings immediately so they survive a force-kill
+	_SaveSettings();
 }
 
 
@@ -903,6 +906,7 @@ MainWindow::MessageReceived(BMessage* message)
 			fStatusBar->SetText(fAutoStartPreview
 				? "Auto-start preview enabled"
 				: "Auto-start preview disabled");
+			_SaveSettings();
 			break;
 		}
 
@@ -1606,7 +1610,6 @@ MainWindow::QuitRequested()
 	}
 
 	// Give Media Kit time to complete async cleanup operations
-	// This helps avoid race conditions with the driver's internal state
 	snooze(100000);  // 100ms
 
 	fprintf(stderr, "MainWindow::QuitRequested() - Shutdown complete\n");
