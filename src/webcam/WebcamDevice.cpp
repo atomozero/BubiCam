@@ -599,10 +599,24 @@ WebcamDevice::StartCapture(BLooper* target)
 	if (fAudioConsumer != NULL)
 		roster->SetTimeSourceFor(fAudioConsumer->Node().node, timeSource.node);
 
-	// Get performance time
+	// Get performance time with sanity check.
+	// Some drivers trigger "performance time too large" in RealTimeFor()
+	// when the time source returns an invalid value. Use real_time_clock_usecs()
+	// as a fallback if the time source seems off.
 	BTimeSource* ts = roster->MakeTimeSourceFor(timeSource);
-	bigtime_t startTime = ts->Now() + kMediaStartDelay;
+	bigtime_t performanceNow = ts->Now();
+	bigtime_t realNow = BTimeSource::RealTime();
 	ts->Release();
+
+	bigtime_t startTime;
+	if (performanceNow <= 0 || performanceNow > realNow * 2) {
+		// Time source is not synced or returning bogus values
+		LOG_WARNING("Time source returned suspect value %lld, using real time %lld",
+			performanceNow, realNow);
+		startTime = realNow + kMediaStartDelay;
+	} else {
+		startTime = performanceNow + kMediaStartDelay;
+	}
 
 	// Preroll and start nodes
 	roster->PrerollNode(fMediaNode);
