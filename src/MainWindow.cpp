@@ -848,6 +848,8 @@ MainWindow::_StopPreview()
 		_StopRecording();
 
 	if (fCurrentWebcam != NULL && fIsPreviewActive) {
+		fStatusBar->SetText("Stopping capture (waiting for USB settle)...");
+		UpdateIfNeeded();
 		fCurrentWebcam->StopCapture();
 		fIsPreviewActive = false;
 		fVideoPreview->ClearFrame();

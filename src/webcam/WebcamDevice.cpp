@@ -102,7 +102,13 @@ const bigtime_t kPostSeekDelay = 50000;			// 50ms
 // Drain time before stopping nodes - allows the EHCI isochronous finish
 // thread to complete pending USB transfers, preventing a kernel GPF in
 // EHCI::FinishIsochronousTransfers (Haiku bug in hrev59722+)
-const bigtime_t kIsochronousDrainDelay = 200000;	// 200ms
+const bigtime_t kIsochronousDrainDelay = 500000;	// 500ms (increased from 200ms)
+// Settle time after full teardown - gives the USB stack time to destroy
+// isochronous pipes and reconfigure endpoints before a new connection.
+// Without this delay, rapid stop->start cycles can trigger a kernel panic:
+// "PANIC: USB object did not become idle!" in IsochronousPipe::~IsochronousPipe
+// (Haiku kernel bug in ehci/usb stack, observed on hrev59722)
+const bigtime_t kUSBSettleDelay = 1000000;		// 1 second
 
 // Fallback resolution when driver reports invalid dimensions.
 // 320x240 (QVGA) is universally supported by USB webcams.
@@ -796,7 +802,16 @@ WebcamDevice::StopCapture()
 	}
 
 	fTarget = NULL;
-	LOG_DEBUG("Capture stopped");
+
+	// CRITICAL: Wait for the USB stack to fully destroy isochronous pipes.
+	// The EHCI driver's usb_explore thread asynchronously cleans up endpoints
+	// after we disconnect. If we immediately call StartCapture() (which triggers
+	// a new alternate setting + new isochronous pipes), the old pipes may not
+	// be idle yet, causing: "PANIC: USB object did not become idle!"
+	// This delay gives the USB stack time to finish cleanup.
+	snooze(kUSBSettleDelay);
+
+	LOG_DEBUG("Capture stopped (with USB settle delay)");
 }
 
 
@@ -1569,6 +1584,9 @@ WebcamDevice::_TeardownConnections()
 		}
 		fNodeInstantiated = false;
 		fUsedLiveNode = false;
+
+		// Allow USB stack to settle after releasing the node
+		snooze(kUSBSettleDelay);
 	}
 }
 
