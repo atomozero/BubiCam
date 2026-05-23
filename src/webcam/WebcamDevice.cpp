@@ -1484,10 +1484,29 @@ WebcamDevice::_SetupAudioConnection()
 
 	fAudioConnected = true;
 
-	// Update audio info
+	// Update audio info from the negotiated format
 	if (format.type == B_MEDIA_RAW_AUDIO) {
 		fAudioSampleRate = format.u.raw_audio.frame_rate;
 		fAudioChannels = format.u.raw_audio.channel_count;
+
+		switch (format.u.raw_audio.format) {
+			case media_raw_audio_format::B_AUDIO_UCHAR:
+				fAudioBitsPerSample = 8;
+				break;
+			case media_raw_audio_format::B_AUDIO_SHORT:
+				fAudioBitsPerSample = 16;
+				break;
+			case media_raw_audio_format::B_AUDIO_INT:
+			case media_raw_audio_format::B_AUDIO_FLOAT:
+				fAudioBitsPerSample = 32;
+				break;
+			default:
+				fAudioBitsPerSample = 16;
+				break;
+		}
+
+		LOG_INFO("Audio params for recording: %.0f Hz, %d ch, %d bit",
+			fAudioSampleRate, (int)fAudioChannels, (int)fAudioBitsPerSample);
 	}
 
 	return B_OK;

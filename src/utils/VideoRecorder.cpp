@@ -107,7 +107,14 @@ VideoRecorder::StartWithAudio(const char* path, int32 width, int32 height,
 	float fps, float sampleRate, int32 channels, int32 bitsPerSample,
 	int jpegQuality)
 {
-	// Set audio parameters before calling Start, which writes headers
+	// Validate and set audio parameters before calling Start
+	if (sampleRate <= 0 || channels <= 0 || bitsPerSample <= 0) {
+		LOG_ERROR("Invalid audio params: %.0f Hz, %d ch, %d bit",
+			sampleRate, (int)channels, (int)bitsPerSample);
+		// Fall back to video-only recording
+		fHasAudio = false;
+		return Start(path, width, height, fps, jpegQuality);
+	}
 	fHasAudio = true;
 	fSampleRate = sampleRate;
 	fChannels = channels;
