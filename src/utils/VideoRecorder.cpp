@@ -38,9 +38,16 @@ VideoRecorder::VideoRecorder()
 	fJPEGQuality(85),
 	fFrameCount(0),
 	fStartTime(0),
+	fHasAudio(false),
+	fSampleRate(0),
+	fChannels(0),
+	fBitsPerSample(0),
+	fAudioChunkCount(0),
+	fTotalAudioBytes(0),
 	fMoviListStart(0),
 	fMoviDataStart(0),
-	fIndex(20)
+	fVideoIndex(20),
+	fAudioIndex(20)
 {
 }
 
@@ -73,7 +80,11 @@ VideoRecorder::Start(const char* path, int32 width, int32 height,
 	fFPS = fps > 0 ? fps : 30.0f;
 	fJPEGQuality = jpegQuality;
 	fFrameCount = 0;
-	fIndex.MakeEmpty();
+	fHasAudio = false;
+	fAudioChunkCount = 0;
+	fTotalAudioBytes = 0;
+	fVideoIndex.MakeEmpty();
+	fAudioIndex.MakeEmpty();
 
 	status = _WriteAVIHeaders();
 	if (status != B_OK) {
@@ -88,6 +99,23 @@ VideoRecorder::Start(const char* path, int32 width, int32 height,
 		path, (int)width, (int)height, fps, jpegQuality);
 
 	return B_OK;
+}
+
+
+status_t
+VideoRecorder::StartWithAudio(const char* path, int32 width, int32 height,
+	float fps, float sampleRate, int32 channels, int32 bitsPerSample,
+	int jpegQuality)
+{
+	// Set audio parameters before calling Start, which writes headers
+	fHasAudio = true;
+	fSampleRate = sampleRate;
+	fChannels = channels;
+	fBitsPerSample = bitsPerSample;
+	fAudioChunkCount = 0;
+	fTotalAudioBytes = 0;
+
+	return Start(path, width, height, fps, jpegQuality);
 }
 
 
@@ -127,10 +155,44 @@ VideoRecorder::AddFrame(BBitmap* bitmap)
 	AVIIndexEntry* entry = new AVIIndexEntry();
 	entry->offset = frameOffset;
 	entry->size = (uint32)jpegSize;
-	fIndex.AddItem(entry);
+	fVideoIndex.AddItem(entry);
 
 	fFrameCount++;
 	free(jpegData);
+
+	return B_OK;
+}
+
+
+status_t
+VideoRecorder::AddAudioBuffer(const void* data, size_t size)
+{
+	BAutolock lock(fLock);
+
+	if (!fRecording || !fHasAudio || data == NULL || size == 0)
+		return B_NOT_ALLOWED;
+
+	off_t chunkStart = fFile.Position();
+	off_t chunkOffset = chunkStart - fMoviDataStart;
+
+	// Write AVI audio chunk: '01wb' + size + data
+	_WriteFourCC("01wb");
+	_WriteUInt32((uint32)size);
+	fFile.Write(data, size);
+
+	// Pad to 2-byte boundary
+	if (size & 1) {
+		uint8 pad = 0;
+		fFile.Write(&pad, 1);
+	}
+
+	AVIIndexEntry* entry = new AVIIndexEntry();
+	entry->offset = chunkOffset;
+	entry->size = (uint32)size;
+	fAudioIndex.AddItem(entry);
+
+	fAudioChunkCount++;
+	fTotalAudioBytes += (uint32)size;
 
 	return B_OK;
 }
@@ -182,6 +244,16 @@ VideoRecorder::_WriteAVIHeaders()
 {
 	// We write placeholder headers now and fix them up in _FinalizeAVI()
 
+	uint32 numStreams = fHasAudio ? 2 : 1;
+
+	// Calculate header list size
+	// Video strl: LIST(4) + strh(8+56) + strf(8+40) = 116
+	// Audio strl: LIST(4) + strh(8+56) + strf(8+18) = 94
+	uint32 videoStrlSize = 4 + 8 + 56 + 8 + 40;
+	uint32 audioStrlSize = fHasAudio ? (4 + 8 + 56 + 8 + 18) : 0;
+	uint32 hdrlSize = 4 + 64 + (4 + videoStrlSize)
+		+ (fHasAudio ? (4 + audioStrlSize) : 0);
+
 	// RIFF header
 	_WriteFourCC("RIFF");
 	_WriteUInt32(0);  // File size - 8, filled in later
@@ -189,7 +261,7 @@ VideoRecorder::_WriteAVIHeaders()
 
 	// LIST 'hdrl'
 	_WriteFourCC("LIST");
-	_WriteUInt32(4 + 64 + 4 + 12 + 56 + 40);  // hdrl size
+	_WriteUInt32(hdrlSize);
 	_WriteFourCC("hdrl");
 
 	// 'avih' - Main AVI header (56 bytes)
@@ -202,7 +274,7 @@ VideoRecorder::_WriteAVIHeaders()
 	_WriteUInt32(0x0110);               // dwFlags: AVIF_HASINDEX | AVIF_ISINTERLEAVED
 	_WriteUInt32(0);                    // dwTotalFrames (filled later)
 	_WriteUInt32(0);                    // dwInitialFrames
-	_WriteUInt32(1);                    // dwStreams
+	_WriteUInt32(numStreams);            // dwStreams
 	_WriteUInt32(fWidth * fHeight * 3); // dwSuggestedBufferSize
 	_WriteUInt32(fWidth);               // dwWidth
 	_WriteUInt32(fHeight);              // dwHeight
@@ -211,9 +283,10 @@ VideoRecorder::_WriteAVIHeaders()
 	_WriteUInt32(0);                    // dwReserved[2]
 	_WriteUInt32(0);                    // dwReserved[3]
 
+	// --- Video Stream (stream 0) ---
 	// LIST 'strl'
 	_WriteFourCC("LIST");
-	_WriteUInt32(4 + 8 + 56 + 8 + 40);  // strl size
+	_WriteUInt32(videoStrlSize);
 	_WriteFourCC("strl");
 
 	// 'strh' - Stream header (56 bytes)
@@ -252,14 +325,54 @@ VideoRecorder::_WriteAVIHeaders()
 	_WriteUInt32(0);                    // biClrUsed
 	_WriteUInt32(0);                    // biClrImportant
 
+	// --- Audio Stream (stream 1, optional) ---
+	if (fHasAudio) {
+		uint32 blockAlign = fChannels * (fBitsPerSample / 8);
+		uint32 avgBytesPerSec = (uint32)(fSampleRate * blockAlign);
+
+		_WriteFourCC("LIST");
+		_WriteUInt32(audioStrlSize);
+		_WriteFourCC("strl");
+
+		// 'strh' - Audio stream header (56 bytes)
+		_WriteFourCC("strh");
+		_WriteUInt32(56);
+		_WriteFourCC("auds");               // fccType
+		_WriteUInt32(1);                    // fccHandler (1 = PCM)
+		_WriteUInt32(0);                    // dwFlags
+		_WriteUInt16(0);                    // wPriority
+		_WriteUInt16(0);                    // wLanguage
+		_WriteUInt32(0);                    // dwInitialFrames
+		_WriteUInt32(blockAlign);            // dwScale
+		_WriteUInt32(avgBytesPerSec);        // dwRate
+		_WriteUInt32(0);                    // dwStart
+		_WriteUInt32(0);                    // dwLength (filled later)
+		_WriteUInt32(avgBytesPerSec);        // dwSuggestedBufferSize
+		_WriteUInt32(0xFFFFFFFF);           // dwQuality
+		_WriteUInt32(blockAlign);            // dwSampleSize
+		_WriteUInt16(0);                    // rcFrame (unused for audio)
+		_WriteUInt16(0);
+		_WriteUInt16(0);
+		_WriteUInt16(0);
+
+		// 'strf' - Audio stream format (WAVEFORMATEX, 18 bytes)
+		_WriteFourCC("strf");
+		_WriteUInt32(18);
+		_WriteUInt16(1);                    // wFormatTag (WAVE_FORMAT_PCM)
+		_WriteUInt16((uint16)fChannels);     // nChannels
+		_WriteUInt32((uint32)fSampleRate);   // nSamplesPerSec
+		_WriteUInt32(avgBytesPerSec);        // nAvgBytesPerSec
+		_WriteUInt16((uint16)blockAlign);     // nBlockAlign
+		_WriteUInt16((uint16)fBitsPerSample); // wBitsPerSample
+		_WriteUInt16(0);                    // cbSize (no extra data)
+	}
+
 	// LIST 'movi'
 	_WriteFourCC("LIST");
-	fMoviListStart = 0;
 	fMoviListStart = fFile.Position();
 	_WriteUInt32(0);  // movi list size (filled later)
 	_WriteFourCC("movi");
 
-	fMoviDataStart = 0;
 	fMoviDataStart = fFile.Position();
 
 	return B_OK;
@@ -270,8 +383,7 @@ status_t
 VideoRecorder::_FinalizeAVI()
 {
 	// End of movi data
-	off_t moviEnd = 0;
-	moviEnd = fFile.Position();
+	off_t moviEnd = fFile.Position();
 
 	// Fix movi LIST size
 	uint32 moviSize = (uint32)(moviEnd - fMoviListStart - 4);
@@ -281,21 +393,31 @@ VideoRecorder::_FinalizeAVI()
 	// Seek to end to write index
 	fFile.Seek(moviEnd, SEEK_SET);
 
-	// Write 'idx1' index
+	// Write 'idx1' index (video + audio entries)
+	int32 totalEntries = fVideoIndex.CountItems() + fAudioIndex.CountItems();
 	_WriteFourCC("idx1");
-	_WriteUInt32(fIndex.CountItems() * 16);
+	_WriteUInt32(totalEntries * 16);
 
-	for (int32 i = 0; i < fIndex.CountItems(); i++) {
-		AVIIndexEntry* entry = fIndex.ItemAt(i);
-		_WriteFourCC("00dc");               // ckid
+	// Video index entries
+	for (int32 i = 0; i < fVideoIndex.CountItems(); i++) {
+		AVIIndexEntry* entry = fVideoIndex.ItemAt(i);
+		_WriteFourCC("00dc");               // ckid (stream 0, compressed video)
 		_WriteUInt32(0x10);                 // dwFlags: AVIIF_KEYFRAME
 		_WriteUInt32((uint32)entry->offset); // dwOffset (from movi start)
 		_WriteUInt32(entry->size);          // dwSize
 	}
 
+	// Audio index entries
+	for (int32 i = 0; i < fAudioIndex.CountItems(); i++) {
+		AVIIndexEntry* entry = fAudioIndex.ItemAt(i);
+		_WriteFourCC("01wb");               // ckid (stream 1, audio data)
+		_WriteUInt32(0x10);                 // dwFlags: AVIIF_KEYFRAME
+		_WriteUInt32((uint32)entry->offset);
+		_WriteUInt32(entry->size);
+	}
+
 	// Fix RIFF size
-	off_t fileEnd = 0;
-	fileEnd = fFile.Position();
+	off_t fileEnd = fFile.Position();
 	uint32 riffSize = (uint32)(fileEnd - 8);
 	fFile.Seek(4, SEEK_SET);
 	_WriteUInt32(riffSize);
@@ -304,9 +426,23 @@ VideoRecorder::_FinalizeAVI()
 	fFile.Seek(48, SEEK_SET);
 	_WriteUInt32(fFrameCount);
 
-	// Fix stream length in strh
+	// Fix video stream length in strh (offset 140 = 12+8+64+12+8+36)
 	fFile.Seek(140, SEEK_SET);
 	_WriteUInt32(fFrameCount);
+
+	// Fix audio stream length in strh if present
+	if (fHasAudio) {
+		uint32 blockAlign = fChannels * (fBitsPerSample / 8);
+		uint32 audioSamples = blockAlign > 0 ? fTotalAudioBytes / blockAlign : 0;
+		// Audio strh dwLength is at: avih end + video strl size + audio strh offset
+		// Video strl: LIST(8) + 4 + strh(8+56) + strf(8+40) = 124
+		// Audio strh dwLength offset: 12 + 8 + 64 + 124 + 8 + 4 + strh(8+...)
+		// = hdrl_start(12) + avih(64+8) + video_strl(124) + LIST(8) + "strl"(4) + strh(8) + fccType(4) + fccHandler(4) + dwFlags(4) + wPriority(2) + wLanguage(2) + dwInitialFrames(4) + dwScale(4) + dwRate(4) + dwStart(4) = +40 = dwLength
+		// Simpler: save the position during header write... but we didn't.
+		// Calculate: offset = 12 + 72 + 124 + 12 + 8 + 40 = 268
+		fFile.Seek(268, SEEK_SET);
+		_WriteUInt32(audioSamples);
+	}
 
 	return B_OK;
 }

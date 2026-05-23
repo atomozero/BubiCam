@@ -91,6 +91,9 @@ MainWindow::MainWindow()
 	fAutoStartPreview(true),
 	fDriverCrashed(false),
 	fWatchdogAlertShown(false),
+	fIsFullscreen(false),
+	fSavedLook(B_TITLED_WINDOW_LOOK),
+	fSavedFlags(0),
 	fLastFrameReceived(0),
 	fWatchdogRunner(NULL)
 {
@@ -237,6 +240,23 @@ MainWindow::_BuildMenu()
 		new BMessage(MSG_TOGGLE_COMPARE), 'B', B_SHIFT_KEY));
 	fToolsMenu->AddItem(new BMenuItem("Clear Reference",
 		new BMessage(MSG_CLEAR_REFERENCE)));
+	fToolsMenu->AddSeparatorItem();
+	fToolsMenu->AddItem(new BMenuItem("Toggle Grid Overlay",
+		new BMessage(MSG_TOGGLE_GRID), 'G'));
+	BMenu* gridModeMenu = new BMenu("Grid Style");
+	gridModeMenu->AddItem(new BMenuItem("Rule of Thirds",
+		new BMessage(MSG_GRID_MODE)));
+	gridModeMenu->AddItem(new BMenuItem("Center Crosshair",
+		new BMessage(MSG_GRID_MODE)));
+	gridModeMenu->AddItem(new BMenuItem("Both",
+		new BMessage(MSG_GRID_MODE)));
+	gridModeMenu->ItemAt(0)->SetMarked(true);
+	fToolsMenu->AddItem(gridModeMenu);
+	fToolsMenu->AddSeparatorItem();
+	fToolsMenu->AddItem(new BMenuItem("Fullscreen",
+		new BMessage(MSG_FULLSCREEN), B_RETURN));
+	fToolsMenu->AddItem(new BMenuItem("Export Raw Frame" B_UTF8_ELLIPSIS,
+		new BMessage(MSG_EXPORT_RAW_FRAME)));
 	fToolsMenu->AddSeparatorItem();
 	fToolsMenu->AddItem(new BMenuItem("Restart Media Services" B_UTF8_ELLIPSIS,
 		new BMessage(MSG_RESTART_MEDIA), 'M', B_SHIFT_KEY));
@@ -977,6 +997,20 @@ MainWindow::MessageReceived(BMessage* message)
 			break;
 		}
 
+		case MSG_AUDIO_BUFFER:
+		{
+			if (fRecorder != NULL && fRecorder->IsRecording()
+				&& fRecorder->HasAudio()) {
+				const void* data;
+				ssize_t dataSize;
+				if (message->FindData("audio_data", B_RAW_TYPE,
+						&data, &dataSize) == B_OK) {
+					fRecorder->AddAudioBuffer(data, (size_t)dataSize);
+				}
+			}
+			break;
+		}
+
 		case MSG_SYSLOG_UPDATE:
 		{
 			const char* text;
@@ -1181,6 +1215,61 @@ MainWindow::MessageReceived(BMessage* message)
 
 		case MSG_FACTORY_RESET:
 			_FactoryResetControls();
+			break;
+
+		case MSG_TOGGLE_GRID:
+		{
+			bool show = !fVideoPreview->ShowGrid();
+			fVideoPreview->SetShowGrid(show);
+			fStatusBar->SetText(show ? "Grid overlay on" : "Grid overlay off");
+			break;
+		}
+
+		case MSG_GRID_MODE:
+		{
+			// Find which submenu item was clicked
+			BMenuItem* item = NULL;
+			if (message->FindPointer("source", (void**)&item) == B_OK && item != NULL) {
+				BMenu* menu = item->Menu();
+				if (menu != NULL) {
+					int32 index = menu->IndexOf(item);
+					fVideoPreview->SetGridMode(index);
+					fVideoPreview->SetShowGrid(true);
+					// Update marks
+					for (int32 i = 0; i < menu->CountItems(); i++)
+						menu->ItemAt(i)->SetMarked(i == index);
+				}
+			}
+			break;
+		}
+
+		case MSG_FULLSCREEN:
+		{
+			if (!fIsFullscreen) {
+				fSavedFrame = Frame();
+				fSavedLook = Look();
+				fSavedFlags = Flags();
+
+				BScreen screen(this);
+				BRect screenFrame = screen.Frame();
+
+				SetLook(B_NO_BORDER_WINDOW_LOOK);
+				SetFlags(Flags() | B_NOT_RESIZABLE);
+				MoveTo(screenFrame.left, screenFrame.top);
+				ResizeTo(screenFrame.Width(), screenFrame.Height());
+				fIsFullscreen = true;
+			} else {
+				SetLook(fSavedLook);
+				SetFlags(fSavedFlags);
+				MoveTo(fSavedFrame.left, fSavedFrame.top);
+				ResizeTo(fSavedFrame.Width(), fSavedFrame.Height());
+				fIsFullscreen = false;
+			}
+			break;
+		}
+
+		case MSG_EXPORT_RAW_FRAME:
+			_ExportRawFrame();
 			break;
 
 		default:
@@ -1608,7 +1697,22 @@ MainWindow::_StartRecording()
 	if (fRecorder == NULL)
 		fRecorder = new VideoRecorder();
 
-	status_t status = fRecorder->Start(filePath.Path(), width, height, fps);
+	status_t status;
+
+	// Start with audio if the webcam supports it
+	WebcamDevice* webcam = NULL;
+	{
+		BAutolock lock(fWebcamLock);
+		webcam = fCurrentWebcam;
+	}
+	if (webcam != NULL && webcam->SupportsAudio()) {
+		status = fRecorder->StartWithAudio(filePath.Path(), width, height, fps,
+			webcam->AudioSampleRate(), webcam->AudioChannels(),
+			webcam->AudioBitsPerSample());
+	} else {
+		status = fRecorder->Start(filePath.Path(), width, height, fps);
+	}
+
 	if (status != B_OK) {
 		BString error;
 		error.SetToFormat("Failed to start recording:\n%s", strerror(status));
@@ -1618,7 +1722,9 @@ MainWindow::_StartRecording()
 	}
 
 	BString statusMsg;
-	statusMsg.SetToFormat("Recording to %s", filename.String());
+	bool hasAudio = fRecorder->HasAudio();
+	statusMsg.SetToFormat("Recording%s to %s",
+		hasAudio ? " (with audio)" : "", filename.String());
 	fStatusBar->SetText(statusMsg.String());
 
 	_UpdateToolbarState();
@@ -1817,6 +1923,70 @@ MainWindow::_LoadSettings()
 		BMessage restoreMsg(MSG_RESTORE_DEVICE);
 		restoreMsg.AddString("device_name", lastDevice);
 		PostMessage(&restoreMsg);
+	}
+}
+
+
+void
+MainWindow::_ExportRawFrame()
+{
+	if (fLastFrame == NULL) {
+		fStatusBar->SetText("No frame available to export");
+		return;
+	}
+
+	BPath path;
+	find_directory(B_USER_DIRECTORY, &path);
+
+	BString filename("BubiCam_RawFrame_");
+	filename << ExportUtils::GetTimestamp();
+
+	// Get frame info
+	BRect bounds = fLastFrame->Bounds();
+	int32 w = (int32)(bounds.Width() + 1);
+	int32 h = (int32)(bounds.Height() + 1);
+	color_space cs = fLastFrame->ColorSpace();
+
+	// Save raw bitmap data
+	BString rawFile(filename);
+	rawFile << "_" << w << "x" << h << ".raw";
+	BPath rawPath(path);
+	rawPath.Append(rawFile.String());
+
+	BFile file(rawPath.Path(), B_WRITE_ONLY | B_CREATE_FILE | B_ERASE_FILE);
+	if (file.InitCheck() == B_OK) {
+		file.Write(fLastFrame->Bits(), fLastFrame->BitsLength());
+
+		// Also write a companion info file
+		BString infoFile(filename);
+		infoFile << ".info";
+		BPath infoPath(path);
+		infoPath.Append(infoFile.String());
+
+		BFile info(infoPath.Path(), B_WRITE_ONLY | B_CREATE_FILE | B_ERASE_FILE);
+		if (info.InitCheck() == B_OK) {
+			BString infoContent;
+			infoContent.SetToFormat(
+				"BubiCam Raw Frame Export\n"
+				"========================\n"
+				"Width: %d\n"
+				"Height: %d\n"
+				"Color space: 0x%04x\n"
+				"Bytes per row: %d\n"
+				"Total bytes: %d\n"
+				"Device: %s\n",
+				(int)w, (int)h, (int)cs,
+				(int)fLastFrame->BytesPerRow(),
+				(int)fLastFrame->BitsLength(),
+				fCurrentWebcam ? fCurrentWebcam->Name() : "unknown");
+			info.Write(infoContent.String(), infoContent.Length());
+		}
+
+		BString msg;
+		msg.SetToFormat("Raw frame exported: %s", rawPath.Path());
+		fStatusBar->SetText(msg.String());
+	} else {
+		fStatusBar->SetText("Failed to export raw frame");
 	}
 }
 

@@ -249,6 +249,26 @@ AudioConsumer::_HandleBuffer(BBuffer* buffer)
 	if (buffer == NULL)
 		return;
 
+	// Copy target under lock, then post messages outside lock
+	// to prevent deadlock with StopCapture → SetTarget(NULL)
+	BLooper* target = NULL;
+	{
+		BAutolock lock(fTargetLock);
+		target = fTarget;
+	}
+
+	if (target == NULL)
+		return;
+
+	// Always send raw audio data for recording
+	size_t dataSize = buffer->SizeUsed();
+	if (dataSize > 0) {
+		BMessage audioMsg(MSG_AUDIO_BUFFER);
+		audioMsg.AddData("audio_data", B_RAW_TYPE, buffer->Data(), dataSize);
+		audioMsg.AddInt64("size", (int64)dataSize);
+		target->PostMessage(&audioMsg);
+	}
+
 	bigtime_t now = system_time();
 
 	// Throttle level updates
@@ -261,13 +281,6 @@ AudioConsumer::_HandleBuffer(BBuffer* buffer)
 	float left = 0.0f, right = 0.0f;
 	_CalculateLevels(buffer->Data(), buffer->SizeUsed(), &left, &right);
 
-	// Copy target under lock, then post message outside lock
-	// to prevent deadlock with StopCapture → SetTarget(NULL)
-	BLooper* target = NULL;
-	{
-		BAutolock lock(fTargetLock);
-		target = fTarget;
-	}
 	if (target != NULL) {
 		BMessage msg(fLevelMessage);
 		msg.AddFloat("left", left);

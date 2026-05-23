@@ -32,11 +32,18 @@ public:
 
 	status_t			Start(const char* path, int32 width, int32 height,
 							float fps = 30.0f, int jpegQuality = 85);
+	status_t			StartWithAudio(const char* path, int32 width,
+							int32 height, float fps,
+							float sampleRate, int32 channels,
+							int32 bitsPerSample, int jpegQuality = 85);
 	status_t			AddFrame(BBitmap* bitmap);
+	status_t			AddAudioBuffer(const void* data, size_t size);
 	status_t			Stop();
 
 	bool				IsRecording() const { return fRecording; }
+	bool				HasAudio() const { return fHasAudio; }
 	uint32				FramesRecorded() const { return fFrameCount; }
+	uint32				AudioChunksRecorded() const { return fAudioChunkCount; }
 	bigtime_t			Duration() const;
 	off_t				FileSize() const;
 
@@ -60,10 +67,19 @@ private:
 	uint32				fFrameCount;
 	bigtime_t			fStartTime;
 
+	// Audio parameters
+	bool				fHasAudio;
+	float				fSampleRate;
+	int32				fChannels;
+	int32				fBitsPerSample;
+	uint32				fAudioChunkCount;
+	uint32				fTotalAudioBytes;
+
 	// AVI structure tracking
 	off_t				fMoviListStart;
 	off_t				fMoviDataStart;
-	BObjectList<AVIIndexEntry>	fIndex;
+	BObjectList<AVIIndexEntry>	fVideoIndex;
+	BObjectList<AVIIndexEntry>	fAudioIndex;
 };
 
 #endif // VIDEO_RECORDER_H

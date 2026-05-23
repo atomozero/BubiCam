@@ -42,6 +42,7 @@ enum {
 	MSG_ABOUT				= 'abot',
 	MSG_FRAME_RECEIVED		= 'frcv',
 	MSG_AUDIO_LEVEL			= 'audl',
+	MSG_AUDIO_BUFFER		= 'audb',
 	MSG_SYSLOG_UPDATE		= 'sysu',
 	MSG_DRIVER_INFO_UPDATE	= 'drvu',
 	MSG_SCREENSHOT			= 'scsh',
@@ -71,7 +72,11 @@ enum {
 	MSG_CLEAR_REFERENCE		= 'clrf',
 	MSG_TOGGLE_AUTO_PREVIEW	= 'tgap',
 	MSG_RESTORE_DEVICE		= 'rstd',
-	MSG_FACTORY_RESET		= 'frst'
+	MSG_FACTORY_RESET		= 'frst',
+	MSG_TOGGLE_GRID			= 'tggr',
+	MSG_GRID_MODE			= 'grmd',
+	MSG_FULLSCREEN			= 'fscr',
+	MSG_EXPORT_RAW_FRAME	= 'exrf'
 };
 
 
@@ -113,6 +118,12 @@ private:
 	void				_UpdateRecordingStatus();
 	void				_SaveSettings();
 	void				_LoadSettings();
+	void				_ExportRawFrame();
+
+	bool				fIsFullscreen;
+	BRect				fSavedFrame;
+	window_look			fSavedLook;
+	uint32				fSavedFlags;
 
 	BMenuBar*			fMenuBar;
 	BMenu*				fWebcamMenu;
