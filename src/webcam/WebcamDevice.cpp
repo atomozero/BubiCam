@@ -1276,69 +1276,29 @@ WebcamDevice::_SetupAudioConnection()
 		B_MEDIA_RAW_AUDIO);
 
 	if (status != B_OK || outputCount == 0) {
-		// Strategy 2: Look for a USB audio node from the same media add-on.
-		// On Haiku, webcam audio is typically exposed as a separate dormant node
-		// by the same add-on (addon id matches the video node).
-		LOG_DEBUG("No audio output on video node, searching for USB audio node...");
+		// Strategy 2: Use the system default audio input.
+		// We intentionally skip instantiating dormant nodes from the same
+		// addon because some webcam drivers (e.g., aukey_webcam_v4) have a
+		// buggy AudioProducer::Connect() that crashes with a divide-by-zero.
+		// The system audio input is configured via MediaPrefs and may already
+		// point to the webcam's USB audio interface.
+		LOG_DEBUG("No audio output on video node, trying system audio input...");
 
 		media_node audioNode;
 		bool foundAudioNode = false;
 
-		// Look for dormant audio producer nodes from the same add-on
-		const int32 kMaxNodes = 64;
-		dormant_node_info* dormantNodes = new dormant_node_info[kMaxNodes];
-		int32 dormantCount = kMaxNodes;
-
-		status = roster->GetDormantNodes(dormantNodes, &dormantCount,
-			NULL, NULL, NULL, B_BUFFER_PRODUCER, 0);
-
+		status = roster->GetAudioInput(&audioNode);
 		if (status == B_OK) {
-			for (int32 i = 0; i < dormantCount; i++) {
-				// Match by addon id - audio and video nodes from the same
-				// webcam share the same addon id
-				if (dormantNodes[i].addon == fDormantInfo.addon
-					&& dormantNodes[i].flavor_id != fDormantInfo.flavor_id) {
-
-					LOG_DEBUG("Trying dormant audio node: '%s' (addon=%d, flavor=%d)",
-						dormantNodes[i].name,
-						(int)dormantNodes[i].addon,
-						(int)dormantNodes[i].flavor_id);
-
-					status = roster->InstantiateDormantNode(
-						dormantNodes[i], &audioNode, 0);
-					if (status == B_OK) {
-						// Check if this node has audio outputs
-						status = roster->GetFreeOutputsFor(audioNode, outputs, 10,
-							&outputCount, B_MEDIA_RAW_AUDIO);
-						if (status == B_OK && outputCount > 0) {
-							foundAudioNode = true;
-							LOG_INFO("Found USB audio node: '%s'",
-								dormantNodes[i].name);
-							break;
-						}
-						// Not an audio node, release it
-						roster->ReleaseNode(audioNode);
-					}
-				}
-			}
-		}
-
-		delete[] dormantNodes;
-
-		if (!foundAudioNode) {
-			// Strategy 3: Try the system default audio input
-			status = roster->GetAudioInput(&audioNode);
-			if (status == B_OK) {
-				status = roster->GetFreeOutputsFor(audioNode, outputs, 10,
-					&outputCount, B_MEDIA_RAW_AUDIO);
-				if (status == B_OK && outputCount > 0) {
-					foundAudioNode = true;
-					LOG_INFO("Using system audio input for VU meter");
-				}
+			status = roster->GetFreeOutputsFor(audioNode, outputs, 10,
+				&outputCount, B_MEDIA_RAW_AUDIO);
+			if (status == B_OK && outputCount > 0) {
+				foundAudioNode = true;
+				LOG_INFO("Using system audio input for VU meter");
 			}
 		}
 
 		if (!foundAudioNode) {
+			LOG_DEBUG("No system audio input available");
 			roster->UnregisterNode(fAudioConsumer);
 			delete fAudioConsumer;
 			fAudioConsumer = NULL;
