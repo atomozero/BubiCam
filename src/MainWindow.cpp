@@ -112,6 +112,9 @@ MainWindow::MainWindow()
 
 	// Start syslog monitoring
 	fSyslogView->StartMonitoring();
+
+	// Restore saved settings (window position, last device, etc.)
+	_LoadSettings();
 }
 
 
@@ -1504,6 +1507,9 @@ MainWindow::QuitRequested()
 	// their node cleanup properly - they try to access already-destroyed objects
 	// in their BUSBRoster when the media add-on is unloaded.
 
+	// Save settings before shutdown
+	_SaveSettings();
+
 	fprintf(stderr, "MainWindow::QuitRequested() - Starting shutdown...\n");
 
 	// Check if driver appears to be crashed/frozen
@@ -1555,4 +1561,86 @@ MainWindow::QuitRequested()
 	return true;
 }
 
+
+void
+MainWindow::_SaveSettings()
+{
+	BMessage settings;
+
+	// Window frame
+	settings.AddRect("window_frame", Frame());
+
+	// Selected tab
+	if (fRightTabView != NULL)
+		settings.AddInt32("active_tab", fRightTabView->Selection());
+
+	// Last selected webcam
+	if (fCurrentWebcam != NULL)
+		settings.AddString("last_device", fCurrentWebcam->Name());
+
+	// Preview options
+	settings.AddBool("show_histogram", fVideoPreview->CurrentFPS() >= 0
+		&& fVideoPreview != NULL);
+
+	// Write to settings file
+	BPath path;
+	if (find_directory(B_USER_SETTINGS_DIRECTORY, &path) != B_OK)
+		return;
+	path.Append("BubiCam_settings");
+
+	BFile file(path.Path(), B_WRITE_ONLY | B_CREATE_FILE | B_ERASE_FILE);
+	if (file.InitCheck() == B_OK)
+		settings.Flatten(&file);
+}
+
+
+void
+MainWindow::_LoadSettings()
+{
+	BPath path;
+	if (find_directory(B_USER_SETTINGS_DIRECTORY, &path) != B_OK)
+		return;
+	path.Append("BubiCam_settings");
+
+	BFile file(path.Path(), B_READ_ONLY);
+	if (file.InitCheck() != B_OK)
+		return;
+
+	BMessage settings;
+	if (settings.Unflatten(&file) != B_OK)
+		return;
+
+	// Restore window frame
+	BRect frame;
+	if (settings.FindRect("window_frame", &frame) == B_OK) {
+		// Validate that the frame is still on-screen
+		BScreen screen(this);
+		BRect screenFrame = screen.Frame();
+		if (screenFrame.Contains(BPoint(frame.left, frame.top))) {
+			MoveTo(frame.LeftTop());
+			ResizeTo(frame.Width(), frame.Height());
+		}
+	}
+
+	// Restore active tab
+	int32 activeTab;
+	if (settings.FindInt32("active_tab", &activeTab) == B_OK) {
+		if (fRightTabView != NULL && activeTab >= 0
+			&& activeTab < fRightTabView->CountTabs()) {
+			fRightTabView->Select(activeTab);
+		}
+	}
+
+	// Restore last selected webcam
+	const char* lastDevice;
+	if (settings.FindString("last_device", &lastDevice) == B_OK) {
+		for (int32 i = 0; i < fWebcamRoster->CountDevices(); i++) {
+			WebcamDevice* device = fWebcamRoster->DeviceAt(i);
+			if (device != NULL && strcmp(device->Name(), lastDevice) == 0) {
+				_SelectWebcam(i);
+				break;
+			}
+		}
+	}
+}
 

@@ -7,7 +7,15 @@
 #include "VideoPreviewView.h"
 
 #include <Autolock.h>
+#include <BitmapStream.h>
+#include <Entry.h>
+#include <File.h>
+#include <FindDirectory.h>
 #include <InterfaceDefs.h>
+#include <NodeInfo.h>
+#include <Path.h>
+#include <TranslatorRoster.h>
+
 #include <stdio.h>
 #include <string.h>
 
@@ -182,6 +190,9 @@ VideoPreviewView::MouseDown(BPoint where)
 		fIsPanning = true;
 		fLastMousePos = where;
 		SetMouseEventMask(B_POINTER_EVENTS, B_NO_POINTER_HISTORY);
+	} else if (buttons & B_SECONDARY_MOUSE_BUTTON) {
+		// Initiate drag & drop of the current frame as a PNG file
+		_InitiateDrag(where);
 	}
 }
 
@@ -645,4 +656,98 @@ VideoPreviewView::_DrawCompareMode()
 	DrawString("Live", BPoint(midX + 10, 18));
 
 	SetDrawingMode(B_OP_COPY);
+}
+
+
+void
+VideoPreviewView::_InitiateDrag(BPoint where)
+{
+	BAutolock lock(fFrameLock);
+
+	if (fCurrentFrame == NULL || !fCurrentFrame->IsValid())
+		return;
+
+	// Make a copy of the current frame for saving
+	BBitmap* copy = new BBitmap(fCurrentFrame->Bounds(),
+		fCurrentFrame->ColorSpace());
+	if (copy == NULL || !copy->IsValid()) {
+		delete copy;
+		return;
+	}
+	memcpy(copy->Bits(), fCurrentFrame->Bits(), fCurrentFrame->BitsLength());
+
+	lock.Unlock();
+
+	// Save to a temp file as PNG
+	BPath path;
+	find_directory(B_SYSTEM_TEMP_DIRECTORY, &path);
+	path.Append("BubiCam_drag.png");
+
+	BFile file(path.Path(), B_WRITE_ONLY | B_CREATE_FILE | B_ERASE_FILE);
+	if (file.InitCheck() != B_OK) {
+		delete copy;
+		return;
+	}
+
+	BBitmapStream stream(copy);
+	BTranslatorRoster* roster = BTranslatorRoster::Default();
+	status_t status = roster->Translate(&stream, NULL, NULL, &file, 'PNG ');
+
+	BBitmap* detached;
+	stream.DetachBitmap(&detached);
+
+	if (status != B_OK) {
+		delete detached;
+		return;
+	}
+
+	// Set MIME type on the file
+	BNodeInfo nodeInfo(&file);
+	nodeInfo.SetType("image/png");
+	file.Unset();
+
+	// Create drag message with file ref
+	entry_ref ref;
+	BEntry entry(path.Path());
+	if (entry.GetRef(&ref) != B_OK) {
+		delete detached;
+		return;
+	}
+
+	BMessage dragMsg(B_SIMPLE_DATA);
+	dragMsg.AddRef("refs", &ref);
+
+	// Create a small thumbnail for the drag icon
+	BRect thumbRect(0, 0, 63, 47);
+	BBitmap* thumb = new BBitmap(thumbRect, B_RGBA32);
+	if (thumb != NULL && thumb->IsValid() && detached != NULL) {
+		// Simple nearest-neighbor scale for thumbnail
+		uint8* dstBits = (uint8*)thumb->Bits();
+		int32 dstBPR = thumb->BytesPerRow();
+		uint8* srcBits = (uint8*)detached->Bits();
+		int32 srcBPR = detached->BytesPerRow();
+		int32 srcW = (int32)(detached->Bounds().Width() + 1);
+		int32 srcH = (int32)(detached->Bounds().Height() + 1);
+		int32 dstW = 64, dstH = 48;
+
+		for (int32 y = 0; y < dstH; y++) {
+			int32 srcY = y * srcH / dstH;
+			for (int32 x = 0; x < dstW; x++) {
+				int32 srcX = x * srcW / dstW;
+				uint8* sp = srcBits + srcY * srcBPR + srcX * 4;
+				uint8* dp = dstBits + y * dstBPR + x * 4;
+				dp[0] = sp[0];
+				dp[1] = sp[1];
+				dp[2] = sp[2];
+				dp[3] = 200;  // semi-transparent
+			}
+		}
+
+		DragMessage(&dragMsg, thumb, B_OP_ALPHA, BPoint(32, 24));
+	} else {
+		delete thumb;
+		DragMessage(&dragMsg, BRect(0, 0, 63, 47));
+	}
+
+	delete detached;
 }

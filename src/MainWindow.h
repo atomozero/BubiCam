@@ -106,6 +106,8 @@ private:
 	void				_StartRecording();
 	void				_StopRecording();
 	void				_UpdateRecordingStatus();
+	void				_SaveSettings();
+	void				_LoadSettings();
 
 	BMenuBar*			fMenuBar;
 	BMenu*				fWebcamMenu;

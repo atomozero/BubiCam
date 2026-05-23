@@ -54,6 +54,7 @@ private:
 	void				_DrawHistogram();
 	void				_ComputeHistogram();
 	void				_DrawCompareMode();
+	void				_InitiateDrag(BPoint where);
 
 	BBitmap*			fCurrentFrame;
 	BBitmap*			fReferenceFrame;
