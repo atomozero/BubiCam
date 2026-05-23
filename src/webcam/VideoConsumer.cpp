@@ -18,6 +18,7 @@
 #include <MediaRoster.h>
 
 #include <stdio.h>
+#include <new>
 #include <string.h>
 #include <stdlib.h>
 #include <setjmp.h>
@@ -64,6 +65,9 @@ VideoConsumer::VideoConsumer(const char* name, BLooper* target,
 	fBitmapWidth(0),
 	fBitmapHeight(0),
 	fBitmapColorSpace(B_RGB32),
+	fLastRawData(NULL),
+	fLastRawSize(0),
+	fRawLock("raw frame lock"),
 	fFramesReceived(0),
 	fFramesDropped(0),
 	fCurrentFPS(0.0f),
@@ -104,6 +108,9 @@ VideoConsumer::~VideoConsumer()
 
 	delete fDisplayBitmap;
 	fDisplayBitmap = NULL;
+
+	delete[] fLastRawData;
+	fLastRawData = NULL;
 }
 
 
@@ -569,6 +576,19 @@ VideoConsumer::_HandleBuffer(BBuffer* buffer)
 	// Check if buffer contains MJPEG data (regardless of negotiated format)
 	const uint8* bufData = static_cast<const uint8*>(buffer->Data());
 	size_t bufSize = buffer->SizeUsed();
+
+	// Save a copy of the raw buffer for debug export
+	if (bufSize > 0 && bufSize < 16 * 1024 * 1024) {
+		BAutolock rawLock(fRawLock);
+		if (fLastRawData == NULL || fLastRawSize != bufSize) {
+			delete[] fLastRawData;
+			fLastRawData = new(std::nothrow) uint8[bufSize];
+		}
+		if (fLastRawData != NULL) {
+			memcpy(fLastRawData, bufData, bufSize);
+			fLastRawSize = bufSize;
+		}
+	}
 
 	if (_IsMJPEGData(bufData, bufSize)) {
 		// MJPEG frame - decompress to display bitmap
@@ -1358,6 +1378,37 @@ VideoConsumer::_DecompressMJPEG(const uint8* src, size_t srcSize,
 	}
 
 	return true;
+}
+
+
+status_t
+VideoConsumer::CaptureRawFrame(void** outData, size_t* outSize,
+	color_space* outFormat, int32* outWidth, int32* outHeight)
+{
+	if (outData == NULL || outSize == NULL)
+		return B_BAD_VALUE;
+
+	BAutolock lock(fRawLock);
+
+	if (fLastRawData == NULL || fLastRawSize == 0)
+		return B_ERROR;
+
+	uint8* copy = new(std::nothrow) uint8[fLastRawSize];
+	if (copy == NULL)
+		return B_NO_MEMORY;
+
+	memcpy(copy, fLastRawData, fLastRawSize);
+	*outData = copy;
+	*outSize = fLastRawSize;
+
+	if (outFormat != NULL)
+		*outFormat = fFormat.u.raw_video.display.format;
+	if (outWidth != NULL)
+		*outWidth = fFormat.u.raw_video.display.line_width;
+	if (outHeight != NULL)
+		*outHeight = fFormat.u.raw_video.display.line_count;
+
+	return B_OK;
 }
 
 

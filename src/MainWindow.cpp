@@ -5,6 +5,7 @@
  */
 
 #include "MainWindow.h"
+#include "VideoConsumer.h"
 #include "VideoPreviewView.h"
 #include "DriverInfoView.h"
 #include "DriverTestView.h"
@@ -242,6 +243,8 @@ MainWindow::_BuildMenu()
 	fToolsMenu->AddItem(new BMenuItem("Reset Zoom",
 		new BMessage(MSG_RESET_ZOOM), '0'));
 	fToolsMenu->AddSeparatorItem();
+	fToolsMenu->AddItem(new BMenuItem("Export Raw Frame",
+		new BMessage(MSG_EXPORT_RAW_FRAME)));
 	fToolsMenu->AddItem(new BMenuItem("Capture Reference Frame",
 		new BMessage(MSG_CAPTURE_REFERENCE), 'B'));
 	fToolsMenu->AddItem(new BMenuItem("A/B Compare Mode",
@@ -263,8 +266,6 @@ MainWindow::_BuildMenu()
 	fToolsMenu->AddSeparatorItem();
 	fToolsMenu->AddItem(new BMenuItem("Fullscreen",
 		new BMessage(MSG_FULLSCREEN), B_RETURN));
-	fToolsMenu->AddItem(new BMenuItem("Export Raw Frame" B_UTF8_ELLIPSIS,
-		new BMessage(MSG_EXPORT_RAW_FRAME)));
 	fToolsMenu->AddSeparatorItem();
 	fToolsMenu->AddItem(new BMenuItem("Restart Media Services" B_UTF8_ELLIPSIS,
 		new BMessage(MSG_RESTART_MEDIA), 'M', B_SHIFT_KEY));
@@ -2111,7 +2112,44 @@ MainWindow::_LoadSettings()
 void
 MainWindow::_ExportRawFrame()
 {
-	if (fLastFrame == NULL) {
+	if (fCurrentWebcam == NULL || !fIsPreviewActive) {
+		fStatusBar->SetText("No active capture to export raw frame from");
+		return;
+	}
+
+	// Get the raw (pre-conversion) buffer from the video consumer
+	VideoConsumer* consumer = NULL;
+	{
+		BAutolock lock(fWebcamLock);
+		if (fCurrentWebcam != NULL)
+			consumer = fCurrentWebcam->GetVideoConsumer();
+	}
+
+	void* rawData = NULL;
+	size_t rawSize = 0;
+	color_space rawFormat = B_NO_COLOR_SPACE;
+	int32 rawWidth = 0, rawHeight = 0;
+
+	bool gotRaw = false;
+	if (consumer != NULL) {
+		gotRaw = (consumer->CaptureRawFrame(&rawData, &rawSize,
+			&rawFormat, &rawWidth, &rawHeight) == B_OK);
+	}
+
+	// Fall back to the converted frame if raw capture failed
+	if (!gotRaw && fLastFrame != NULL) {
+		BRect bounds = fLastFrame->Bounds();
+		rawWidth = (int32)(bounds.Width() + 1);
+		rawHeight = (int32)(bounds.Height() + 1);
+		rawFormat = fLastFrame->ColorSpace();
+		rawSize = fLastFrame->BitsLength();
+		rawData = malloc(rawSize);
+		if (rawData != NULL)
+			memcpy(rawData, fLastFrame->Bits(), rawSize);
+		gotRaw = (rawData != NULL);
+	}
+
+	if (!gotRaw || rawData == NULL) {
 		fStatusBar->SetText("No frame available to export");
 		return;
 	}
@@ -2122,23 +2160,17 @@ MainWindow::_ExportRawFrame()
 	BString filename("BubiCam_RawFrame_");
 	filename << ExportUtils::GetTimestamp();
 
-	// Get frame info
-	BRect bounds = fLastFrame->Bounds();
-	int32 w = (int32)(bounds.Width() + 1);
-	int32 h = (int32)(bounds.Height() + 1);
-	color_space cs = fLastFrame->ColorSpace();
-
-	// Save raw bitmap data
+	// Save raw buffer data
 	BString rawFile(filename);
-	rawFile << "_" << w << "x" << h << ".raw";
+	rawFile << "_" << rawWidth << "x" << rawHeight << ".raw";
 	BPath rawPath(path);
 	rawPath.Append(rawFile.String());
 
 	BFile file(rawPath.Path(), B_WRITE_ONLY | B_CREATE_FILE | B_ERASE_FILE);
 	if (file.InitCheck() == B_OK) {
-		file.Write(fLastFrame->Bits(), fLastFrame->BitsLength());
+		file.Write(rawData, rawSize);
 
-		// Also write a companion info file
+		// Write companion info file with format metadata
 		BString infoFile(filename);
 		infoFile << ".info";
 		BPath infoPath(path);
@@ -2146,20 +2178,44 @@ MainWindow::_ExportRawFrame()
 
 		BFile info(infoPath.Path(), B_WRITE_ONLY | B_CREATE_FILE | B_ERASE_FILE);
 		if (info.InitCheck() == B_OK) {
+			// Determine format name
+			const char* formatName = "unknown";
+			switch (rawFormat) {
+				case B_RGB32: formatName = "RGB32"; break;
+				case B_RGBA32: formatName = "RGBA32"; break;
+				case B_RGB24: formatName = "RGB24"; break;
+				case B_YCbCr422: formatName = "YCbCr422 (YUYV)"; break;
+				case B_YUV422: formatName = "YUV422"; break;
+				case B_YCbCr420: formatName = "YCbCr420 (I420)"; break;
+				case B_YUV420: formatName = "YUV420"; break;
+				case B_YUV12: formatName = "YUV12 (NV12)"; break;
+				case B_YUV9: formatName = "YUV9 (NV21)"; break;
+				default: break;
+			}
+			if ((int)rawFormat == 0x2000)
+				formatName = "UYVY";
+
 			BString infoContent;
 			infoContent.SetToFormat(
 				"BubiCam Raw Frame Export\n"
 				"========================\n"
+				"Source: pre-conversion driver buffer\n"
 				"Width: %d\n"
 				"Height: %d\n"
-				"Color space: 0x%04x\n"
-				"Bytes per row: %d\n"
-				"Total bytes: %d\n"
-				"Device: %s\n",
-				(int)w, (int)h, (int)cs,
-				(int)fLastFrame->BytesPerRow(),
-				(int)fLastFrame->BitsLength(),
-				fCurrentWebcam ? fCurrentWebcam->Name() : "unknown");
+				"Color space: 0x%04x (%s)\n"
+				"Total bytes: %zu\n"
+				"Device: %s\n"
+				"\n"
+				"To view with ffmpeg:\n"
+				"  ffplay -f rawvideo -pix_fmt %s -s %dx%d %s\n",
+				(int)rawWidth, (int)rawHeight,
+				(int)rawFormat, formatName,
+				rawSize,
+				fCurrentWebcam ? fCurrentWebcam->Name() : "unknown",
+				(rawFormat == B_YCbCr422 || rawFormat == B_YUV422)
+					? "yuyv422" : "nv12",
+				(int)rawWidth, (int)rawHeight,
+				rawPath.Leaf());
 			info.Write(infoContent.String(), infoContent.Length());
 		}
 
@@ -2169,5 +2225,7 @@ MainWindow::_ExportRawFrame()
 	} else {
 		fStatusBar->SetText("Failed to export raw frame");
 	}
+
+	free(rawData);
 }
 

@@ -67,6 +67,7 @@ enum {
 	MSG_RECORD_STOP			= 'rcsp',
 	MSG_TOGGLE_HISTOGRAM	= 'tghi',
 	MSG_RESET_ZOOM			= 'rszm',
+	MSG_EXPORT_RAW_FRAME	= 'exrf',
 	MSG_CAPTURE_REFERENCE	= 'cprf',
 	MSG_TOGGLE_COMPARE		= 'tgcm',
 	MSG_CLEAR_REFERENCE		= 'clrf',
@@ -76,7 +77,6 @@ enum {
 	MSG_TOGGLE_GRID			= 'tggr',
 	MSG_GRID_MODE			= 'grmd',
 	MSG_FULLSCREEN			= 'fscr',
-	MSG_EXPORT_RAW_FRAME	= 'exrf',
 	MSG_AUDIO_SOURCE		= 'auds',
 	MSG_AUDIO_NONE			= 'audn'
 };

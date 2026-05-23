@@ -87,6 +87,11 @@ public:
 	// Frame access (for MCP server)
 	BBitmap*			GetCurrentFrame() const { return fDisplayBitmap; }
 
+	// Raw frame capture for debug/export
+	status_t			CaptureRawFrame(void** outData, size_t* outSize,
+							color_space* outFormat, int32* outWidth,
+							int32* outHeight);
+
 	// Target management (thread-safe)
 	void				SetTarget(BLooper* target);
 
@@ -97,6 +102,8 @@ public:
 private:
 	void				_HandleBuffer(BBuffer* buffer);
 	void				_ConvertBuffer(BBuffer* buffer, BBitmap* destBitmap);
+	void				_ConvertUYVYToBGRA(const uint8* src, uint8* dst,
+							int32 width, int32 height);
 	void				_ConvertYUV422ToBGRA(const uint8* src, uint8* dst,
 							int32 width, int32 height);
 	void				_ConvertYUV420ToBGRA(const uint8* src, uint8* dst,
@@ -131,6 +138,11 @@ private:
 	int32				fBitmapWidth;
 	int32				fBitmapHeight;
 	color_space			fBitmapColorSpace;
+
+	// Last raw buffer copy (for raw frame export)
+	uint8*				fLastRawData;
+	size_t				fLastRawSize;
+	BLocker				fRawLock;
 
 	// Statistics
 	uint32				fFramesReceived;
