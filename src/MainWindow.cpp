@@ -1165,6 +1165,13 @@ MainWindow::MessageReceived(BMessage* message)
 
 		case MSG_AUDIO_LEVEL:
 		{
+			// Only show audio levels if video frames are actually arriving.
+			// When the driver has bandwidth issues (no video frames),
+			// audio may still flow but the levels are misleading.
+			if (fDriverCrashed || (fBandwidthAlertShown && fVideoPreview->FramesReceived() == 0)) {
+				fVUMeter->SetLevel(0.0f, 0.0f);
+				break;
+			}
 			float left = 0.0f, right = 0.0f;
 			message->FindFloat("left", &left);
 			message->FindFloat("right", &right);
