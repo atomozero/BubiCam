@@ -752,8 +752,30 @@ VideoConsumer::_ConvertBuffer(BBuffer* buffer, BBitmap* destBitmap)
 
 		case B_YCbCr422:
 		case B_YUV422:
-			_ConvertYUV422ToBGRA(src, dst, width, height);
+		case (color_space)0x2000:  // B_UYVY (not in all Haiku headers)
+		{
+			// Auto-detect UYVY vs YUYV by sampling the first few macro-pixels.
+			// YUYV: Y0 U0 Y1 V0 -- bytes 0,2 are luma (typically 16-235)
+			// UYVY: U0 Y0 V0 Y1 -- bytes 0,2 are chroma (typically near 128)
+			// Heuristic: if average of even bytes is closer to 128 than to
+			// a typical luma range, it's likely UYVY.
+			bool isUYVY = (srcFormat == (color_space)0x2000);
+			if (!isUYVY && srcSize >= 32) {
+				int32 sumEven = 0;
+				int32 samples = min_c((int32)16, (int32)(srcSize / 2));
+				for (int32 i = 0; i < samples; i++)
+					sumEven += src[i * 2];
+				int32 avgEven = sumEven / samples;
+				// Chroma centers around 128; luma is typically 16-235
+				// If average even byte is in 100-156 range, likely chroma (UYVY)
+				isUYVY = (avgEven >= 100 && avgEven <= 156);
+			}
+			if (isUYVY)
+				_ConvertUYVYToBGRA(src, dst, width, height);
+			else
+				_ConvertYUV422ToBGRA(src, dst, width, height);
 			break;
+		}
 
 		case B_YCbCr420:
 		case B_YUV420:
@@ -785,6 +807,136 @@ VideoConsumer::_ConvertBuffer(BBuffer* buffer, BBitmap* destBitmap)
 				}
 			}
 			break;
+	}
+}
+
+
+void
+VideoConsumer::_ConvertUYVYToBGRA(const uint8* src, uint8* dst,
+	int32 width, int32 height)
+{
+	// UYVY: U0 Y0 V0 Y1 (vs YUYV: Y0 U0 Y1 V0)
+	int32 dstBytesPerRow = fBitmapWidth * 4;
+	int32 srcBytesPerRow = width * 2;
+	int32 effectiveWidth = min_c(width, fBitmapWidth);
+
+	for (int32 y = 0; y < height && y < fBitmapHeight; y++) {
+		const uint8* srcRow = src + y * srcBytesPerRow;
+		uint8* dstRow = dst + y * dstBytesPerRow;
+		int32 x = 0;
+
+#ifdef __SSE2__
+		// SSE2: process 8 pixels (16 UYVY bytes) at a time
+		// UYVY byte order: U0 Y0 V0 Y1 U2 Y2 V2 Y3 ...
+		const __m128i mask_y = _mm_set1_epi16(0x00FF);
+		const __m128i sub16  = _mm_set1_epi16(16);
+		const __m128i sub128 = _mm_set1_epi16(128);
+		const __m128i coeff_y  = _mm_set1_epi16(298);
+		const __m128i coeff_rv = _mm_set1_epi16(409);
+		const __m128i coeff_gu = _mm_set1_epi16(100);
+		const __m128i coeff_gv = _mm_set1_epi16(208);
+		const __m128i coeff_bu = _mm_set1_epi16(516);
+
+		for (; x + 7 < effectiveWidth; x += 8) {
+			// Load 16 bytes of UYVY: U0 Y0 V0 Y1 U2 Y2 V2 Y3 U4 Y4 V4 Y5 U6 Y6 V6 Y7
+			__m128i uyvy = _mm_loadu_si128((const __m128i*)(srcRow + x * 2));
+
+			// Extract Y (odd bytes): Y0 Y1 Y2 Y3 Y4 Y5 Y6 Y7
+			__m128i y_vals = _mm_and_si128(_mm_srli_epi16(uyvy, 8), mask_y);
+
+			// Extract U and V (even bytes): U0 V0 U2 V2 U4 V4 U6 V6
+			__m128i uv = _mm_and_si128(uyvy, mask_y);
+
+			// Separate U and V, duplicate each to match 2 pixels
+			// U0 U0 U2 U2 U4 U4 U6 U6
+			__m128i u_raw = _mm_and_si128(uv, _mm_set1_epi32(0x000000FF));
+			u_raw = _mm_or_si128(u_raw, _mm_slli_epi32(u_raw, 16));
+			u_raw = _mm_shufflelo_epi16(u_raw, _MM_SHUFFLE(2, 2, 0, 0));
+			u_raw = _mm_shufflehi_epi16(u_raw, _MM_SHUFFLE(2, 2, 0, 0));
+
+			// V0 V0 V2 V2 V4 V4 V6 V6
+			__m128i v_raw = _mm_and_si128(_mm_srli_epi32(uv, 16), _mm_set1_epi32(0x000000FF));
+			v_raw = _mm_or_si128(v_raw, _mm_slli_epi32(v_raw, 16));
+			v_raw = _mm_shufflelo_epi16(v_raw, _MM_SHUFFLE(2, 2, 0, 0));
+			v_raw = _mm_shufflehi_epi16(v_raw, _MM_SHUFFLE(2, 2, 0, 0));
+
+			// Apply offsets
+			__m128i c_val = _mm_sub_epi16(y_vals, sub16);
+			__m128i d_val = _mm_sub_epi16(u_raw, sub128);
+			__m128i e_val = _mm_sub_epi16(v_raw, sub128);
+
+			// R = (298*C + 409*E + 128) >> 8
+			__m128i r16 = _mm_srai_epi16(_mm_add_epi16(
+				_mm_add_epi16(_mm_mullo_epi16(coeff_y, c_val),
+				_mm_mullo_epi16(coeff_rv, e_val)),
+				_mm_set1_epi16(128)), 8);
+
+			// G = (298*C - 100*D - 208*E + 128) >> 8
+			__m128i g16 = _mm_srai_epi16(_mm_add_epi16(
+				_mm_sub_epi16(_mm_sub_epi16(
+				_mm_mullo_epi16(coeff_y, c_val),
+				_mm_mullo_epi16(coeff_gu, d_val)),
+				_mm_mullo_epi16(coeff_gv, e_val)),
+				_mm_set1_epi16(128)), 8);
+
+			// B = (298*C + 516*D + 128) >> 8
+			__m128i b16 = _mm_srai_epi16(_mm_add_epi16(
+				_mm_add_epi16(_mm_mullo_epi16(coeff_y, c_val),
+				_mm_mullo_epi16(coeff_bu, d_val)),
+				_mm_set1_epi16(128)), 8);
+
+			// Clamp to 0-255
+			__m128i zero = _mm_setzero_si128();
+			r16 = _mm_max_epi16(_mm_min_epi16(r16, _mm_set1_epi16(255)), zero);
+			g16 = _mm_max_epi16(_mm_min_epi16(g16, _mm_set1_epi16(255)), zero);
+			b16 = _mm_max_epi16(_mm_min_epi16(b16, _mm_set1_epi16(255)), zero);
+
+			// Pack to 8-bit
+			__m128i r8 = _mm_packus_epi16(r16, zero);
+			__m128i g8 = _mm_packus_epi16(g16, zero);
+			__m128i b8 = _mm_packus_epi16(b16, zero);
+
+			// Interleave to BGRA (4 pixels at a time)
+			__m128i bg_lo = _mm_unpacklo_epi8(b8, g8);
+			__m128i ra_lo = _mm_unpacklo_epi8(r8, _mm_set1_epi8((char)0xFF));
+			__m128i bgra0 = _mm_unpacklo_epi16(bg_lo, ra_lo);
+			__m128i bgra1 = _mm_unpackhi_epi16(bg_lo, ra_lo);
+
+			_mm_storeu_si128((__m128i*)(dstRow + x * 4), bgra0);
+			_mm_storeu_si128((__m128i*)(dstRow + x * 4 + 16), bgra1);
+		}
+#endif
+
+		// Scalar fallback for remaining pixels
+		for (; x + 1 < effectiveWidth; x += 2) {
+			int32 u  = srcRow[x * 2 + 0];
+			int32 y0 = srcRow[x * 2 + 1];
+			int32 v  = srcRow[x * 2 + 2];
+			int32 y1 = srcRow[x * 2 + 3];
+
+			int32 c = y0 - 16;
+			int32 d = u - 128;
+			int32 e = v - 128;
+
+			int32 r = (298 * c + 409 * e + 128) >> 8;
+			int32 g = (298 * c - 100 * d - 208 * e + 128) >> 8;
+			int32 b = (298 * c + 516 * d + 128) >> 8;
+
+			dstRow[x * 4 + 0] = (uint8)max_c(0, min_c(255, b));
+			dstRow[x * 4 + 1] = (uint8)max_c(0, min_c(255, g));
+			dstRow[x * 4 + 2] = (uint8)max_c(0, min_c(255, r));
+			dstRow[x * 4 + 3] = 255;
+
+			c = y1 - 16;
+			r = (298 * c + 409 * e + 128) >> 8;
+			g = (298 * c - 100 * d - 208 * e + 128) >> 8;
+			b = (298 * c + 516 * d + 128) >> 8;
+
+			dstRow[(x + 1) * 4 + 0] = (uint8)max_c(0, min_c(255, b));
+			dstRow[(x + 1) * 4 + 1] = (uint8)max_c(0, min_c(255, g));
+			dstRow[(x + 1) * 4 + 2] = (uint8)max_c(0, min_c(255, r));
+			dstRow[(x + 1) * 4 + 3] = 255;
+		}
 	}
 }
 
