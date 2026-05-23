@@ -3,7 +3,7 @@
 Documento di pianificazione per le funzionalità della versione 2.0 di BubiCam.
 
 **Versione attuale:** 1.0
-**Ultimo aggiornamento:** 2024-12-16
+**Ultimo aggiornamento:** 2026-05-23
 **Stato:** In pianificazione
 
 ---
@@ -22,7 +22,7 @@ Documento di pianificazione per le funzionalità della versione 2.0 di BubiCam.
 
 | Stato | Feature | Descrizione | Note |
 |:-----:|---------|-------------|------|
-| [ ] | **Registrazione video** | Salvataggio stream video in file (AVI, MKV) | Richiede MediaEncoder |
+| [x] | **Registrazione video** | Salvataggio stream video in file AVI (Motion JPEG) | Implementato con VideoRecorder |
 | [ ] | **Registrazione audio** | Cattura audio dal microfono integrato webcam | Sincronizzazione A/V |
 | [ ] | **Time-lapse** | Scatto automatico a intervalli configurabili | Intervallo 1s - 1h |
 | [ ] | **Buffer circolare** | "Salva ultimi N secondi" per catturare eventi già accaduti | RAM buffer 10-60s |
@@ -47,7 +47,7 @@ Documento di pianificazione per le funzionalità della versione 2.0 di BubiCam.
 | [x] | **Report diagnostico** | Export completo per bug report Haiku | Include listusb, syslog |
 | [x] | **Test memoria** | Monitoraggio allocazioni durante uso prolungato | 60s test, rileva leak |
 | [x] | **Heatmap drop frame** | Grafico temporale dei frame persi | Grafico FPS + drop markers |
-| [ ] | **Cycle test** | Test ciclico connect/disconnect simulato | Per stabilità driver |
+| [x] | **Cycle test** | Test ciclico connect/disconnect simulato | Implementato hot-plug robustness test |
 
 ### Note implementazione
 ```
@@ -62,12 +62,12 @@ Documento di pianificazione per le funzionalità della versione 2.0 di BubiCam.
 
 | Stato | Feature | Descrizione | Note |
 |:-----:|---------|-------------|------|
-| [ ] | **Tema scuro** | Supporto dark mode nativo Haiku | Rispetta ui_color() |
+| [x] | **Tema scuro** | Supporto dark mode nativo Haiku | Usa ui_color() ovunque, colori di sistema |
 | [ ] | **Finestra floating** | Preview always-on-top ridimensionabile | B_FLOATING_WINDOW |
-| [ ] | **Zoom digitale** | Ingrandimento area specifica del video | Mouse scroll + drag |
+| [x] | **Zoom digitale** | Ingrandimento area specifica del video | Mouse scroll + pan con drag |
 | [ ] | **Griglia overlay** | Allineamento (rule of thirds, center cross) | Toggle on/off |
-| [ ] | **Histogram** | Distribuzione luminosità in tempo reale | RGB + luminanza |
-| [ ] | **Confronto A/B** | Due webcam affiancate | Split view |
+| [x] | **Histogram** | Distribuzione luminosità in tempo reale | RGB overlay, toggle da menu |
+| [x] | **Confronto A/B** | Confronto frame di riferimento vs live | Split view con divider |
 | [ ] | **Fullscreen mode** | Preview a schermo intero | Tasto F o doppio click |
 | [ ] | **Personalizzazione layout** | Pannelli trascinabili/nascondibili | Salva in settings |
 
@@ -85,10 +85,10 @@ Documento di pianificazione per le funzionalità della versione 2.0 di BubiCam.
 
 | Stato | Feature | Descrizione | Note |
 |:-----:|---------|-------------|------|
-| [ ] | **Decodifica MJPEG** | Supporto webcam con output MJPEG | Usa TranslatorRoster |
+| [x] | **Decodifica MJPEG** | Supporto webcam con output MJPEG | Via libjpeg-turbo |
 | [ ] | **Supporto H.264** | Per webcam moderne | Richiede decoder |
-| [ ] | **Conversione NV12** | Formato comune in webcam moderne | YUV 4:2:0 planar |
-| [ ] | **Conversione NV21** | Variante Android-style | UV invertito |
+| [x] | **Conversione NV12** | Formato comune in webcam moderne | YUV 4:2:0 semi-planar |
+| [x] | **Conversione NV21** | Variante Android-style | UV invertito |
 | [ ] | **Conversione UYVY** | Alternativa a YUYV | Ordine byte diverso |
 | [ ] | **Raw frame export** | Salvataggio frame singolo non processato | Per debug driver |
 | [ ] | **Info formato dettagliato** | Mostra bits/pixel, stride, planes | Nel pannello info |
@@ -130,8 +130,8 @@ Documento di pianificazione per le funzionalità della versione 2.0 di BubiCam.
 | [ ] | **Replicant Deskbar** | Icona con stato e quick preview | BDragger |
 | [ ] | **Scripting hey** | Controllo completo via comando hey | BHandler scripting |
 | [ ] | **Notifiche sistema** | Alert per eventi (crash, disconnect) | BNotification |
-| [ ] | **Hotplug detection** | Rilevamento automatico USB connect/disconnect | BUSBRoster watch |
-| [ ] | **Preferenze persistenti** | Salvataggio impostazioni tra sessioni | ~/config/settings |
+| [x] | **Hotplug detection** | Rilevamento automatico USB connect/disconnect | Media node watcher |
+| [x] | **Preferenze persistenti** | Salvataggio impostazioni tra sessioni | ~/config/settings/BubiCam |
 | [ ] | **File type handling** | Associazione .bcpreset, .bcreport | MIME types |
 | [ ] | **Localizzazione** | Traduzioni italiano, inglese, tedesco | BCatalog |
 
@@ -188,21 +188,21 @@ Documento di pianificazione per le funzionalità della versione 2.0 di BubiCam.
 ## Priorità Release
 
 ### v2.0-alpha (Prima release)
-- [ ] Registrazione video base
-- [ ] Hotplug detection
+- [x] Registrazione video base
+- [x] Hotplug detection
 - [ ] Preset salvataggio controlli
-- [ ] Report diagnostico
+- [x] Report diagnostico
 
 ### v2.0-beta
-- [ ] Tema scuro
-- [ ] MJPEG decode
-- [ ] Stress test automatico
+- [x] Tema scuro
+- [x] MJPEG decode
+- [x] Stress test automatico
 - [ ] Replicant Deskbar
 
 ### v2.0-final
 - [ ] HTTP streaming
-- [ ] Zoom digitale
-- [ ] Histogram
+- [x] Zoom digitale
+- [x] Histogram
 - [ ] Localizzazione
 
 ### Post v2.0 (Future)
@@ -237,6 +237,7 @@ Documento di pianificazione per le funzionalità della versione 2.0 di BubiCam.
 | 2024-12-16 | 0.1 | Creazione iniziale roadmap |
 | 2024-12-16 | 0.2 | Implementato capitolo 2 (Testing Avanzato Driver) |
 | 2024-12-16 | 0.3 | Implementato USB Packet Viewer (cap. 8) |
+| 2026-05-23 | 0.4 | Aggiornamento stato: registrazione video AVI, MJPEG, NV12/NV21, zoom/histogram/A-B compare, hotplug, settings, cycle test, tema sistema, click-to-freeze drag-to-save, icona app |
 
 ---
 
