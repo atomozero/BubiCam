@@ -103,6 +103,7 @@ public:
 	const BObjectList<VideoFormat>&	SupportedFormats() const
 							{ return fSupportedFormats; }
 	VideoFormat			CurrentFormat() const { return fCurrentFormat; }
+	void				UpdateActualResolution(int32 width, int32 height);
 	void				SetRequestedFormat(const VideoFormat& format)
 							{ fRequestedFormat = format; fHasRequestedFormat = true; }
 	void				ClearRequestedFormat() { fHasRequestedFormat = false; }

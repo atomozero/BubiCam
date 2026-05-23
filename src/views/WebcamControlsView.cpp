@@ -551,26 +551,41 @@ WebcamControlsView::_ApplyControlValue(int32 paramId, float value)
 		return;
 
 	// Find parameter and set value
+	bool found = false;
+	fprintf(stderr, "WebcamControlsView: Applying param_id=%ld value=%.1f (web has %ld params)\n",
+		(long)paramId, value, (long)web->CountParameters());
+
 	for (int32 i = 0; i < web->CountParameters(); i++) {
 		BParameter* param = web->ParameterAt(i);
-		if (param != NULL && param->ID() == paramId) {
+		if (param == NULL)
+			continue;
+
+		if (param->ID() == paramId) {
+			found = true;
 			if (param->Type() == BParameter::B_CONTINUOUS_PARAMETER) {
 				BContinuousParameter* cont =
 					dynamic_cast<BContinuousParameter*>(param);
 				if (cont != NULL) {
-					cont->SetValue(&value, sizeof(float), system_time());
+					status = cont->SetValue(&value, sizeof(float), system_time());
+					fprintf(stderr, "  -> SetValue(continuous, %.1f) = %s\n",
+						value, strerror(status));
 				}
 			} else if (param->Type() == BParameter::B_DISCRETE_PARAMETER) {
 				BDiscreteParameter* disc =
 					dynamic_cast<BDiscreteParameter*>(param);
 				if (disc != NULL) {
 					int32 intValue = (int32)value;
-					disc->SetValue(&intValue, sizeof(int32), system_time());
+					status = disc->SetValue(&intValue, sizeof(int32), system_time());
+					fprintf(stderr, "  -> SetValue(discrete, %ld) = %s\n",
+						(long)intValue, strerror(status));
 				}
 			}
 			break;
 		}
 	}
+
+	if (!found)
+		fprintf(stderr, "  -> Parameter ID %ld NOT FOUND in web!\n", (long)paramId);
 
 	delete web;
 

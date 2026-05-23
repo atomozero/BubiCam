@@ -1278,11 +1278,23 @@ MainWindow::_HandleFrameReceived(BMessage* message)
 
 	fVideoPreview->SetFrame(bitmap);
 
-	// Update resolution info
+	// Update resolution info from actual frame dimensions
 	BRect bitmapBounds = bitmap->Bounds();
-	fVideoPreview->SetResolution(
-		(int32)(bitmapBounds.Width() + 1),
-		(int32)(bitmapBounds.Height() + 1));
+	int32 frameWidth = (int32)(bitmapBounds.Width() + 1);
+	int32 frameHeight = (int32)(bitmapBounds.Height() + 1);
+	fVideoPreview->SetResolution(frameWidth, frameHeight);
+
+	// Sync device's current format with actual frame resolution
+	// and refresh Driver Info if resolution changed
+	{
+		BAutolock lock(fWebcamLock);
+		if (fCurrentWebcam != NULL) {
+			VideoFormat before = fCurrentWebcam->CurrentFormat();
+			fCurrentWebcam->UpdateActualResolution(frameWidth, frameHeight);
+			if (before.width != frameWidth || before.height != frameHeight)
+				fDriverInfo->SetDevice(fCurrentWebcam, fIsPreviewActive);
+		}
+	}
 
 	// CRITICAL FIX: Copy webcam pointer under lock, then release lock
 	// BEFORE calling methods that may acquire other locks. This prevents

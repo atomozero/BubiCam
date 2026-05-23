@@ -1215,6 +1215,21 @@ WebcamDevice::_SetupVideoConnection()
 }
 
 
+void
+WebcamDevice::UpdateActualResolution(int32 width, int32 height)
+{
+	if (width > 0 && height > 0
+		&& (fCurrentFormat.width != width || fCurrentFormat.height != height)) {
+		fprintf(stderr, "WebcamDevice: Actual frame resolution %dx%d "
+			"differs from negotiated %dx%d, updating\n",
+			(int)width, (int)height,
+			(int)fCurrentFormat.width, (int)fCurrentFormat.height);
+		fCurrentFormat.width = width;
+		fCurrentFormat.height = height;
+	}
+}
+
+
 status_t
 WebcamDevice::_SetupAudioConnection()
 {
