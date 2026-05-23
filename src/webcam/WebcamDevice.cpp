@@ -1484,12 +1484,15 @@ WebcamDevice::_SetupAudioConnection()
 
 	fAudioConnected = true;
 
-	// Update audio info from the negotiated format
-	if (format.type == B_MEDIA_RAW_AUDIO) {
-		fAudioSampleRate = format.u.raw_audio.frame_rate;
-		fAudioChannels = format.u.raw_audio.channel_count;
+	// Update audio info from the actual connected output format.
+	// roster->Connect() updates fAudioOutput with the real negotiated format,
+	// while the 'format' in/out parameter may still contain wildcards.
+	media_format actualFormat = fAudioOutput.format;
+	if (actualFormat.type == B_MEDIA_RAW_AUDIO) {
+		fAudioSampleRate = actualFormat.u.raw_audio.frame_rate;
+		fAudioChannels = actualFormat.u.raw_audio.channel_count;
 
-		switch (format.u.raw_audio.format) {
+		switch (actualFormat.u.raw_audio.format) {
 			case media_raw_audio_format::B_AUDIO_UCHAR:
 				fAudioBitsPerSample = 8;
 				break;
@@ -1504,10 +1507,29 @@ WebcamDevice::_SetupAudioConnection()
 				fAudioBitsPerSample = 16;
 				break;
 		}
-
-		LOG_INFO("Audio params for recording: %.0f Hz, %d ch, %d bit",
-			fAudioSampleRate, (int)fAudioChannels, (int)fAudioBitsPerSample);
 	}
+
+	// Fallback: if output format was wildcard, use the input format
+	if (fAudioSampleRate <= 0 || fAudioChannels <= 0) {
+		actualFormat = fAudioInput.format;
+		if (actualFormat.type == B_MEDIA_RAW_AUDIO) {
+			if (fAudioSampleRate <= 0)
+				fAudioSampleRate = actualFormat.u.raw_audio.frame_rate;
+			if (fAudioChannels <= 0)
+				fAudioChannels = actualFormat.u.raw_audio.channel_count;
+		}
+	}
+
+	// Last resort: use sane defaults matching common webcam audio
+	if (fAudioSampleRate <= 0)
+		fAudioSampleRate = 32000.0f;
+	if (fAudioChannels <= 0)
+		fAudioChannels = 2;
+	if (fAudioBitsPerSample <= 0)
+		fAudioBitsPerSample = 16;
+
+	LOG_INFO("Audio params for recording: %.0f Hz, %d ch, %d bit",
+		fAudioSampleRate, (int)fAudioChannels, (int)fAudioBitsPerSample);
 
 	return B_OK;
 }
