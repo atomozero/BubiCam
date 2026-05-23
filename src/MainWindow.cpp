@@ -122,31 +122,29 @@ MainWindow::MainWindow()
 
 MainWindow::~MainWindow()
 {
-	// Note: Primary Media Kit cleanup is done in QuitRequested() to ensure
-	// resources are released BEFORE process shutdown begins. This destructor
-	// handles remaining cleanup for edge cases (e.g., window closed without
-	// going through QuitRequested).
+	// Note: Primary Media Kit cleanup is done in QuitRequested().
+	// The destructor only handles non-blocking cleanup.
 
-	// Stop watchdog timer
 	delete fWatchdogRunner;
 	fWatchdogRunner = NULL;
-
-	_StopPreview();
 
 	if (fSyslogView != NULL)
 		fSyslogView->StopMonitoring();
 
-	// Stop node watching and clean up roster
+	// Stop node watching (non-blocking)
 	if (fWebcamRoster != NULL) {
 		fWebcamRoster->StopWatching();
 		RemoveHandler(fWebcamRoster);
-		delete fWebcamRoster;
+		// Don't delete fWebcamRoster here - QuitRequested already cleared it,
+		// and the destructor of WebcamDevice would re-call StopCapture
+		// which can hang. Let the OS reclaim the memory on exit.
 	}
+
 	delete fSavePanel;
 	delete fLastFrame;
 	delete fRecorder;
 
-	// Stop and delete MCP server
+	// Stop MCP server (non-blocking)
 	if (fMCPServer != NULL) {
 		fMCPServer->Stop();
 		fMCPServer->Lock();
@@ -1629,19 +1627,64 @@ MainWindow::QuitRequested()
 		return true;
 	}
 
-	// Normal shutdown path - driver is responding
-	_StopPreview();
+	// Normal shutdown path - run cleanup in a thread with a global timeout
+	// to prevent the process from hanging indefinitely
+	{
+		struct ShutdownData {
+			MainWindow*		window;
+			WebcamRoster*	roster;
+			volatile bool	done;
+		};
 
-	// Release all webcam devices (and their Media Kit nodes) now
-	if (fWebcamRoster != NULL) {
-		fprintf(stderr, "MainWindow::QuitRequested() - Clearing webcam roster before shutdown\n");
-		fWebcamRoster->Clear();
+		ShutdownData* sd = new ShutdownData();
+		sd->window = this;
+		sd->roster = fWebcamRoster;
+		sd->done = false;
+
+		thread_id shutdownThread = spawn_thread([](void* data) -> int32 {
+			ShutdownData* sd = static_cast<ShutdownData*>(data);
+
+			// Stop preview (calls StopCapture with timeouts)
+			if (sd->window->LockLooper()) {
+				sd->window->_StopPreview();
+				sd->window->UnlockLooper();
+			}
+
+			// Release all webcam devices
+			if (sd->roster != NULL) {
+				fprintf(stderr, "  Clearing webcam roster...\n");
+				sd->roster->Clear();
+			}
+
+			sd->done = true;
+			return 0;
+		}, "shutdown_cleanup", B_NORMAL_PRIORITY, sd);
+
+		if (shutdownThread >= 0) {
+			resume_thread(shutdownThread);
+
+			// Wait up to 5 seconds for clean shutdown
+			bigtime_t deadline = system_time() + 5000000;
+			while (!sd->done && system_time() < deadline)
+				snooze(100000);
+
+			if (sd->done) {
+				status_t exitValue;
+				wait_for_thread(shutdownThread, &exitValue);
+				fprintf(stderr, "MainWindow::QuitRequested() - Clean shutdown complete\n");
+			} else {
+				fprintf(stderr, "MainWindow::QuitRequested() - Shutdown timed out after 5s, forcing exit\n");
+				// Don't wait for the thread - it's stuck in Media Kit IPC.
+				// The process will exit and the OS will clean up.
+			}
+		} else {
+			// Fallback: direct cleanup (may hang)
+			_StopPreview();
+		}
+
+		delete sd;
 	}
 
-	// Give Media Kit time to complete async cleanup operations
-	snooze(100000);  // 100ms
-
-	fprintf(stderr, "MainWindow::QuitRequested() - Shutdown complete\n");
 	be_app->PostMessage(B_QUIT_REQUESTED);
 	return true;
 }
