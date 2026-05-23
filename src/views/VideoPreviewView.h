@@ -33,6 +33,10 @@ public:
 	void				SetResolution(int32 width, int32 height);
 	void				SetShowStats(bool show);
 	void				SetShowHistogram(bool show);
+	void				SetShowGrid(bool show);
+	bool				ShowGrid() const { return fShowGrid; }
+	void				SetGridMode(int32 mode);
+	int32				GridMode() const { return fGridMode; }
 	void				ResetZoom();
 	bool				IsFrozen() const { return fFrozen; }
 	void				CaptureReference();
@@ -55,6 +59,7 @@ private:
 	void				_DrawStats();
 	void				_DrawHistogram();
 	void				_ComputeHistogram();
+	void				_DrawGrid();
 	void				_DrawCompareMode();
 	void				_InitiateDrag(BPoint where);
 
@@ -73,6 +78,8 @@ private:
 	int32				fVideoHeight;
 	bool				fShowStats;
 	bool				fShowHistogram;
+	bool				fShowGrid;
+	int32				fGridMode;		// 0=thirds, 1=center cross, 2=both
 
 	// Zoom and pan
 	float				fZoomLevel;

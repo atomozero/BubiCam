@@ -34,6 +34,8 @@ VideoPreviewView::VideoPreviewView(const char* name)
 	fVideoHeight(0),
 	fShowStats(true),
 	fShowHistogram(false),
+	fShowGrid(false),
+	fGridMode(0),
 	fZoomLevel(1.0f),
 	fPanOffset(0, 0),
 	fLastMousePos(0, 0),
@@ -137,6 +139,10 @@ VideoPreviewView::Draw(BRect updateRect)
 		// Draw histogram overlay
 		if (fShowHistogram)
 			_DrawHistogram();
+
+		// Draw grid overlay
+		if (fShowGrid)
+			_DrawGrid();
 	} else {
 		// No frame - draw placeholder
 		SetHighColor(fBackgroundColor);
@@ -278,6 +284,28 @@ void
 VideoPreviewView::SetShowHistogram(bool show)
 {
 	fShowHistogram = show;
+	if (LockLooper()) {
+		Invalidate();
+		UnlockLooper();
+	}
+}
+
+
+void
+VideoPreviewView::SetShowGrid(bool show)
+{
+	fShowGrid = show;
+	if (LockLooper()) {
+		Invalidate();
+		UnlockLooper();
+	}
+}
+
+
+void
+VideoPreviewView::SetGridMode(int32 mode)
+{
+	fGridMode = mode % 3;
 	if (LockLooper()) {
 		Invalidate();
 		UnlockLooper();
@@ -814,4 +842,56 @@ VideoPreviewView::_InitiateDrag(BPoint where)
 	}
 
 	delete detached;
+}
+
+
+void
+VideoPreviewView::_DrawGrid()
+{
+	BRect vr = fVideoRect;
+	if (!vr.IsValid())
+		return;
+
+	SetDrawingMode(B_OP_ALPHA);
+	SetPenSize(1.0f);
+
+	bool drawThirds = (fGridMode == 0 || fGridMode == 2);
+	bool drawCenter = (fGridMode == 1 || fGridMode == 2);
+
+	if (drawThirds) {
+		// Rule of thirds - semi-transparent white lines
+		SetHighColor(255, 255, 255, 120);
+
+		float w = vr.Width();
+		float h = vr.Height();
+
+		// Vertical lines at 1/3 and 2/3
+		float x1 = vr.left + w / 3;
+		float x2 = vr.left + w * 2 / 3;
+		StrokeLine(BPoint(x1, vr.top), BPoint(x1, vr.bottom));
+		StrokeLine(BPoint(x2, vr.top), BPoint(x2, vr.bottom));
+
+		// Horizontal lines at 1/3 and 2/3
+		float y1 = vr.top + h / 3;
+		float y2 = vr.top + h * 2 / 3;
+		StrokeLine(BPoint(vr.left, y1), BPoint(vr.right, y1));
+		StrokeLine(BPoint(vr.left, y2), BPoint(vr.right, y2));
+	}
+
+	if (drawCenter) {
+		// Center crosshair - semi-transparent yellow
+		SetHighColor(255, 255, 0, 140);
+
+		float cx = (vr.left + vr.right) / 2;
+		float cy = (vr.top + vr.bottom) / 2;
+		float armLen = min_c(vr.Width(), vr.Height()) / 8;
+
+		StrokeLine(BPoint(cx - armLen, cy), BPoint(cx + armLen, cy));
+		StrokeLine(BPoint(cx, cy - armLen), BPoint(cx, cy + armLen));
+
+		// Small circle at center
+		StrokeEllipse(BPoint(cx, cy), 4, 4);
+	}
+
+	SetDrawingMode(B_OP_COPY);
 }
