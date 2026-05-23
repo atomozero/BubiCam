@@ -48,8 +48,23 @@ AudioConsumer::~AudioConsumer()
 	thread_id looperThread = ControlThread();
 	Quit();
 	if (looperThread >= 0) {
-		status_t exitValue;
-		wait_for_thread(looperThread, &exitValue);
+		// Wait with timeout to prevent hang on exit
+		bigtime_t deadline = system_time() + 2000000;  // 2 seconds
+		bool exited = false;
+		while (system_time() < deadline) {
+			thread_info info;
+			if (get_thread_info(looperThread, &info) != B_OK) {
+				exited = true;
+				break;
+			}
+			snooze(50000);  // 50ms
+		}
+		if (exited) {
+			status_t exitValue;
+			wait_for_thread(looperThread, &exitValue);
+		} else {
+			fprintf(stderr, "AudioConsumer: looper thread did not exit in time\n");
+		}
 	}
 }
 
@@ -206,6 +221,23 @@ AudioConsumer::Connected(const media_source& producer,
 
 	*outInput = fInput;
 
+	// Log the negotiated audio format
+	if (withFormat.type == B_MEDIA_RAW_AUDIO) {
+		const char* fmtName = "unknown";
+		switch (withFormat.u.raw_audio.format) {
+			case media_raw_audio_format::B_AUDIO_UCHAR: fmtName = "uint8"; break;
+			case media_raw_audio_format::B_AUDIO_SHORT: fmtName = "int16"; break;
+			case media_raw_audio_format::B_AUDIO_INT:   fmtName = "int32"; break;
+			case media_raw_audio_format::B_AUDIO_FLOAT: fmtName = "float"; break;
+		}
+		LOG_INFO("Audio connected: %g Hz, %d ch, %s, byte_order=%d, buf=%zu",
+			withFormat.u.raw_audio.frame_rate,
+			(int)withFormat.u.raw_audio.channel_count,
+			fmtName,
+			(int)withFormat.u.raw_audio.byte_order,
+			(size_t)withFormat.u.raw_audio.buffer_size);
+	}
+
 	return B_OK;
 }
 
@@ -248,6 +280,37 @@ AudioConsumer::_HandleBuffer(BBuffer* buffer)
 {
 	if (buffer == NULL)
 		return;
+
+	// Log first buffer details for debugging
+	static int32 sBufferCount = 0;
+	if (++sBufferCount <= 2) {
+		size_t bufSize = buffer->SizeUsed();
+		int32 ch = fFormat.u.raw_audio.channel_count;
+		uint32 fmt = fFormat.u.raw_audio.format;
+		int32 sampleSize = 2;
+		switch (fmt) {
+			case media_raw_audio_format::B_AUDIO_UCHAR: sampleSize = 1; break;
+			case media_raw_audio_format::B_AUDIO_SHORT: sampleSize = 2; break;
+			case media_raw_audio_format::B_AUDIO_INT:   sampleSize = 4; break;
+			case media_raw_audio_format::B_AUDIO_FLOAT: sampleSize = 4; break;
+		}
+		int32 expectedFrameSize = ch * sampleSize;
+		LOG_INFO("Audio buffer #%d: %zu bytes, %d ch x %d bytes = %d per frame, "
+			"frames=%zu, byte_order=%d",
+			(int)sBufferCount, bufSize, (int)ch, (int)sampleSize,
+			(int)expectedFrameSize,
+			expectedFrameSize > 0 ? bufSize / expectedFrameSize : 0,
+			(int)fFormat.u.raw_audio.byte_order);
+
+		// Dump first 16 bytes to see raw data
+		if (bufSize >= 16) {
+			const uint8* raw = static_cast<const uint8*>(buffer->Data());
+			LOG_INFO("Audio raw: %02x %02x %02x %02x %02x %02x %02x %02x "
+				"%02x %02x %02x %02x %02x %02x %02x %02x",
+				raw[0], raw[1], raw[2], raw[3], raw[4], raw[5], raw[6], raw[7],
+				raw[8], raw[9], raw[10], raw[11], raw[12], raw[13], raw[14], raw[15]);
+		}
+	}
 
 	// Copy target under lock, then post messages outside lock
 	// to prevent deadlock with StopCapture → SetTarget(NULL)
@@ -304,7 +367,7 @@ AudioConsumer::_CalculateLevels(const void* data, size_t size,
 	int32 channels = fFormat.u.raw_audio.channel_count;
 
 	if (channels <= 0)
-		channels = 2;
+		channels = 1;  // Default to mono, not stereo
 
 	switch (format) {
 		case media_raw_audio_format::B_AUDIO_UCHAR:
@@ -318,8 +381,25 @@ AudioConsumer::_CalculateLevels(const void* data, size_t size,
 		case media_raw_audio_format::B_AUDIO_SHORT:
 		{
 			size_t samples = size / sizeof(int16);
-			_CalculateLevelsTyped(static_cast<const int16*>(data),
-				samples, channels, (int16)32767, outLeft, outRight);
+			uint32 byteOrder = fFormat.u.raw_audio.byte_order;
+
+			// Check if byte swap is needed
+			// Haiku x86 is little-endian (B_MEDIA_LITTLE_ENDIAN = 2)
+			if (byteOrder == B_MEDIA_BIG_ENDIAN) {
+				// Swap bytes for each int16 sample before computing levels
+				// Work on a temporary copy to avoid modifying the buffer
+				int16* swapped = new int16[samples];
+				const uint8* raw = static_cast<const uint8*>(data);
+				for (size_t i = 0; i < samples; i++) {
+					swapped[i] = (int16)((raw[i * 2 + 1]) | (raw[i * 2] << 8));
+				}
+				_CalculateLevelsTyped(swapped, samples, channels,
+					(int16)32767, outLeft, outRight);
+				delete[] swapped;
+			} else {
+				_CalculateLevelsTyped(static_cast<const int16*>(data),
+					samples, channels, (int16)32767, outLeft, outRight);
+			}
 			break;
 		}
 
@@ -337,22 +417,30 @@ AudioConsumer::_CalculateLevels(const void* data, size_t size,
 			size_t sampleCount = size / sizeof(float);
 			size_t frameCount = sampleCount / channels;
 
-			float sumLeft = 0.0f, sumRight = 0.0f;
-
-			for (size_t i = 0; i < frameCount; i++) {
-				float left = fabs(samples[i * channels]);
-				sumLeft += left * left;
-
-				if (channels > 1) {
-					float right = fabs(samples[i * channels + 1]);
-					sumRight += right * right;
-				}
-			}
-
 			if (frameCount > 0) {
-				*outLeft = sqrt(sumLeft / frameCount);
+				// Compute DC offset
+				double dcLeft = 0.0, dcRight = 0.0;
+				for (size_t i = 0; i < frameCount; i++) {
+					dcLeft += samples[i * channels];
+					if (channels > 1)
+						dcRight += samples[i * channels + 1];
+				}
+				dcLeft /= frameCount;
+				dcRight /= frameCount;
+
+				// RMS with DC removal
+				double sumLeft = 0.0, sumRight = 0.0;
+				for (size_t i = 0; i < frameCount; i++) {
+					double left = samples[i * channels] - dcLeft;
+					sumLeft += left * left;
+					if (channels > 1) {
+						double right = samples[i * channels + 1] - dcRight;
+						sumRight += right * right;
+					}
+				}
+				*outLeft = (float)sqrt(sumLeft / frameCount);
 				*outRight = channels > 1 ?
-					sqrt(sumRight / frameCount) : *outLeft;
+					(float)sqrt(sumRight / frameCount) : *outLeft;
 			}
 			break;
 		}
@@ -373,18 +461,32 @@ AudioConsumer::_CalculateLevelsTyped(const T* data, size_t samples,
 		return;
 
 	size_t frameCount = samples / channels;
-	float sumLeft = 0.0f, sumRight = 0.0f;
+	if (frameCount == 0)
+		return;
 
+	// First pass: compute DC offset (mean) per channel
+	double dcLeft = 0.0, dcRight = 0.0;
 	for (size_t i = 0; i < frameCount; i++) {
-		float left = fabs((float)data[i * channels]) / maxValue;
+		dcLeft += (double)data[i * channels];
+		if (channels > 1)
+			dcRight += (double)data[i * channels + 1];
+	}
+	dcLeft /= frameCount;
+	dcRight /= frameCount;
+
+	// Second pass: compute RMS with DC offset removed
+	// This correctly handles constant DC values (like 0x8000) as silence
+	double sumLeft = 0.0, sumRight = 0.0;
+	for (size_t i = 0; i < frameCount; i++) {
+		double left = ((double)data[i * channels] - dcLeft) / maxValue;
 		sumLeft += left * left;
 
 		if (channels > 1) {
-			float right = fabs((float)data[i * channels + 1]) / maxValue;
+			double right = ((double)data[i * channels + 1] - dcRight) / maxValue;
 			sumRight += right * right;
 		}
 	}
 
-	*outLeft = sqrt(sumLeft / frameCount);
-	*outRight = channels > 1 ? sqrt(sumRight / frameCount) : *outLeft;
+	*outLeft = (float)sqrt(sumLeft / frameCount);
+	*outRight = channels > 1 ? (float)sqrt(sumRight / frameCount) : *outLeft;
 }

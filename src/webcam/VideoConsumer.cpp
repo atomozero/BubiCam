@@ -99,8 +99,23 @@ VideoConsumer::~VideoConsumer()
 		thread_id looperThread = ControlThread();
 		Quit();
 		if (looperThread >= 0) {
-			status_t exitValue;
-			wait_for_thread(looperThread, &exitValue);
+			// Wait with timeout to prevent hang on exit
+			bigtime_t deadline = system_time() + 2000000;  // 2 seconds
+			bool exited = false;
+			while (system_time() < deadline) {
+				thread_info info;
+				if (get_thread_info(looperThread, &info) != B_OK) {
+					exited = true;
+					break;
+				}
+				snooze(50000);  // 50ms
+			}
+			if (exited) {
+				status_t exitValue;
+				wait_for_thread(looperThread, &exitValue);
+			} else {
+				LOG_WARNING("VideoConsumer looper thread did not exit in time");
+			}
 		}
 	}
 
