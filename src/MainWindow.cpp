@@ -201,6 +201,8 @@ MainWindow::_BuildMenu()
 	fControlMenu->AddSeparatorItem();
 	fControlMenu->AddItem(new BMenuItem("Show Controls Panel",
 		new BMessage(MSG_TOGGLE_CONTROLS), 'K'));
+	fControlMenu->AddItem(new BMenuItem("Restore Factory Defaults",
+		new BMessage(MSG_FACTORY_RESET)));
 	fControlMenu->AddSeparatorItem();
 	{
 		BMenuItem* autoPreviewItem = new BMenuItem("Auto-start Preview on Launch",
@@ -1177,6 +1179,10 @@ MainWindow::MessageReceived(BMessage* message)
 			_ForceStop();
 			break;
 
+		case MSG_FACTORY_RESET:
+			_FactoryResetControls();
+			break;
+
 		default:
 			BWindow::MessageReceived(message);
 			break;
@@ -1380,6 +1386,62 @@ MainWindow::_CheckWatchdog()
 			"OK", NULL, NULL, B_WIDTH_AS_USUAL, B_WARNING_ALERT);
 		alert->Go(NULL);
 	}
+}
+
+
+void
+MainWindow::_FactoryResetControls()
+{
+	if (fCurrentWebcam == NULL || !fCurrentWebcam->IsNodeInstantiated()) {
+		BAlert* alert = new BAlert("Error",
+			"No active webcam.\nStart the preview first.", "OK");
+		alert->Go();
+		return;
+	}
+
+	BMediaRoster* roster = BMediaRoster::Roster();
+	if (roster == NULL)
+		return;
+
+	BParameterWeb* web = NULL;
+	status_t status = roster->GetParameterWebFor(
+		fCurrentWebcam->MediaNode(), &web);
+	if (status != B_OK || web == NULL)
+		return;
+
+	int32 resetCount = 0;
+	for (int32 i = 0; i < web->CountParameters(); i++) {
+		BParameter* param = web->ParameterAt(i);
+		if (param == NULL || param->Type() == BParameter::B_NULL_PARAMETER)
+			continue;
+
+		if (param->Type() == BParameter::B_CONTINUOUS_PARAMETER) {
+			BContinuousParameter* cont =
+				dynamic_cast<BContinuousParameter*>(param);
+			if (cont != NULL) {
+				float midpoint = (cont->MinValue() + cont->MaxValue()) / 2.0f;
+				cont->SetValue(&midpoint, sizeof(float), system_time());
+				resetCount++;
+			}
+		} else if (param->Type() == BParameter::B_DISCRETE_PARAMETER) {
+			BDiscreteParameter* disc =
+				dynamic_cast<BDiscreteParameter*>(param);
+			if (disc != NULL && disc->CountItems() > 0) {
+				int32 defaultVal = 0;
+				disc->SetValue(&defaultVal, sizeof(int32), system_time());
+				resetCount++;
+			}
+		}
+	}
+
+	delete web;
+
+	// Reload controls panel to reflect new values
+	fWebcamControls->RefreshControls();
+
+	BString msg;
+	msg.SetToFormat("Reset %d parameters to factory defaults.", (int)resetCount);
+	fStatusBar->SetText(msg.String());
 }
 
 

@@ -70,7 +70,8 @@ enum {
 	MSG_TOGGLE_COMPARE		= 'tgcm',
 	MSG_CLEAR_REFERENCE		= 'clrf',
 	MSG_TOGGLE_AUTO_PREVIEW	= 'tgap',
-	MSG_RESTORE_DEVICE		= 'rstd'
+	MSG_RESTORE_DEVICE		= 'rstd',
+	MSG_FACTORY_RESET		= 'frst'
 };
 
 
@@ -104,6 +105,7 @@ private:
 	void				_HandleFrameReceived(BMessage* message);
 	void				_CheckWatchdog();
 	void				_ForceStop();
+	void				_FactoryResetControls();
 	void				_RestartMediaServices();
 	void				_DoRestartMediaServices(bool askConfirmation);
 	void				_StartRecording();
