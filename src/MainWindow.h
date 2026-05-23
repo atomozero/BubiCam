@@ -19,6 +19,7 @@
 #include <Path.h>
 #include <Button.h>
 #include <Locker.h>
+#include <ObjectList.h>
 #include <ToolBar.h>
 
 class LEDView;
@@ -76,6 +77,8 @@ enum {
 	MSG_TIMELAPSE_STOP		= 'tlsp',
 	MSG_TIMELAPSE_TICK		= 'tltk',
 	MSG_FLOATING_PREVIEW	= 'flpv',
+	MSG_BUFFER_TOGGLE		= 'bftg',
+	MSG_BUFFER_SAVE			= 'bfsv',
 	MSG_TOGGLE_AUTO_PREVIEW	= 'tgap',
 	MSG_RESTORE_DEVICE		= 'rstd',
 	MSG_FACTORY_RESET		= 'frst',
@@ -126,6 +129,8 @@ private:
 	void				_StopTimelapse();
 	void				_TimelapseTick();
 	void				_ShowFloatingPreview();
+	void				_ToggleCircularBuffer();
+	void				_SaveCircularBuffer();
 	void				_UpdateRecordingStatus();
 	void				_SaveSettings();
 	void				_LoadSettings();
@@ -194,6 +199,20 @@ private:
 	BPath				fTimelapsePath;
 	uint32				fTimelapseCount;
 	bigtime_t			fTimelapseInterval;  // microseconds
+
+	// Circular buffer (replay recording)
+	struct BufferedFrame {
+		uint8*		jpegData;
+		uint32		jpegSize;
+		bigtime_t	timestamp;
+
+		BufferedFrame() : jpegData(NULL), jpegSize(0), timestamp(0) {}
+		~BufferedFrame() { free(jpegData); }
+	};
+	bool				fCircularBufferActive;
+	int32				fCircularBufferSeconds;
+	BObjectList<BufferedFrame>	fCircularBuffer;
+	BLocker				fBufferLock;
 
 	// Floating preview
 	BWindow*			fFloatingWindow;

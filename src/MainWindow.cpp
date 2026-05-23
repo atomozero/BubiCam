@@ -124,6 +124,9 @@ MainWindow::MainWindow()
 	fTimelapseRunner(NULL),
 	fTimelapseCount(0),
 	fTimelapseInterval(5000000),
+	fCircularBufferActive(false),
+	fCircularBufferSeconds(10),
+	fBufferLock("circular buffer"),
 	fFloatingWindow(NULL),
 	fAutoStartPreview(true),
 	fDriverCrashed(false),
@@ -292,6 +295,11 @@ MainWindow::_BuildMenu()
 		new BMessage(MSG_TIMELAPSE_START), 'T'));
 	fToolsMenu->AddItem(new BMenuItem("Floating Preview",
 		new BMessage(MSG_FLOATING_PREVIEW), 'F', B_SHIFT_KEY));
+	fToolsMenu->AddSeparatorItem();
+	fToolsMenu->AddItem(new BMenuItem("Circular Buffer (10 sec)",
+		new BMessage(MSG_BUFFER_TOGGLE)));
+	fToolsMenu->AddItem(new BMenuItem("Save Buffer Now",
+		new BMessage(MSG_BUFFER_SAVE), 'S', B_SHIFT_KEY));
 	fToolsMenu->AddSeparatorItem();
 	fToolsMenu->AddItem(new BMenuItem("Toggle Grid Overlay",
 		new BMessage(MSG_TOGGLE_GRID), 'G'));
@@ -1369,6 +1377,14 @@ MainWindow::MessageReceived(BMessage* message)
 			_ShowFloatingPreview();
 			break;
 
+		case MSG_BUFFER_TOGGLE:
+			_ToggleCircularBuffer();
+			break;
+
+		case MSG_BUFFER_SAVE:
+			_SaveCircularBuffer();
+			break;
+
 		case MSG_RESTART_PREVIEW:
 			// Called from MCP server when resolution is changed
 			if (fIsPreviewActive) {
@@ -1676,6 +1692,70 @@ MainWindow::_HandleFrameReceived(BMessage* message)
 	if (fLastFrame != NULL && fLastFrame->IsValid() &&
 		fLastFrame->BitsLength() >= bitmap->BitsLength()) {
 		memcpy(fLastFrame->Bits(), bitmap->Bits(), bitmap->BitsLength());
+	}
+
+	// Add to circular buffer if active
+	if (fCircularBufferActive && fLastFrame != NULL) {
+		BAutolock bufLock(fBufferLock);
+
+		// Compress to JPEG for memory efficiency
+		uint8* jpegData = NULL;
+		unsigned long jpegSize = 0;
+
+		struct jpeg_compress_struct cinfo;
+		struct jpeg_error_mgr jerr;
+		cinfo.err = jpeg_std_error(&jerr);
+		jpeg_create_compress(&cinfo);
+
+		jpeg_mem_dest(&cinfo, &jpegData, &jpegSize);
+
+		int32 w = (int32)(fLastFrame->Bounds().Width() + 1);
+		int32 h = (int32)(fLastFrame->Bounds().Height() + 1);
+		cinfo.image_width = w;
+		cinfo.image_height = h;
+		cinfo.input_components = 3;
+		cinfo.in_color_space = JCS_RGB;
+		jpeg_set_defaults(&cinfo);
+		jpeg_set_quality(&cinfo, 80, TRUE);
+		jpeg_start_compress(&cinfo, TRUE);
+
+		uint8* bits = (uint8*)fLastFrame->Bits();
+		int32 bpr = fLastFrame->BytesPerRow();
+		uint8* rowBuf = new uint8[w * 3];
+
+		while (cinfo.next_scanline < cinfo.image_height) {
+			uint8* src = bits + cinfo.next_scanline * bpr;
+			for (int32 x = 0; x < w; x++) {
+				rowBuf[x * 3 + 0] = src[x * 4 + 2]; // R
+				rowBuf[x * 3 + 1] = src[x * 4 + 1]; // G
+				rowBuf[x * 3 + 2] = src[x * 4 + 0]; // B
+			}
+			JSAMPROW row = rowBuf;
+			jpeg_write_scanlines(&cinfo, &row, 1);
+		}
+
+		jpeg_finish_compress(&cinfo);
+		jpeg_destroy_compress(&cinfo);
+		delete[] rowBuf;
+
+		if (jpegData != NULL && jpegSize > 0) {
+			BufferedFrame* bf = new BufferedFrame();
+			bf->jpegData = jpegData;
+			bf->jpegSize = (uint32)jpegSize;
+			bf->timestamp = system_time();
+			fCircularBuffer.AddItem(bf);
+
+			// Trim old frames beyond the buffer window
+			bigtime_t cutoff = bf->timestamp
+				- (bigtime_t)fCircularBufferSeconds * 1000000;
+			while (fCircularBuffer.CountItems() > 1) {
+				BufferedFrame* oldest = fCircularBuffer.ItemAt(0);
+				if (oldest->timestamp < cutoff)
+					delete fCircularBuffer.RemoveItemAt(0);
+				else
+					break;
+			}
+		}
 	}
 
 	// Update floating preview window if open
@@ -2141,6 +2221,123 @@ MainWindow::_TimelapseTick()
 	BString statusMsg;
 	statusMsg.SetToFormat("Time-lapse: %u frames (every %d sec)",
 		(unsigned)fTimelapseCount, (int)(fTimelapseInterval / 1000000));
+	fStatusBar->SetText(statusMsg.String());
+}
+
+
+// ============================================================================
+// Circular Buffer
+// ============================================================================
+
+void
+MainWindow::_ToggleCircularBuffer()
+{
+	fCircularBufferActive = !fCircularBufferActive;
+
+	BMenuItem* item = fToolsMenu->FindItem(MSG_BUFFER_TOGGLE);
+	if (item != NULL)
+		item->SetMarked(fCircularBufferActive);
+
+	if (fCircularBufferActive) {
+		BString statusMsg;
+		statusMsg.SetToFormat("Circular buffer active (keeping last %d sec)",
+			(int)fCircularBufferSeconds);
+		fStatusBar->SetText(statusMsg.String());
+	} else {
+		BAutolock lock(fBufferLock);
+		for (int32 i = 0; i < fCircularBuffer.CountItems(); i++)
+			delete fCircularBuffer.ItemAt(i);
+		fCircularBuffer.MakeEmpty();
+		fStatusBar->SetText("Circular buffer disabled");
+	}
+}
+
+
+void
+MainWindow::_SaveCircularBuffer()
+{
+	BAutolock lock(fBufferLock);
+
+	int32 count = fCircularBuffer.CountItems();
+	if (count == 0) {
+		fStatusBar->SetText("Buffer empty - enable buffer and capture first");
+		return;
+	}
+
+	// Save buffered frames as AVI using VideoRecorder
+	BPath dirPath = ExportUtils::GetScreenshotDirectory();
+	BString filename("BubiCam_Buffer_");
+	filename << ExportUtils::GetTimestamp();
+	filename << ".avi";
+
+	BPath filePath(dirPath);
+	filePath.Append(filename.String());
+
+	// Calculate actual FPS from buffered frames
+	BufferedFrame* first = fCircularBuffer.ItemAt(0);
+	BufferedFrame* last = fCircularBuffer.ItemAt(count - 1);
+	bigtime_t span = last->timestamp - first->timestamp;
+	float fps = span > 0 ? (count * 1000000.0f / span) : 30.0f;
+
+	// Get frame dimensions from fLastFrame
+	int32 width = 640, height = 480;
+	if (fLastFrame != NULL) {
+		width = (int32)(fLastFrame->Bounds().Width() + 1);
+		height = (int32)(fLastFrame->Bounds().Height() + 1);
+	}
+
+	VideoRecorder recorder;
+	status_t status = recorder.Start(filePath.Path(), width, height, fps);
+	if (status != B_OK) {
+		fStatusBar->SetText("Failed to save buffer");
+		return;
+	}
+
+	// Decompress each buffered JPEG and add to recorder
+	for (int32 i = 0; i < count; i++) {
+		BufferedFrame* bf = fCircularBuffer.ItemAt(i);
+
+		// Decompress JPEG to bitmap
+		struct jpeg_decompress_struct dinfo;
+		struct jpeg_error_mgr jerr;
+		dinfo.err = jpeg_std_error(&jerr);
+		jpeg_create_decompress(&dinfo);
+		jpeg_mem_src(&dinfo, bf->jpegData, bf->jpegSize);
+		jpeg_read_header(&dinfo, TRUE);
+		dinfo.out_color_space = JCS_RGB;
+		jpeg_start_decompress(&dinfo);
+
+		BBitmap frameBitmap(BRect(0, 0, dinfo.output_width - 1,
+			dinfo.output_height - 1), B_RGB32);
+
+		uint8* dst = (uint8*)frameBitmap.Bits();
+		int32 dstBpr = frameBitmap.BytesPerRow();
+		uint8* rowBuf = new uint8[dinfo.output_width * 3];
+
+		while (dinfo.output_scanline < dinfo.output_height) {
+			JSAMPROW row = rowBuf;
+			jpeg_read_scanlines(&dinfo, &row, 1);
+			uint8* dstRow = dst + (dinfo.output_scanline - 1) * dstBpr;
+			for (uint32 x = 0; x < dinfo.output_width; x++) {
+				dstRow[x * 4 + 0] = rowBuf[x * 3 + 2]; // B
+				dstRow[x * 4 + 1] = rowBuf[x * 3 + 1]; // G
+				dstRow[x * 4 + 2] = rowBuf[x * 3 + 0]; // R
+				dstRow[x * 4 + 3] = 255;
+			}
+		}
+
+		delete[] rowBuf;
+		jpeg_finish_decompress(&dinfo);
+		jpeg_destroy_decompress(&dinfo);
+
+		recorder.AddFrame(&frameBitmap);
+	}
+
+	recorder.Stop();
+
+	BString statusMsg;
+	statusMsg.SetToFormat("Buffer saved: %d frames (%.1f sec) to %s",
+		(int)count, span / 1000000.0, filename.String());
 	fStatusBar->SetText(statusMsg.String());
 }
 
