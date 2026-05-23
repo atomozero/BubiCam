@@ -113,7 +113,7 @@ MainWindow::MainWindow()
 	fWebcamRoster(NULL),
 	fCurrentWebcam(NULL),
 	fCurrentWebcamIndex(-1),
-	fSelectedAudioNodeID(0),  // disabled by default to avoid HDA driver crash (divide-by-zero in MultiAudioNode::Connect)
+	fSelectedAudioNodeID(-1),  // auto: use webcam audio if available
 	fIsPreviewActive(false),
 	fSavePanel(NULL),
 	fLastFrame(NULL),

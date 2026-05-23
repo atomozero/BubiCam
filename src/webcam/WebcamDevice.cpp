@@ -577,7 +577,7 @@ WebcamDevice::StartCapture(BLooper* target)
 			fSupportsAudio = true;
 			LOG_INFO("Audio connection established");
 		} else {
-			LOG_DEBUG("Audio not available: %s", strerror(status));
+			LOG_INFO("Audio not available: %s", strerror(status));
 		}
 	} else {
 		LOG_DEBUG("Audio disabled by user");
@@ -1291,8 +1291,11 @@ WebcamDevice::_SetupAudioConnection()
 	status = roster->GetFreeOutputsFor(fMediaNode, outputs, 10, &outputCount,
 		B_MEDIA_RAW_AUDIO);
 
+	LOG_INFO("Audio: video node has %d audio outputs (status=%s)",
+		(int)outputCount, strerror(status));
+
 	if (status != B_OK || outputCount == 0) {
-		LOG_DEBUG("No audio output on video node, trying fallback...");
+		LOG_INFO("No audio output on video node, trying fallback...");
 
 		media_node audioNode;
 		bool foundAudioNode = false;
@@ -1324,7 +1327,7 @@ WebcamDevice::_SetupAudioConnection()
 		}
 
 		if (!foundAudioNode) {
-			LOG_DEBUG("No audio input available");
+			LOG_INFO("No audio input available - VU meter disabled");
 			roster->UnregisterNode(fAudioConsumer);
 			delete fAudioConsumer;
 			fAudioConsumer = NULL;
