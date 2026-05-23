@@ -568,11 +568,17 @@ WebcamDevice::StartCapture(BLooper* target)
 		return status;
 	}
 
-	// Set up audio connection if available
-	if (fSupportsAudio) {
+	// Always try audio connection - fSupportsAudio may be false because
+	// GatherDeviceInfo() runs before the node is instantiated. The actual
+	// audio availability can only be determined once the node is live.
+	{
 		status = _SetupAudioConnection();
-		if (status != B_OK)
+		if (status == B_OK) {
+			fSupportsAudio = true;
+			LOG_INFO("Audio connection established");
+		} else {
 			LOG_DEBUG("Audio not available: %s", strerror(status));
+		}
 	}
 
 	// Get the time source
@@ -1262,17 +1268,82 @@ WebcamDevice::_SetupAudioConnection()
 		return status;
 	}
 
-	// Get free audio outputs from producer
+	// Strategy 1: Try to get audio outputs directly from the video producer node.
+	// Some webcam drivers expose both video and audio from the same node.
 	int32 outputCount = 0;
 	media_output outputs[10];
 	status = roster->GetFreeOutputsFor(fMediaNode, outputs, 10, &outputCount,
 		B_MEDIA_RAW_AUDIO);
 
 	if (status != B_OK || outputCount == 0) {
-		roster->UnregisterNode(fAudioConsumer);
-		delete fAudioConsumer;
-		fAudioConsumer = NULL;
-		return B_ERROR;
+		// Strategy 2: Look for a USB audio node from the same media add-on.
+		// On Haiku, webcam audio is typically exposed as a separate dormant node
+		// by the same add-on (addon id matches the video node).
+		LOG_DEBUG("No audio output on video node, searching for USB audio node...");
+
+		media_node audioNode;
+		bool foundAudioNode = false;
+
+		// Look for dormant audio producer nodes from the same add-on
+		const int32 kMaxNodes = 64;
+		dormant_node_info* dormantNodes = new dormant_node_info[kMaxNodes];
+		int32 dormantCount = kMaxNodes;
+
+		status = roster->GetDormantNodes(dormantNodes, &dormantCount,
+			NULL, NULL, NULL, B_BUFFER_PRODUCER, 0);
+
+		if (status == B_OK) {
+			for (int32 i = 0; i < dormantCount; i++) {
+				// Match by addon id - audio and video nodes from the same
+				// webcam share the same addon id
+				if (dormantNodes[i].addon == fDormantInfo.addon
+					&& dormantNodes[i].flavor_id != fDormantInfo.flavor_id) {
+
+					LOG_DEBUG("Trying dormant audio node: '%s' (addon=%d, flavor=%d)",
+						dormantNodes[i].name,
+						(int)dormantNodes[i].addon,
+						(int)dormantNodes[i].flavor_id);
+
+					status = roster->InstantiateDormantNode(
+						dormantNodes[i], &audioNode, 0);
+					if (status == B_OK) {
+						// Check if this node has audio outputs
+						status = roster->GetFreeOutputsFor(audioNode, outputs, 10,
+							&outputCount, B_MEDIA_RAW_AUDIO);
+						if (status == B_OK && outputCount > 0) {
+							foundAudioNode = true;
+							LOG_INFO("Found USB audio node: '%s'",
+								dormantNodes[i].name);
+							break;
+						}
+						// Not an audio node, release it
+						roster->ReleaseNode(audioNode);
+					}
+				}
+			}
+		}
+
+		delete[] dormantNodes;
+
+		if (!foundAudioNode) {
+			// Strategy 3: Try the system default audio input
+			status = roster->GetAudioInput(&audioNode);
+			if (status == B_OK) {
+				status = roster->GetFreeOutputsFor(audioNode, outputs, 10,
+					&outputCount, B_MEDIA_RAW_AUDIO);
+				if (status == B_OK && outputCount > 0) {
+					foundAudioNode = true;
+					LOG_INFO("Using system audio input for VU meter");
+				}
+			}
+		}
+
+		if (!foundAudioNode) {
+			roster->UnregisterNode(fAudioConsumer);
+			delete fAudioConsumer;
+			fAudioConsumer = NULL;
+			return B_ERROR;
+		}
 	}
 
 	fAudioOutput = outputs[0];
@@ -1292,11 +1363,22 @@ WebcamDevice::_SetupAudioConnection()
 
 	fAudioInput = inputs[0];
 
-	// Connect producer to consumer
-	media_format format;
-	format = media_format();
-	format.type = B_MEDIA_RAW_AUDIO;
-	format.u.raw_audio = media_raw_audio_format::wildcard;
+	// Connect producer to consumer.
+	// Use the producer's advertised format rather than wildcard to avoid
+	// divide-by-zero crashes in buggy drivers (e.g., AudioProducer::Connect
+	// divides by channel_count * sample_size, which are 0 in wildcard format).
+	media_format format = fAudioOutput.format;
+	if (format.type != B_MEDIA_RAW_AUDIO) {
+		format.type = B_MEDIA_RAW_AUDIO;
+		format.u.raw_audio = media_raw_audio_format::wildcard;
+	}
+	// Ensure critical fields are non-zero to prevent driver crashes
+	if (format.u.raw_audio.channel_count == 0)
+		format.u.raw_audio.channel_count = 2;
+	if (format.u.raw_audio.frame_rate == 0)
+		format.u.raw_audio.frame_rate = 48000.0f;
+	if (format.u.raw_audio.format == 0)
+		format.u.raw_audio.format = media_raw_audio_format::B_AUDIO_SHORT;
 
 	status = roster->Connect(fAudioOutput.source, fAudioInput.destination,
 		&format, &fAudioOutput, &fAudioInput);
