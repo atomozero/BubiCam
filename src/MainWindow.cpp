@@ -50,6 +50,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <string.h>
 #include <time.h>
 
@@ -185,16 +186,21 @@ MainWindow::~MainWindow()
 		// which can hang. Let the OS reclaim the memory on exit.
 	}
 
+	// These are already cleaned up in QuitRequested, but delete handles NULL
 	delete fTimelapseRunner;
+	fTimelapseRunner = NULL;
 	delete fSavePanel;
 	delete fLastFrame;
 	delete fRecorder;
 
-	// Stop MCP server (non-blocking)
+	// Stop MCP server - QuitRequested already stopped it and cleared device,
+	// so Lock()/Quit() should return quickly
 	if (fMCPServer != NULL) {
-		fMCPServer->Stop();
-		fMCPServer->Lock();
-		fMCPServer->Quit();
+		if (fMCPServer->IsRunning())
+			fMCPServer->Stop();
+		if (fMCPServer->LockWithTimeout(1000000) == B_OK)
+			fMCPServer->Quit();
+		// If LockWithTimeout fails, the server is stuck - let OS clean up
 	}
 }
 
@@ -2397,6 +2403,18 @@ MainWindow::_UpdateRecordingStatus()
 }
 
 
+static int32
+_ShutdownWatchdogThread(void* data)
+{
+	// Allow 10 seconds for graceful shutdown.
+	// StopNodeWithTimeout uses 3s per node, and we may have up to 3 nodes.
+	snooze(10000000);
+	fprintf(stderr, "BubiCam: Shutdown watchdog triggered after 10s - forcing exit\n");
+	_exit(1);
+	return 0;
+}
+
+
 bool
 MainWindow::QuitRequested()
 {
@@ -2406,13 +2424,38 @@ MainWindow::QuitRequested()
 	// their node cleanup properly - they try to access already-destroyed objects
 	// in their BUSBRoster when the media add-on is unloaded.
 
-	// Save settings before shutdown
+	// Save settings before shutdown - do this first, always
 	_SaveSettings();
 
 	fprintf(stderr, "MainWindow::QuitRequested() - Starting shutdown...\n");
 
+	// Spawn watchdog FIRST - guarantees we never hang indefinitely.
+	// Uses _exit() to skip atexit handlers which could also hang.
+	thread_id exitWatchdog = spawn_thread(_ShutdownWatchdogThread,
+		"exit_watchdog", B_LOW_PRIORITY, NULL);
+	if (exitWatchdog >= 0)
+		resume_thread(exitWatchdog);
+
+	// Stop MCP server early to prevent new requests during shutdown
+	if (fMCPServer != NULL) {
+		fMCPServer->SetWebcamDevice(NULL);
+		if (fMCPServer->IsRunning())
+			fMCPServer->Stop();
+	}
+
+	// Stop any running driver test
+	if (fDriverTestView != NULL && fDriverTestView->IsTestRunning())
+		fDriverTestView->StopCurrentTest();
+
+	// Stop recording if active
+	if (fRecorder != NULL && fRecorder->IsRecording())
+		_StopRecording();
+
+	// Stop timelapse
+	delete fTimelapseRunner;
+	fTimelapseRunner = NULL;
+
 	// Check if driver appears to be crashed/frozen
-	// If we haven't received a frame in 3+ seconds while capturing, driver is likely stuck
 	bool driverFrozen = false;
 	if (fIsPreviewActive && fLastFrameReceived > 0) {
 		bigtime_t timeSinceLastFrame = system_time() - fLastFrameReceived;
@@ -2425,8 +2468,7 @@ MainWindow::QuitRequested()
 
 	if (driverFrozen || fDriverCrashed) {
 		// Driver is frozen/crashed - skip normal cleanup to avoid hanging
-		fprintf(stderr, "  Driver appears frozen/crashed - forcing immediate shutdown\n");
-		fprintf(stderr, "  Skipping Media Kit cleanup to avoid hang\n");
+		fprintf(stderr, "  Driver appears frozen/crashed - skipping Media Kit cleanup\n");
 
 		// Just mark as not capturing and let the OS clean up
 		{
@@ -2435,32 +2477,24 @@ MainWindow::QuitRequested()
 			fCurrentWebcam = NULL;
 		}
 
-		// Don't try to clear the roster - it would call into the frozen driver
-		// The OS will clean up when the process exits
-
 		be_app->PostMessage(B_QUIT_REQUESTED);
 		return true;
 	}
 
-	// Spawn a watchdog thread that will force-exit after 5 seconds
-	// in case _StopPreview or roster cleanup gets stuck in Media Kit IPC
-	thread_id exitWatchdog = spawn_thread([](void* /*data*/) -> int32 {
-		snooze(5000000);  // 5 seconds
-		fprintf(stderr, "MainWindow: Shutdown watchdog triggered - forcing exit\n");
-		exit(0);
-		return 0;
-	}, "exit_watchdog", B_LOW_PRIORITY, NULL);
-	if (exitWatchdog >= 0)
-		resume_thread(exitWatchdog);
-
-	// Stop preview directly on the window thread (we are in QuitRequested
-	// which runs on the window thread, so _StopPreview is safe to call).
-	// StopCapture internally uses StopNodeWithTimeout (3s per node).
+	// Normal shutdown path: stop preview (uses StopNodeWithTimeout internally)
+	fprintf(stderr, "  Stopping preview...\n");
 	_StopPreview();
+
+	// Clear the current device pointer before clearing the roster
+	{
+		BAutolock lock(fWebcamLock);
+		fCurrentWebcam = NULL;
+		fCurrentWebcamIndex = -1;
+	}
 
 	// Release all webcam devices
 	if (fWebcamRoster != NULL) {
-		fprintf(stderr, "MainWindow::QuitRequested() - Clearing webcam roster\n");
+		fprintf(stderr, "  Clearing webcam roster...\n");
 		fWebcamRoster->Clear();
 	}
 
