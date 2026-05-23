@@ -93,6 +93,7 @@ MainWindow::MainWindow()
 	fWatchdogRunner(NULL)
 {
 	fWebcamRoster = new WebcamRoster();
+	AddHandler(fWebcamRoster);
 
 	// Create MCP server
 	fMCPServer = new MCPServer(BMessenger(this));
@@ -100,6 +101,9 @@ MainWindow::MainWindow()
 	_BuildMenu();
 	_BuildLayout();
 	_PopulateWebcamMenu();
+
+	// Start watching for media node changes (hot-plug detection)
+	fWebcamRoster->StartWatching();
 
 	// Allow window to be resized freely
 	BScreen screen(this);
@@ -127,9 +131,12 @@ MainWindow::~MainWindow()
 	if (fSyslogView != NULL)
 		fSyslogView->StopMonitoring();
 
-	// fWebcamRoster->Clear() was already called in QuitRequested(),
-	// but delete is still needed to free the roster object itself
-	delete fWebcamRoster;
+	// Stop node watching and clean up roster
+	if (fWebcamRoster != NULL) {
+		fWebcamRoster->StopWatching();
+		RemoveHandler(fWebcamRoster);
+		delete fWebcamRoster;
+	}
 	delete fSavePanel;
 	delete fLastFrame;
 	delete fRecorder;
@@ -842,6 +849,19 @@ MainWindow::MessageReceived(BMessage* message)
 		case MSG_REFRESH_DEVICES:
 			_PopulateWebcamMenu();
 			break;
+
+		case MSG_DEVICES_CHANGED:
+		{
+			// Auto-refresh triggered by media node watcher (hot-plug)
+			fStatusBar->SetText("Device change detected, refreshing...");
+			_PopulateWebcamMenu();
+			int32 count = fWebcamRoster->CountDevices();
+			BString status;
+			status.SetToFormat("Hot-plug: %d webcam%s found",
+				(int)count, count != 1 ? "s" : "");
+			fStatusBar->SetText(status.String());
+			break;
+		}
 
 		case MSG_WEBCAM_SELECTED:
 		{

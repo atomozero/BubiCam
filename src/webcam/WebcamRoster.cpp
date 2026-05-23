@@ -20,16 +20,101 @@
 #include <string.h>
 
 
+// Internal message for coalescing rapid node change events
+static const uint32 kMsgCoalesceRefresh = '_crr';
+
+
 WebcamRoster::WebcamRoster()
 	:
-	fLock("webcam roster lock")
+	BHandler("WebcamRoster"),
+	fLock("webcam roster lock"),
+	fWatching(false),
+	fCoalesceRunner(NULL)
 {
 }
 
 
 WebcamRoster::~WebcamRoster()
 {
+	StopWatching();
+	delete fCoalesceRunner;
 	Clear();
+}
+
+
+void
+WebcamRoster::MessageReceived(BMessage* message)
+{
+	switch (message->what) {
+		case B_MEDIA_NODE_CREATED:
+		case B_MEDIA_NODE_DELETED:
+		{
+			// Coalesce rapid-fire events: when a USB device is plugged in,
+			// multiple nodes may be created in quick succession. We delay
+			// the refresh by 500ms and reset the timer on each new event.
+			delete fCoalesceRunner;
+			BMessage refreshMsg(kMsgCoalesceRefresh);
+			fCoalesceRunner = new BMessageRunner(BMessenger(this),
+				&refreshMsg, 500000, 1);  // 500ms, once
+			break;
+		}
+
+		case kMsgCoalesceRefresh:
+		{
+			delete fCoalesceRunner;
+			fCoalesceRunner = NULL;
+
+			LOG_INFO("Media node change detected, refreshing device list");
+			_NotifyDevicesChanged();
+			break;
+		}
+
+		default:
+			BHandler::MessageReceived(message);
+			break;
+	}
+}
+
+
+status_t
+WebcamRoster::StartWatching()
+{
+	if (fWatching)
+		return B_OK;
+
+	BMediaRoster* roster = BMediaRoster::Roster();
+	if (roster == NULL)
+		return B_ERROR;
+
+	// Watch for node creation and deletion
+	status_t status = roster->StartWatching(BMessenger(this),
+		B_MEDIA_NODE_CREATED | B_MEDIA_NODE_DELETED);
+
+	if (status == B_OK) {
+		fWatching = true;
+		LOG_INFO("Node watching started");
+	} else {
+		LOG_ERROR("Failed to start node watching: %s", strerror(status));
+	}
+
+	return status;
+}
+
+
+void
+WebcamRoster::StopWatching()
+{
+	if (!fWatching)
+		return;
+
+	BMediaRoster* roster = BMediaRoster::Roster();
+	if (roster != NULL) {
+		roster->StopWatching(BMessenger(this),
+			B_MEDIA_NODE_CREATED | B_MEDIA_NODE_DELETED);
+	}
+
+	fWatching = false;
+	LOG_INFO("Node watching stopped");
 }
 
 
@@ -190,6 +275,16 @@ WebcamRoster::DeviceByName(const char* name) const
 	}
 
 	return NULL;
+}
+
+
+void
+WebcamRoster::_NotifyDevicesChanged()
+{
+	// Send MSG_DEVICES_CHANGED to our looper (MainWindow)
+	BLooper* looper = Looper();
+	if (looper != NULL)
+		looper->PostMessage(MSG_DEVICES_CHANGED);
 }
 
 
