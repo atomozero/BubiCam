@@ -164,6 +164,38 @@ DriverInfoView::SetDevice(WebcamDevice* device, bool isCapturing)
 			currentFormat.width, currentFormat.height,
 			currentFormat.frameRate, currentFormat.colorSpace);
 		_AppendField("Current Format", currentStr.String());
+
+		// Detailed format info
+		int32 bpp = 0;
+		if (strcmp(currentFormat.colorSpace, "YUY2") == 0 ||
+			strcmp(currentFormat.colorSpace, "UYVY") == 0)
+			bpp = 16;
+		else if (strcmp(currentFormat.colorSpace, "MJPEG") == 0)
+			bpp = 12;  // typical compressed
+		else if (strcmp(currentFormat.colorSpace, "RGB32") == 0 ||
+				 strcmp(currentFormat.colorSpace, "BGRA") == 0)
+			bpp = 32;
+		else if (strcmp(currentFormat.colorSpace, "RGB24") == 0)
+			bpp = 24;
+		else if (strcmp(currentFormat.colorSpace, "I420") == 0 ||
+				 strcmp(currentFormat.colorSpace, "NV12") == 0 ||
+				 strcmp(currentFormat.colorSpace, "NV21") == 0)
+			bpp = 12;
+
+		if (bpp > 0) {
+			float rawBandwidth = currentFormat.width * currentFormat.height
+				* bpp * currentFormat.frameRate / 8.0f / 1024.0f / 1024.0f;
+			BString detailStr;
+			detailStr.SetToFormat("%d bits/pixel, %.1f MB/s raw bandwidth",
+				(int)bpp, rawBandwidth);
+			_AppendField("Format Details", detailStr.String());
+		}
+
+		BString pixelStr;
+		pixelStr.SetToFormat("%d total pixels, %.2f megapixels",
+			(int)(currentFormat.width * currentFormat.height),
+			currentFormat.width * currentFormat.height / 1000000.0f);
+		_AppendField("Resolution Details", pixelStr.String());
 	} else {
 		_AppendField("Current Format", "Not available (0x0)");
 	}
@@ -241,11 +273,18 @@ DriverInfoView::SetDevice(WebcamDevice* device, bool isCapturing)
 
 	// Audio Capabilities Section
 	_AppendSection("AUDIO CAPABILITIES");
-	_AppendField("Audio Supported", device->SupportsAudio());
 	if (device->SupportsAudio()) {
+		_AppendField("Audio Connected", true);
 		_AppendField("Sample Rate", (int32)device->AudioSampleRate());
 		_AppendField("Channels", (int32)device->AudioChannels());
 		_AppendField("Bits per Sample", (int32)device->AudioBitsPerSample());
+	} else if (device->AudioNodeID() == 0) {
+		_AppendField("Audio Status", "Disabled (select source in Audio menu)");
+	} else {
+		_AppendField("Audio Status", "Not available from this driver");
+		_AppendField("Note",
+			"The driver may expose audio as a separate node. "
+			"Check Audio menu or Media preferences.");
 	}
 	_AppendNewLine();
 
