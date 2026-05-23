@@ -106,13 +106,13 @@ Documento di pianificazione per le funzionalità della versione 2.0 di BubiCam.
 
 | Stato | Feature | Descrizione | Note |
 |:-----:|---------|-------------|------|
-| [ ] | **Preset salvataggio** | Salva/carica configurazioni controlli | File .bcpreset |
-| [ ] | **Auto-exposure lock** | Blocca esposizione corrente | Se supportato |
-| [ ] | **White balance lock** | Blocca bilanciamento bianco | Se supportato |
+| [x] | **Preset salvataggio** | Salva/carica configurazioni controlli | File .bcpreset in ~/config/settings/BubiCam/presets/ |
+| [x] | **Auto-exposure lock** | Blocca esposizione corrente | Toggle Lock AE |
+| [x] | **White balance lock** | Blocca bilanciamento bianco | Toggle Lock AWB |
 | [ ] | **Face detection** | Evidenzia volti (se driver supporta) | Overlay rettangoli |
-| [ ] | **PTZ controls** | Pan/Tilt/Zoom per webcam motorizzate | UI dedicata |
-| [ ] | **Reset to defaults** | Ripristina valori fabbrica | Un click |
-| [ ] | **Controlli rapidi** | Slider principali sempre visibili | Brightness, contrast |
+| [x] | **PTZ controls** | Pan/Tilt/Zoom per webcam motorizzate | Supportato via ParameterWeb generico |
+| [x] | **Reset to defaults** | Ripristina valori fabbrica | Ripristina valori iniziali dal driver |
+| [x] | **Controlli rapidi** | Slider principali sempre visibili | Brightness/contrast primi nel pannello |
 
 ### Note implementazione
 ```
@@ -190,7 +190,7 @@ Documento di pianificazione per le funzionalità della versione 2.0 di BubiCam.
 ### v2.0-alpha (Prima release)
 - [x] Registrazione video base
 - [x] Hotplug detection
-- [ ] Preset salvataggio controlli
+- [x] Preset salvataggio controlli
 - [x] Report diagnostico
 
 ### v2.0-beta
@@ -238,6 +238,7 @@ Documento di pianificazione per le funzionalità della versione 2.0 di BubiCam.
 | 2024-12-16 | 0.2 | Implementato capitolo 2 (Testing Avanzato Driver) |
 | 2024-12-16 | 0.3 | Implementato USB Packet Viewer (cap. 8) |
 | 2026-05-23 | 0.4 | Aggiornamento stato: registrazione video AVI, MJPEG, NV12/NV21, zoom/histogram/A-B compare, hotplug, settings, cycle test, tema sistema, click-to-freeze drag-to-save, icona app |
+| 2026-05-23 | 0.5 | Completato capitolo 5 (Controlli Webcam): preset, lock AE/AWB, PTZ, reset defaults, controlli rapidi |
 
 ---
 
