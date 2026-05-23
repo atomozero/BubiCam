@@ -28,7 +28,9 @@ WebcamControlsView::WebcamControlsView(const char* name)
 	fDevice(NULL),
 	fTarget(NULL),
 	fControlsContainer(NULL),
-	fNoControlsLabel(NULL)
+	fNoControlsLabel(NULL),
+	fButtonBar(NULL),
+	fLoadBar(NULL)
 {
 	SetViewColor(ui_color(B_PANEL_BACKGROUND_COLOR));
 
@@ -43,40 +45,46 @@ WebcamControlsView::WebcamControlsView(const char* name)
 		"No controls available.\nSelect a webcam to see its controls.");
 	fNoControlsLabel->SetAlignment(B_ALIGN_CENTER);
 
-	// Control buttons
-	BButton* refreshButton = new BButton("refreshButton", "Load Controls",
-		new BMessage(MSG_CONTROL_REFRESH));
-	BButton* resetButton = new BButton("resetButton", "Reset",
-		new BMessage(MSG_CONTROL_RESET));
-	BButton* savePresetButton = new BButton("savePreset", "Save",
-		new BMessage(MSG_PRESET_SAVE));
-	BButton* loadPresetButton = new BButton("loadPreset", "Load",
-		new BMessage(MSG_PRESET_LOAD));
+	// "Load Controls" bar - shown when device selected but controls not loaded
+	fLoadBar = BLayoutBuilder::Group<>(B_VERTICAL, B_USE_SMALL_SPACING)
+		.Add(new BButton("refreshButton", "Load Controls",
+			new BMessage(MSG_CONTROL_REFRESH)))
+		.View();
 
-	BButton* lockAEButton = new BButton("lockAE", "Lock AE",
-		new BMessage(MSG_LOCK_AE));
-	BButton* lockAWBButton = new BButton("lockAWB", "Lock AWB",
-		new BMessage(MSG_LOCK_AWB));
+	// Action button bar - shown only when controls are loaded
+	fButtonBar = BLayoutBuilder::Group<>(B_VERTICAL, B_USE_HALF_ITEM_SPACING)
+		.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
+			.Add(new BButton("lockAE", "Lock AE",
+				new BMessage(MSG_LOCK_AE)))
+			.Add(new BButton("lockAWB", "Lock AWB",
+				new BMessage(MSG_LOCK_AWB)))
+		.End()
+		.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
+			.Add(new BButton("resetButton", "Reset",
+				new BMessage(MSG_CONTROL_RESET)))
+			.Add(new BButton("refreshButton2", "Reload",
+				new BMessage(MSG_CONTROL_REFRESH)))
+		.End()
+		.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
+			.Add(new BButton("savePreset", "Save Preset",
+				new BMessage(MSG_PRESET_SAVE)))
+			.Add(new BButton("loadPreset", "Load Preset",
+				new BMessage(MSG_PRESET_LOAD)))
+		.End()
+		.View();
 
 	BLayoutBuilder::Group<>(this, B_VERTICAL, B_USE_SMALL_SPACING)
 		.SetInsets(B_USE_SMALL_INSETS)
 		.Add(fNoControlsLabel)
 		.Add(fControlsContainer)
 		.AddGlue()
-		.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
-			.Add(lockAEButton)
-			.Add(lockAWBButton)
-		.End()
-		.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
-			.Add(refreshButton)
-			.Add(resetButton)
-		.End()
-		.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
-			.Add(savePresetButton)
-			.Add(loadPresetButton)
-		.End();
+		.Add(fLoadBar)
+		.Add(fButtonBar);
 
+	// Initial state: nothing visible except the label
 	fControlsContainer->Hide();
+	fButtonBar->Hide();
+	fLoadBar->Hide();
 }
 
 
@@ -86,21 +94,25 @@ WebcamControlsView::~WebcamControlsView()
 }
 
 
+static void
+_SetTargetsRecursive(BView* root, BHandler* target)
+{
+	for (int32 i = 0; i < root->CountChildren(); i++) {
+		BView* child = root->ChildAt(i);
+		BButton* btn = dynamic_cast<BButton*>(child);
+		if (btn != NULL)
+			btn->SetTarget(target);
+		else
+			_SetTargetsRecursive(child, target);
+	}
+}
+
+
 void
 WebcamControlsView::AttachedToWindow()
 {
 	BView::AttachedToWindow();
-
-	// Set button targets
-	const char* buttonNames[] = {
-		"resetButton", "refreshButton", "savePreset", "loadPreset",
-		"lockAE", "lockAWB"
-	};
-	for (size_t i = 0; i < sizeof(buttonNames) / sizeof(buttonNames[0]); i++) {
-		BButton* btn = dynamic_cast<BButton*>(FindView(buttonNames[i]));
-		if (btn != NULL)
-			btn->SetTarget(this);
-	}
+	_SetTargetsRecursive(this, this);
 }
 
 
@@ -232,9 +244,12 @@ WebcamControlsView::SetDevice(WebcamDevice* device)
 			"Controls not loaded.\n"
 			"Click 'Load Controls' to read driver parameters.\n\n"
 			"WARNING: Some drivers may crash when reading parameters.");
-		fNoControlsLabel->Show();
-		fControlsContainer->Hide();
+	} else {
+		fNoControlsLabel->SetText(
+			"No controls available.\n"
+			"Select a webcam to see its controls.");
 	}
+	_UpdateButtonVisibility();
 }
 
 
@@ -243,8 +258,10 @@ WebcamControlsView::Clear()
 {
 	fDevice = NULL;
 	_ClearControls();
-	fNoControlsLabel->Show();
-	fControlsContainer->Hide();
+	fNoControlsLabel->SetText(
+		"No controls available.\n"
+		"Select a webcam to see its controls.");
+	_UpdateButtonVisibility();
 }
 
 
@@ -262,24 +279,21 @@ WebcamControlsView::_BuildControls()
 
 	if (fDevice == NULL) {
 		fNoControlsLabel->SetText("No webcam selected.");
-		fNoControlsLabel->Show();
-		fControlsContainer->Hide();
+		_UpdateButtonVisibility();
 		return;
 	}
 
 	// Check if the node is instantiated - required for GetParameterWebFor
 	if (!fDevice->IsNodeInstantiated()) {
 		fNoControlsLabel->SetText("Webcam not active.\nStart preview to see controls.");
-		fNoControlsLabel->Show();
-		fControlsContainer->Hide();
+		_UpdateButtonVisibility();
 		return;
 	}
 
 	BMediaRoster* roster = BMediaRoster::Roster();
 	if (roster == NULL) {
 		fNoControlsLabel->SetText("Media Kit not available.");
-		fNoControlsLabel->Show();
-		fControlsContainer->Hide();
+		_UpdateButtonVisibility();
 		return;
 	}
 
@@ -396,11 +410,7 @@ WebcamControlsView::_BuildControls()
 		}
 	}
 
-	if (fControls.CountItems() > 0)
-		fControlsContainer->Show();
-	else
-		fControlsContainer->Hide();
-
+	_UpdateButtonVisibility();
 	InvalidateLayout();
 	Invalidate();
 }
@@ -570,6 +580,50 @@ WebcamControlsView::_ApplyControlValue(int32 paramId, float value)
 		msg.AddInt32("param_id", paramId);
 		msg.AddFloat("value", value);
 		BMessenger(fTarget).SendMessage(&msg);
+	}
+}
+
+
+void
+WebcamControlsView::_UpdateButtonVisibility()
+{
+	bool hasControls = fControls.CountItems() > 0;
+	bool hasDevice = fDevice != NULL;
+
+	// Controls container: show only when controls are loaded
+	if (hasControls) {
+		if (fControlsContainer->IsHidden())
+			fControlsContainer->Show();
+	} else {
+		if (!fControlsContainer->IsHidden())
+			fControlsContainer->Hide();
+	}
+
+	// Label: show when no controls loaded
+	if (hasControls) {
+		if (!fNoControlsLabel->IsHidden())
+			fNoControlsLabel->Hide();
+	} else {
+		if (fNoControlsLabel->IsHidden())
+			fNoControlsLabel->Show();
+	}
+
+	// Load bar: show only when device present but no controls loaded
+	if (hasDevice && !hasControls) {
+		if (fLoadBar->IsHidden())
+			fLoadBar->Show();
+	} else {
+		if (!fLoadBar->IsHidden())
+			fLoadBar->Hide();
+	}
+
+	// Button bar (reset, lock, presets): show only when controls loaded
+	if (hasControls) {
+		if (fButtonBar->IsHidden())
+			fButtonBar->Show();
+	} else {
+		if (!fButtonBar->IsHidden())
+			fButtonBar->Hide();
 	}
 }
 

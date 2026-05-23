@@ -82,11 +82,15 @@ private:
 	void				_ToggleAutoParam(const char* paramName);
 	static BPath		_PresetsDirectory();
 
+	void				_UpdateButtonVisibility();
+
 	WebcamDevice*		fDevice;
 	BHandler*			fTarget;
 	BObjectList<ControlInfo> fControls;
 	BView*				fControlsContainer;
 	BStringView*		fNoControlsLabel;
+	BView*				fButtonBar;
+	BView*				fLoadBar;
 	BMessage			fDefaultValues;
 };
 
