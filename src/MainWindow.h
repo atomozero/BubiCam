@@ -68,7 +68,8 @@ enum {
 	MSG_CAPTURE_REFERENCE	= 'cprf',
 	MSG_TOGGLE_COMPARE		= 'tgcm',
 	MSG_CLEAR_REFERENCE		= 'clrf',
-	MSG_TOGGLE_AUTO_PREVIEW	= 'tgap'
+	MSG_TOGGLE_AUTO_PREVIEW	= 'tgap',
+	MSG_RESTORE_DEVICE		= 'rstd'
 };
 
 

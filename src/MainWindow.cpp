@@ -861,6 +861,39 @@ MainWindow::MessageReceived(BMessage* message)
 			_PopulateWebcamMenu();
 			break;
 
+		case MSG_RESTORE_DEVICE:
+		{
+			const char* deviceName;
+			if (message->FindString("device_name", &deviceName) != B_OK)
+				break;
+
+			for (int32 i = 0; i < fWebcamRoster->CountDevices(); i++) {
+				WebcamDevice* device = fWebcamRoster->DeviceAt(i);
+				if (device != NULL && strcmp(device->Name(), deviceName) == 0) {
+					if (fAutoStartPreview) {
+						_SelectWebcam(i);
+					} else {
+						BAutolock lock(fWebcamLock);
+						fCurrentWebcam = device;
+						fCurrentWebcamIndex = i;
+						lock.Unlock();
+
+						for (int32 j = 2; j < fWebcamMenu->CountItems(); j++) {
+							BMenuItem* menuItem = fWebcamMenu->ItemAt(j);
+							if (menuItem != NULL)
+								menuItem->SetMarked(j - 2 == i);
+						}
+						BString status;
+						status.SetToFormat("Selected: %s (preview disabled)",
+							device->Name());
+						fStatusBar->SetText(status.String());
+					}
+					break;
+				}
+			}
+			break;
+		}
+
 		case MSG_TOGGLE_AUTO_PREVIEW:
 		{
 			fAutoStartPreview = !fAutoStartPreview;
@@ -1659,35 +1692,13 @@ MainWindow::_LoadSettings()
 			item->SetMarked(fAutoStartPreview);
 	}
 
-	// Restore last selected webcam
+	// Restore last selected webcam - defer to after Show() so the
+	// message loop is running when StartCapture sends frames
 	const char* lastDevice;
 	if (settings.FindString("last_device", &lastDevice) == B_OK) {
-		for (int32 i = 0; i < fWebcamRoster->CountDevices(); i++) {
-			WebcamDevice* device = fWebcamRoster->DeviceAt(i);
-			if (device != NULL && strcmp(device->Name(), lastDevice) == 0) {
-				if (fAutoStartPreview) {
-					_SelectWebcam(i);
-				} else {
-					// Select device without starting preview
-					BAutolock lock(fWebcamLock);
-					fCurrentWebcam = device;
-					fCurrentWebcamIndex = i;
-
-					// Update menu checkmarks
-					for (int32 j = 2; j < fWebcamMenu->CountItems(); j++) {
-						BMenuItem* menuItem = fWebcamMenu->ItemAt(j);
-						if (menuItem != NULL)
-							menuItem->SetMarked(j - 2 == i);
-					}
-
-					BString status;
-					status.SetToFormat("Selected: %s (preview disabled)",
-						device->Name());
-					fStatusBar->SetText(status.String());
-				}
-				break;
-			}
-		}
+		BMessage restoreMsg(MSG_RESTORE_DEVICE);
+		restoreMsg.AddString("device_name", lastDevice);
+		PostMessage(&restoreMsg);
 	}
 }
 
