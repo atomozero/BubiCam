@@ -1285,15 +1285,19 @@ MainWindow::_HandleFrameReceived(BMessage* message)
 	fVideoPreview->SetResolution(frameWidth, frameHeight);
 
 	// Sync device's current format with actual frame resolution
-	// and refresh Driver Info if resolution changed
 	{
 		BAutolock lock(fWebcamLock);
 		if (fCurrentWebcam != NULL) {
-			VideoFormat before = fCurrentWebcam->CurrentFormat();
 			fCurrentWebcam->UpdateActualResolution(frameWidth, frameHeight);
-			if (before.width != frameWidth || before.height != frameHeight)
-				fDriverInfo->SetDevice(fCurrentWebcam, fIsPreviewActive);
 		}
+	}
+
+	// Refresh Driver Info once after first frames arrive, so it shows
+	// the actual resolution instead of the negotiated one
+	if (fVideoPreview->FramesReceived() == 5) {
+		BAutolock lock(fWebcamLock);
+		if (fCurrentWebcam != NULL)
+			fDriverInfo->SetDevice(fCurrentWebcam, fIsPreviewActive);
 	}
 
 	// CRITICAL FIX: Copy webcam pointer under lock, then release lock

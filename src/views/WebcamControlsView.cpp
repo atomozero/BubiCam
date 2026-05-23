@@ -353,6 +353,15 @@ WebcamControlsView::_BuildControls()
 			const char* name = param->Name();
 			int32 paramId = param->ID();
 
+			// Skip Resolution and Frame Rate - these are managed by the
+			// Format menu and the ParameterWeb values are often stale
+			BString nameStr(name);
+			if (nameStr.IFindFirst("resolution") >= 0
+				|| nameStr.IFindFirst("frame rate") >= 0
+				|| nameStr.IFindFirst("framerate") >= 0
+				|| nameStr.IFindFirst("video format") >= 0)
+				continue;
+
 			if (param->Type() == BParameter::B_CONTINUOUS_PARAMETER) {
 				BContinuousParameter* cont =
 					dynamic_cast<BContinuousParameter*>(param);
