@@ -786,8 +786,9 @@ DriverTestView::_StressTestThread(void* data)
 			device->StopCapture();
 		}
 
-		// Brief pause between cycles
-		snooze(200000);  // 200ms
+		// Pause between cycles - minimum 300ms to let EHCI isochronous
+		// finish thread drain pending USB transfers (prevents kernel GPF)
+		snooze(300000);  // 300ms
 
 		// Resolution change test
 		if (changeRes && (i % 5 == 4) && !view->fStopRequested) {
@@ -1464,10 +1465,12 @@ DriverTestView::_CycleTestThread(void* data)
 
 		device->StopCapture();
 
-		// Phase 4: Variable disconnect duration to test timing edge cases
+		// Phase 4: Variable disconnect duration to test timing edge cases.
+		// Minimum 300ms to allow EHCI isochronous finish thread to drain
+		// pending USB transfers and avoid kernel GPF.
 		bigtime_t disconnectTime;
 		switch (i % 4) {
-			case 0: disconnectTime = 100000;  break;   // 100ms - quick reconnect
+			case 0: disconnectTime = 300000;  break;   // 300ms - quick reconnect
 			case 1: disconnectTime = 500000;  break;   // 500ms - normal
 			case 2: disconnectTime = 1000000; break;   // 1s - slow
 			case 3: disconnectTime = 2000000; break;   // 2s - very slow

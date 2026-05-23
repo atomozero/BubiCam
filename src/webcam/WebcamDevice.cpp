@@ -99,6 +99,10 @@ StopNodeWithTimeout(BMediaRoster* roster, const media_node& node,
 const bigtime_t kMediaStartDelay = 100000;		// 100ms
 // Wait time after seek to allow driver to stabilize
 const bigtime_t kPostSeekDelay = 50000;			// 50ms
+// Drain time before stopping nodes - allows the EHCI isochronous finish
+// thread to complete pending USB transfers, preventing a kernel GPF in
+// EHCI::FinishIsochronousTransfers (Haiku bug in hrev59722+)
+const bigtime_t kIsochronousDrainDelay = 200000;	// 200ms
 
 // Fallback resolution when driver reports invalid dimensions.
 // 320x240 (QVGA) is universally supported by USB webcams.
@@ -705,6 +709,12 @@ WebcamDevice::StopCapture()
 	if (audioConsumer != NULL) {
 		audioConsumer->SetTarget(NULL);
 	}
+
+	// Allow EHCI isochronous finish thread to drain pending USB transfers
+	// before stopping nodes. Without this delay, stopping the producer while
+	// isochronous TDs are still queued can trigger a kernel GPF in
+	// EHCI::FinishIsochronousTransfers (use-after-free of iTD).
+	snooze(kIsochronousDrainDelay);
 
 	// Stop nodes with timeout to prevent hanging on frozen drivers
 	if (nodeWasInstantiated)
