@@ -113,7 +113,7 @@ MainWindow::MainWindow()
 	fWebcamRoster(NULL),
 	fCurrentWebcam(NULL),
 	fCurrentWebcamIndex(-1),
-	fSelectedAudioNodeID(-1),  // auto: use system audio input for VU meter
+	fSelectedAudioNodeID(0),  // disabled by default to avoid HDA driver crash (divide-by-zero in MultiAudioNode::Connect)
 	fIsPreviewActive(false),
 	fSavePanel(NULL),
 	fLastFrame(NULL),
