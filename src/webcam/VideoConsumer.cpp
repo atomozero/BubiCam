@@ -572,12 +572,15 @@ VideoConsumer::_HandleBuffer(BBuffer* buffer)
 
 	if (_IsMJPEGData(bufData, bufSize)) {
 		// MJPEG frame - decompress to display bitmap
+		// Note: _DecompressMJPEG may recreate fDisplayBitmap if JPEG
+		// dimensions differ, so use fDisplayBitmap after the call
 		BBitmap* dest = fDisplayBitmap;
 		if (dest == NULL && fBitmap[0] != NULL)
 			dest = fBitmap[0];
 
 		if (dest != NULL && _DecompressMJPEG(bufData, bufSize, dest)) {
-			_SendFrameToTarget(dest);
+			// Use fDisplayBitmap (may have been resized during decompress)
+			_SendFrameToTarget(fDisplayBitmap != NULL ? fDisplayBitmap : dest);
 		} else {
 			fFramesDropped++;
 		}
@@ -1152,23 +1155,44 @@ VideoConsumer::_DecompressMJPEG(const uint8* src, size_t srcSize,
 
 	jpeg_start_decompress(&cinfo);
 
-	uint8* dst = static_cast<uint8*>(destBitmap->Bits());
-	int32 dstBytesPerRow = destBitmap->BytesPerRow();
+	int32 jpegWidth = (int32)cinfo.output_width;
+	int32 jpegHeight = (int32)cinfo.output_height;
+	int32 destWidth = destBitmap->Bounds().IntegerWidth() + 1;
 	int32 destHeight = destBitmap->Bounds().IntegerHeight() + 1;
 
-	// If the JPEG dimensions differ from the bitmap, we need a new display bitmap
-	// For now, decompress what fits
-	int32 rows = min_c((int32)cinfo.output_height, destHeight);
+	// If the JPEG dimensions differ from the display bitmap, recreate it
+	if (destBitmap == fDisplayBitmap
+		&& (jpegWidth != destWidth || jpegHeight != destHeight)) {
+		delete fDisplayBitmap;
+		BRect newBounds(0, 0, jpegWidth - 1, jpegHeight - 1);
+		fDisplayBitmap = new BBitmap(newBounds, B_RGB32, false, false);
+		if (!fDisplayBitmap->IsValid()) {
+			delete fDisplayBitmap;
+			fDisplayBitmap = NULL;
+			jpeg_destroy_decompress(&cinfo);
+			return false;
+		}
+		destBitmap = fDisplayBitmap;
+		destHeight = jpegHeight;
 
+		static bool sResizeLogged = false;
+		if (!sResizeLogged) {
+			LOG_DEBUG("MJPEG: resized display bitmap from %dx%d to %dx%d",
+				(int)destWidth, (int)destHeight,
+				(int)jpegWidth, (int)jpegHeight);
+			sResizeLogged = true;
+		}
+	}
+
+	uint8* dst = static_cast<uint8*>(destBitmap->Bits());
+	int32 dstBytesPerRow = destBitmap->BytesPerRow();
+
+	int32 rows = min_c(jpegHeight, destHeight);
 	while (cinfo.output_scanline < (JDIMENSION)rows) {
 		uint8* rowPtr = dst + cinfo.output_scanline * dstBytesPerRow;
 		JSAMPROW scanline = rowPtr;
 		jpeg_read_scanlines(&cinfo, &scanline, 1);
 	}
-
-	// Save dimensions before destroying the decompressor
-	int32 decodedWidth = (int32)cinfo.output_width;
-	int32 decodedHeight = (int32)cinfo.output_height;
 
 	jpeg_finish_decompress(&cinfo);
 	jpeg_destroy_decompress(&cinfo);
@@ -1177,8 +1201,8 @@ VideoConsumer::_DecompressMJPEG(const uint8* src, size_t srcSize,
 	sDecodeCount++;
 	if (sDecodeCount <= 2 || (sDecodeCount % 500) == 0) {
 		LOG_DEBUG("MJPEG decoded #%d: %dx%d from %zu bytes",
-			(int)sDecodeCount, (int)decodedWidth,
-			(int)decodedHeight, srcSize);
+			(int)sDecodeCount, (int)jpegWidth,
+			(int)jpegHeight, srcSize);
 	}
 
 	return true;
