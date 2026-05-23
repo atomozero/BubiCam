@@ -113,7 +113,7 @@ MainWindow::MainWindow()
 	fWebcamRoster(NULL),
 	fCurrentWebcam(NULL),
 	fCurrentWebcamIndex(-1),
-	fSelectedAudioNodeID(0),  // disabled by default - audio drivers may crash
+	fSelectedAudioNodeID(-1),  // auto: use system audio input for VU meter
 	fIsPreviewActive(false),
 	fSavePanel(NULL),
 	fLastFrame(NULL),
@@ -537,9 +537,9 @@ MainWindow::_PopulateAudioMenu()
 	while (fAudioMenu->CountItems() > 0)
 		delete fAudioMenu->RemoveItem((int32)0);
 
-	// "None" option - disable audio (default, safest)
+	// "None" option - disable audio entirely
 	BMessage* noneMsg = new BMessage(MSG_AUDIO_NONE);
-	BMenuItem* noneItem = new BMenuItem("Disabled (Safe)", noneMsg);
+	BMenuItem* noneItem = new BMenuItem("Disabled", noneMsg);
 	noneItem->SetMarked(fSelectedAudioNodeID == 0);
 	fAudioMenu->AddItem(noneItem);
 
@@ -1403,18 +1403,21 @@ MainWindow::MessageReceived(BMessage* message)
 		{
 			int32 nodeID;
 			if (message->FindInt32("node_id", &nodeID) == B_OK) {
-				// Warn user about potential driver crashes
-				BAlert* alert = new BAlert("Audio Warning",
-					"WARNING: Audio input connection may crash the "
-					"media_addon_server due to bugs in some Haiku audio "
-					"drivers (divide-by-zero in Connect()).\n\n"
-					"This can kill all audio on the system until reboot.\n\n"
-					"Continue at your own risk?",
-					"Cancel", "Enable Audio", NULL,
-					B_WIDTH_AS_USUAL, B_WARNING_ALERT);
-				alert->SetShortcut(0, B_ESCAPE);
-				if (alert->Go() != 1)
-					break;
+				// Auto (-1) uses the safe system audio input, no warning needed.
+				// Specific nodes may use webcam driver audio which can crash.
+				if (nodeID > 0) {
+					BAlert* alert = new BAlert("Audio Warning",
+						"WARNING: Audio input connection may crash the "
+						"media_addon_server due to bugs in some Haiku audio "
+						"drivers (divide-by-zero in Connect()).\n\n"
+						"This can kill all audio on the system until reboot.\n\n"
+						"Continue at your own risk?",
+						"Cancel", "Enable Audio", NULL,
+						B_WIDTH_AS_USUAL, B_WARNING_ALERT);
+					alert->SetShortcut(0, B_ESCAPE);
+					if (alert->Go() != 1)
+						break;
+				}
 
 				fSelectedAudioNodeID = nodeID;
 				// Update menu marks
