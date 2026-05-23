@@ -80,6 +80,8 @@ VideoRecorder::Start(const char* path, int32 width, int32 height,
 	fFPS = fps > 0 ? fps : 30.0f;
 	fJPEGQuality = jpegQuality;
 	fFrameCount = 0;
+	// Reset audio state for video-only recording.
+	// StartWithAudio() sets these BEFORE calling Start().
 	fHasAudio = false;
 	fAudioChunkCount = 0;
 	fTotalAudioBytes = 0;
@@ -107,14 +109,22 @@ VideoRecorder::StartWithAudio(const char* path, int32 width, int32 height,
 	float fps, float sampleRate, int32 channels, int32 bitsPerSample,
 	int jpegQuality)
 {
-	// Validate and set audio parameters before calling Start
+	// Validate audio parameters
 	if (sampleRate <= 0 || channels <= 0 || bitsPerSample <= 0) {
 		LOG_ERROR("Invalid audio params: %.0f Hz, %d ch, %d bit",
 			sampleRate, (int)channels, (int)bitsPerSample);
 		// Fall back to video-only recording
-		fHasAudio = false;
 		return Start(path, width, height, fps, jpegQuality);
 	}
+
+	// Call Start() first (which resets fHasAudio to false),
+	// then set audio parameters AFTER the reset
+	status_t status = Start(path, width, height, fps, jpegQuality);
+	if (status != B_OK)
+		return status;
+
+	// Now enable audio - must re-acquire lock since Start() released it
+	BAutolock lock(fLock);
 	fHasAudio = true;
 	fSampleRate = sampleRate;
 	fChannels = channels;
@@ -122,7 +132,17 @@ VideoRecorder::StartWithAudio(const char* path, int32 width, int32 height,
 	fAudioChunkCount = 0;
 	fTotalAudioBytes = 0;
 
-	return Start(path, width, height, fps, jpegQuality);
+	// Re-write the AVI headers with audio stream included
+	fFile.Seek(0, SEEK_SET);
+	fFrameCount = 0;
+	fVideoIndex.MakeEmpty();
+	fAudioIndex.MakeEmpty();
+	_WriteAVIHeaders();
+
+	LOG_INFO("Audio enabled: %.0f Hz, %d ch, %d bit",
+		sampleRate, (int)channels, (int)bitsPerSample);
+
+	return B_OK;
 }
 
 
