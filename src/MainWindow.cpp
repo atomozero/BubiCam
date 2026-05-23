@@ -53,6 +53,35 @@
 #include <string.h>
 #include <time.h>
 
+// Fullscreen video window - shows only the video stream, Escape to exit
+class FullscreenVideoWindow : public BWindow {
+public:
+	FullscreenVideoWindow(BRect frame, BMessenger parent)
+		: BWindow(frame, "Video", B_NO_BORDER_WINDOW_LOOK,
+			B_FLOATING_ALL_WINDOW_FEEL, B_NOT_RESIZABLE | B_NOT_ZOOMABLE),
+		  fParent(parent)
+	{
+		SetPulseRate(0);
+	}
+
+	void DispatchMessage(BMessage* message, BHandler* handler)
+	{
+		if (message->what == B_KEY_DOWN) {
+			const char* bytes;
+			if (message->FindString("bytes", &bytes) == B_OK
+				&& bytes[0] == B_ESCAPE) {
+				fParent.SendMessage(new BMessage(MSG_FULLSCREEN));
+				return;
+			}
+		}
+		BWindow::DispatchMessage(message, handler);
+	}
+
+private:
+	BMessenger	fParent;
+};
+
+
 #undef B_TRANSLATION_CONTEXT
 #define B_TRANSLATION_CONTEXT "MainWindow"
 
@@ -96,6 +125,8 @@ MainWindow::MainWindow()
 	fDriverCrashed(false),
 	fWatchdogAlertShown(false),
 	fIsFullscreen(false),
+	fFullscreenWindow(NULL),
+	fFullscreenPreview(NULL),
 	fSavedLook(B_TITLED_WINDOW_LOOK),
 	fSavedFlags(0),
 	fLastFrameReceived(0),
@@ -769,6 +800,10 @@ MainWindow::_StartPreview()
 void
 MainWindow::_StopPreview()
 {
+	// Exit fullscreen video if active
+	if (fIsFullscreen)
+		_ExitVideoFullscreen();
+
 	// Stop watchdog timer
 	delete fWatchdogRunner;
 	fWatchdogRunner = NULL;
@@ -1353,26 +1388,10 @@ MainWindow::MessageReceived(BMessage* message)
 
 		case MSG_FULLSCREEN:
 		{
-			if (!fIsFullscreen) {
-				fSavedFrame = Frame();
-				fSavedLook = Look();
-				fSavedFlags = Flags();
-
-				BScreen screen(this);
-				BRect screenFrame = screen.Frame();
-
-				SetLook(B_NO_BORDER_WINDOW_LOOK);
-				SetFlags(Flags() | B_NOT_RESIZABLE);
-				MoveTo(screenFrame.left, screenFrame.top);
-				ResizeTo(screenFrame.Width(), screenFrame.Height());
-				fIsFullscreen = true;
-			} else {
-				SetLook(fSavedLook);
-				SetFlags(fSavedFlags);
-				MoveTo(fSavedFrame.left, fSavedFrame.top);
-				ResizeTo(fSavedFrame.Width(), fSavedFrame.Height());
-				fIsFullscreen = false;
-			}
+			if (!fIsFullscreen)
+				_EnterVideoFullscreen();
+			else
+				_ExitVideoFullscreen();
 			break;
 		}
 
@@ -1555,6 +1574,10 @@ MainWindow::_HandleFrameReceived(BMessage* message)
 
 	fVideoPreview->SetFrame(bitmap);
 
+	// Forward frame to fullscreen preview if active
+	if (fIsFullscreen && fFullscreenPreview != NULL)
+		fFullscreenPreview->SetFrame(bitmap);
+
 	// Update resolution info from actual frame dimensions
 	BRect bitmapBounds = bitmap->Bounds();
 	int32 frameWidth = (int32)(bitmapBounds.Width() + 1);
@@ -1713,6 +1736,51 @@ MainWindow::_FactoryResetControls()
 	BString msg;
 	msg.SetToFormat("Reset %d parameters to factory defaults.", (int)resetCount);
 	fStatusBar->SetText(msg.String());
+}
+
+
+void
+MainWindow::_EnterVideoFullscreen()
+{
+	if (fIsFullscreen)
+		return;
+
+	BScreen screen(this);
+	BRect screenFrame = screen.Frame();
+
+	fFullscreenPreview = new VideoPreviewView("fullscreenPreview");
+
+	fFullscreenWindow = new FullscreenVideoWindow(screenFrame,
+		BMessenger(this));
+	fFullscreenWindow->AddChild(fFullscreenPreview);
+	fFullscreenPreview->SetViewColor(0, 0, 0);
+	fFullscreenWindow->Show();
+
+	fIsFullscreen = true;
+
+	// Copy grid/histogram state from main preview
+	fFullscreenPreview->SetShowGrid(fVideoPreview->ShowGrid());
+	fFullscreenPreview->SetGridMode(fVideoPreview->GridMode());
+
+	fStatusBar->SetText("Fullscreen video - press Escape to exit");
+}
+
+
+void
+MainWindow::_ExitVideoFullscreen()
+{
+	if (!fIsFullscreen)
+		return;
+
+	if (fFullscreenWindow != NULL) {
+		fFullscreenWindow->Lock();
+		fFullscreenWindow->Quit();
+		fFullscreenWindow = NULL;
+		fFullscreenPreview = NULL;  // deleted by window
+	}
+
+	fIsFullscreen = false;
+	fStatusBar->SetText("Fullscreen exited");
 }
 
 

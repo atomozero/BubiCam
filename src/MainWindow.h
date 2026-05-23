@@ -125,7 +125,12 @@ private:
 	void				_ConnectAudioSource(int32 nodeID);
 	void				_DisconnectAudio();
 
+	void				_EnterVideoFullscreen();
+	void				_ExitVideoFullscreen();
+
 	bool				fIsFullscreen;
+	BWindow*			fFullscreenWindow;
+	VideoPreviewView*	fFullscreenPreview;
 	BRect				fSavedFrame;
 	window_look			fSavedLook;
 	uint32				fSavedFlags;
