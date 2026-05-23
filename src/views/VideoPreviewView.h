@@ -39,6 +39,7 @@ public:
 	int32				GridMode() const { return fGridMode; }
 	void				ResetZoom();
 	bool				IsFrozen() const { return fFrozen; }
+	void				SetBackgroundColor(rgb_color color);
 	void				CaptureReference();
 	void				ClearReference();
 	void				SetCompareMode(bool enabled);

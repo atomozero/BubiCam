@@ -1172,6 +1172,11 @@ MainWindow::MessageReceived(BMessage* message)
 				ssize_t dataSize;
 				if (message->FindData("audio_data", B_RAW_TYPE,
 						&data, &dataSize) == B_OK) {
+					static int32 sAudioLogCount = 0;
+					if (++sAudioLogCount <= 3) {
+						fprintf(stderr, "Recording: AddAudioBuffer %zd bytes\n",
+							(size_t)dataSize);
+					}
 					fRecorder->AddAudioBuffer(data, (size_t)dataSize);
 				}
 			}
@@ -1876,11 +1881,23 @@ MainWindow::_EnterVideoFullscreen()
 	BRect screenFrame = screen.Frame();
 
 	fFullscreenPreview = new VideoPreviewView("fullscreenPreview");
+	// Set background to black for fullscreen before adding to window
+	rgb_color black = {0, 0, 0, 255};
+	fFullscreenPreview->SetBackgroundColor(black);
 
 	fFullscreenWindow = new FullscreenVideoWindow(screenFrame,
 		BMessenger(this));
+
+	// Use a layout so the preview fills the entire window
+	fFullscreenWindow->SetLayout(new BGroupLayout(B_VERTICAL, 0));
 	fFullscreenWindow->AddChild(fFullscreenPreview);
-	fFullscreenPreview->SetViewColor(0, 0, 0);
+
+	// Also explicitly resize the view to match the window bounds
+	// in case the layout hasn't taken effect yet
+	BRect windowBounds = fFullscreenWindow->Bounds();
+	fFullscreenPreview->ResizeTo(windowBounds.Width(), windowBounds.Height());
+	fFullscreenPreview->MoveTo(0, 0);
+
 	fFullscreenWindow->Show();
 
 	fIsFullscreen = true;
@@ -2083,10 +2100,15 @@ MainWindow::_StartRecording()
 		webcam = fCurrentWebcam;
 	}
 	if (webcam != NULL && webcam->SupportsAudio()) {
+		fprintf(stderr, "Recording: StartWithAudio %.0f Hz, %d ch, %d bit\n",
+			webcam->AudioSampleRate(), (int)webcam->AudioChannels(),
+			(int)webcam->AudioBitsPerSample());
 		status = fRecorder->StartWithAudio(filePath.Path(), width, height, fps,
 			webcam->AudioSampleRate(), webcam->AudioChannels(),
 			webcam->AudioBitsPerSample());
 	} else {
+		fprintf(stderr, "Recording: Start (no audio, supportsAudio=%d, webcam=%p)\n",
+			webcam ? webcam->SupportsAudio() : -1, webcam);
 		status = fRecorder->Start(filePath.Path(), width, height, fps);
 	}
 

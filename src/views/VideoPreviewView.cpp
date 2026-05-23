@@ -326,6 +326,15 @@ VideoPreviewView::ResetZoom()
 
 
 void
+VideoPreviewView::SetBackgroundColor(rgb_color color)
+{
+	fBackgroundColor = color;
+	SetViewColor(color);
+	SetLowColor(color);
+}
+
+
+void
 VideoPreviewView::CaptureReference()
 {
 	BAutolock lock(fFrameLock);
