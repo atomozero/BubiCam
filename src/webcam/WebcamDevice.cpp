@@ -1357,11 +1357,15 @@ WebcamDevice::_SetupAudioConnection()
 					(int)dormantNodes[i].flavor_id);
 
 				// Instantiate the audio node
+				// Try without flags first (faster, avoids 15s timeout on
+				// B_FLAVOR_IS_GLOBAL with some drivers)
 				status = roster->InstantiateDormantNode(dormantNodes[i],
-					&audioNode, B_FLAVOR_IS_GLOBAL);
+					&audioNode, 0);
 				if (status != B_OK) {
+					LOG_INFO("Audio: local instantiate failed (%s), trying global",
+						strerror(status));
 					status = roster->InstantiateDormantNode(dormantNodes[i],
-						&audioNode, 0);
+						&audioNode, B_FLAVOR_IS_GLOBAL);
 				}
 
 				if (status == B_OK) {
