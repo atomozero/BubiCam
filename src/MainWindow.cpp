@@ -91,6 +91,12 @@ MainWindow::MainWindow()
 	:
 	BWindow(BRect(50, 50, 1300, 800), "BubiCam - Webcam Driver Tester",
 		B_TITLED_WINDOW, B_ASYNCHRONOUS_CONTROLS),
+	// Order must match declaration order in MainWindow.h
+	fIsFullscreen(false),
+	fFullscreenWindow(NULL),
+	fFullscreenPreview(NULL),
+	fSavedLook(B_TITLED_WINDOW_LOOK),
+	fSavedFlags(0),
 	fMenuBar(NULL),
 	fWebcamMenu(NULL),
 	fControlMenu(NULL),
@@ -114,7 +120,7 @@ MainWindow::MainWindow()
 	fWebcamRoster(NULL),
 	fCurrentWebcam(NULL),
 	fCurrentWebcamIndex(-1),
-	fSelectedAudioNodeID(-1),  // auto: use webcam audio if available
+	fSelectedAudioNodeID(-1),
 	fIsPreviewActive(false),
 	fSavePanel(NULL),
 	fLastFrame(NULL),
@@ -132,12 +138,10 @@ MainWindow::MainWindow()
 	fAutoStartPreview(true),
 	fDriverCrashed(false),
 	fWatchdogAlertShown(false),
-	fIsFullscreen(false),
-	fFullscreenWindow(NULL),
-	fFullscreenPreview(NULL),
-	fSavedLook(B_TITLED_WINDOW_LOOK),
-	fSavedFlags(0),
+	fBandwidthAlertShown(false),
 	fLastFrameReceived(0),
+	fPreviewStartTime(0),
+	fLastWatchdogFrameCount(0),
 	fWatchdogRunner(NULL)
 {
 	fWebcamRoster = new WebcamRoster();
@@ -800,6 +804,9 @@ MainWindow::_StartPreview()
 
 	fIsPreviewActive = true;
 	fLastFrameReceived = system_time();
+	fPreviewStartTime = system_time();
+	fLastWatchdogFrameCount = 0;
+	fBandwidthAlertShown = false;
 	fDriverCrashed = false;
 	fStatusBar->SetText("Preview active");
 
@@ -834,6 +841,7 @@ MainWindow::_StopPreview()
 
 	// Reset watchdog alert state for next session
 	fWatchdogAlertShown = false;
+	fBandwidthAlertShown = false;
 
 	// Stop recording if active
 	if (fRecorder != NULL && fRecorder->IsRecording())
@@ -1785,6 +1793,95 @@ MainWindow::_CheckWatchdog()
 {
 	if (!fIsPreviewActive || fLastFrameReceived == 0)
 		return;
+
+	// Check for bandwidth/timeout issues in early capture phase
+	// The driver may be receiving USB isochronous data too slowly
+	// (insufficient alternate setting bandwidth), causing frame timeouts
+	if (!fBandwidthAlertShown && fPreviewStartTime > 0) {
+		bigtime_t timeSinceStart = system_time() - fPreviewStartTime;
+		uint32 currentFrames = 0;
+		{
+			BAutolock lock(fWebcamLock);
+			if (fCurrentWebcam != NULL)
+				currentFrames = fCurrentWebcam->FramesCaptured();
+		}
+
+		// After 4 seconds with zero frames: likely bandwidth issue
+		if (timeSinceStart > 4000000 && currentFrames == 0) {
+			fBandwidthAlertShown = true;
+
+			fCamLED->SetState(LED_YELLOW);
+			fCamLED->SetBlinking(true);
+
+			fStatusBar->SetText(
+				"No frames received - possible USB bandwidth issue. "
+				"Try a lower resolution.");
+			fStatusBar->SetHighColor(200, 100, 0);
+
+			BAlert* alert = new BAlert("No Video Signal",
+				"No video frames have been received from the webcam.\n\n"
+				"This is likely caused by insufficient USB bandwidth.\n"
+				"The driver may have selected a transfer mode that is\n"
+				"too slow for the current resolution.\n\n"
+				"Check the syslog for 'WaitFrame TIMEOUT' messages.\n\n"
+				"Suggested fixes:\n"
+				"  \xe2\x80\xa2 Try a lower resolution (320x240 or 640x480)\n"
+				"  \xe2\x80\xa2 Disconnect other USB devices\n"
+				"  \xe2\x80\xa2 Use a different USB port",
+				"OK", "Try Lower Resolution", NULL,
+				B_WIDTH_AS_USUAL, B_WARNING_ALERT);
+			int32 choice = alert->Go();
+			if (choice == 1) {
+				// Try to switch to lowest available resolution
+				BAutolock lock(fWebcamLock);
+				if (fCurrentWebcam != NULL) {
+					const BObjectList<VideoFormat>& formats =
+						fCurrentWebcam->SupportedFormats();
+					if (formats.CountItems() > 0) {
+						// Find smallest resolution
+						VideoFormat* smallest = formats.ItemAt(0);
+						for (int32 i = 1; i < formats.CountItems(); i++) {
+							VideoFormat* f = formats.ItemAt(i);
+							if (f->width * f->height
+								< smallest->width * smallest->height)
+								smallest = f;
+						}
+						fCurrentWebcam->SetRequestedFormat(*smallest);
+						lock.Unlock();
+
+						// Restart preview with new format
+						_StopPreview();
+						_StartPreview();
+
+						BString msg;
+						msg.SetToFormat("Switched to %dx%d - retrying...",
+							(int)smallest->width, (int)smallest->height);
+						fStatusBar->SetText(msg.String());
+					}
+				}
+			}
+			return;
+		}
+
+		// After 6 seconds, if FPS is very low compared to expected
+		if (timeSinceStart > 6000000 && currentFrames > 0
+			&& !fBandwidthAlertShown) {
+			float elapsed = timeSinceStart / 1000000.0f;
+			float actualFPS = currentFrames / elapsed;
+
+			if (actualFPS < 2.0f) {
+				fBandwidthAlertShown = true;
+
+				BString warning;
+				warning.SetToFormat(
+					"Low frame rate: %.1f fps (expected 15-30). "
+					"USB bandwidth may be limited - try a lower resolution.",
+					actualFPS);
+				fStatusBar->SetText(warning.String());
+				fStatusBar->SetHighColor(200, 100, 0);
+			}
+		}
+	}
 
 	bigtime_t timeSinceLastFrame = system_time() - fLastFrameReceived;
 	if (timeSinceLastFrame <= 5000000)

@@ -223,7 +223,10 @@ private:
 	// Driver crash protection
 	bool				fDriverCrashed;
 	bool				fWatchdogAlertShown;
+	bool				fBandwidthAlertShown;
 	bigtime_t			fLastFrameReceived;
+	bigtime_t			fPreviewStartTime;
+	uint32				fLastWatchdogFrameCount;
 	BMessageRunner*		fWatchdogRunner;
 };
 
