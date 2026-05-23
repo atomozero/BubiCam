@@ -127,6 +127,8 @@ WebcamDevice::WebcamDevice(const media_node& node, const dormant_node_info& info
 	fAudioConsumer(NULL),
 	fVideoConnected(false),
 	fAudioConnected(false),
+	fAudioProducerNode(media_node()),
+	fAudioProducerInstantiated(false),
 	fIsCapturing(false),
 	fTarget(NULL),
 	fUsedLiveNode(false),
@@ -158,6 +160,8 @@ WebcamDevice::WebcamDevice(const dormant_node_info& info, status_t instantiateEr
 	fAudioConsumer(NULL),
 	fVideoConnected(false),
 	fAudioConnected(false),
+	fAudioProducerNode(media_node()),
+	fAudioProducerInstantiated(false),
 	fIsCapturing(false),
 	fTarget(NULL),
 	fUsedLiveNode(false),
@@ -596,6 +600,8 @@ WebcamDevice::StartCapture(BLooper* target)
 	roster->SetTimeSourceFor(fMediaNode.node, timeSource.node);
 	if (fVideoConsumer != NULL)
 		roster->SetTimeSourceFor(fVideoConsumer->Node().node, timeSource.node);
+	if (fAudioProducerInstantiated)
+		roster->SetTimeSourceFor(fAudioProducerNode.node, timeSource.node);
 	if (fAudioConsumer != NULL)
 		roster->SetTimeSourceFor(fAudioConsumer->Node().node, timeSource.node);
 
@@ -631,6 +637,14 @@ WebcamDevice::StartCapture(BLooper* target)
 		status = roster->StartNode(fVideoConsumer->Node(), startTime);
 		if (status != B_OK)
 			LOG_WARNING("Video consumer start failed: %s", strerror(status));
+	}
+
+	if (fAudioProducerInstantiated) {
+		status = roster->StartNode(fAudioProducerNode, startTime);
+		if (status != B_OK)
+			LOG_WARNING("Audio producer start failed: %s", strerror(status));
+		else
+			LOG_INFO("Audio producer node started");
 	}
 
 	if (fAudioConsumer != NULL) {
@@ -710,6 +724,10 @@ WebcamDevice::StopCapture()
 	audioOutput = fAudioOutput;
 	audioInput = fAudioInput;
 
+	// Save audio producer state
+	media_node audioProducerNode = fAudioProducerNode;
+	bool hadAudioProducer = fAudioProducerInstantiated;
+
 	// Clear member pointers FIRST - this prevents any new messages from being
 	// processed that reference these consumers
 	fIsCapturing = false;
@@ -717,6 +735,8 @@ WebcamDevice::StopCapture()
 	fAudioConsumer = NULL;
 	fVideoConnected = false;
 	fAudioConnected = false;
+	fAudioProducerNode = media_node();
+	fAudioProducerInstantiated = false;
 
 	// Release lock before blocking operations (SetTarget, StopNode, etc.)
 	stopLock.Unlock();
@@ -741,6 +761,8 @@ WebcamDevice::StopCapture()
 	// Stop nodes with timeout to prevent hanging on frozen drivers
 	if (nodeWasInstantiated)
 		StopNodeWithTimeout(roster, producerNode);
+	if (hadAudioProducer)
+		StopNodeWithTimeout(roster, audioProducerNode);
 	if (videoConsumerNode.node > 0)
 		StopNodeWithTimeout(roster, videoConsumerNode);
 	if (audioConsumerNode.node > 0)
@@ -760,7 +782,12 @@ WebcamDevice::StopCapture()
 	if (audioConsumer != NULL && audioConsumerNode.node > 0)
 		roster->UnregisterNode(audioConsumer);
 
-	// Release the producer node
+	// Release the audio producer node (separately instantiated)
+	if (hadAudioProducer) {
+		roster->ReleaseNode(audioProducerNode);
+	}
+
+	// Release the video producer node
 	if (nodeWasInstantiated) {
 		if (!usedLiveNode)
 			roster->ReleaseNode(producerNode);
@@ -1373,6 +1400,8 @@ WebcamDevice::_SetupAudioConnection()
 						&outputCount, B_MEDIA_RAW_AUDIO);
 					if (status == B_OK && outputCount > 0) {
 						foundAudioNode = true;
+						fAudioProducerNode = audioNode;
+						fAudioProducerInstantiated = true;
 						LOG_INFO("Audio: webcam AudioProducer instantiated, %d outputs",
 							(int)outputCount);
 					} else {

@@ -207,6 +207,8 @@ private:
 	media_input			fAudioInput;
 	bool				fVideoConnected;
 	bool				fAudioConnected;
+	media_node			fAudioProducerNode;
+	bool				fAudioProducerInstantiated;
 
 	// Capture state
 	bool				fIsCapturing;
