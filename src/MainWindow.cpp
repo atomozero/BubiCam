@@ -83,7 +83,7 @@ MainWindow::MainWindow()
 	fWebcamRoster(NULL),
 	fCurrentWebcam(NULL),
 	fCurrentWebcamIndex(-1),
-	fSelectedAudioNodeID(-1),
+	fSelectedAudioNodeID(0),  // disabled by default - audio drivers may crash
 	fIsPreviewActive(false),
 	fSavePanel(NULL),
 	fLastFrame(NULL),
@@ -505,18 +505,18 @@ MainWindow::_PopulateAudioMenu()
 	while (fAudioMenu->CountItems() > 0)
 		delete fAudioMenu->RemoveItem((int32)0);
 
+	// "None" option - disable audio (default, safest)
+	BMessage* noneMsg = new BMessage(MSG_AUDIO_NONE);
+	BMenuItem* noneItem = new BMenuItem("Disabled (Safe)", noneMsg);
+	noneItem->SetMarked(fSelectedAudioNodeID == 0);
+	fAudioMenu->AddItem(noneItem);
+
 	// "Auto" option - uses system default
 	BMessage* autoMsg = new BMessage(MSG_AUDIO_SOURCE);
 	autoMsg->AddInt32("node_id", -1);
-	BMenuItem* autoItem = new BMenuItem("Auto (System Default)", autoMsg);
+	BMenuItem* autoItem = new BMenuItem("Auto (System Default)" B_UTF8_ELLIPSIS, autoMsg);
 	autoItem->SetMarked(fSelectedAudioNodeID == -1);
 	fAudioMenu->AddItem(autoItem);
-
-	// "None" option - disable audio
-	BMessage* noneMsg = new BMessage(MSG_AUDIO_NONE);
-	BMenuItem* noneItem = new BMenuItem("None (Disable Audio)", noneMsg);
-	noneItem->SetMarked(fSelectedAudioNodeID == 0);
-	fAudioMenu->AddItem(noneItem);
 
 	fAudioMenu->AddSeparatorItem();
 
@@ -1383,6 +1383,19 @@ MainWindow::MessageReceived(BMessage* message)
 		{
 			int32 nodeID;
 			if (message->FindInt32("node_id", &nodeID) == B_OK) {
+				// Warn user about potential driver crashes
+				BAlert* alert = new BAlert("Audio Warning",
+					"WARNING: Audio input connection may crash the "
+					"media_addon_server due to bugs in some Haiku audio "
+					"drivers (divide-by-zero in Connect()).\n\n"
+					"This can kill all audio on the system until reboot.\n\n"
+					"Continue at your own risk?",
+					"Cancel", "Enable Audio", NULL,
+					B_WIDTH_AS_USUAL, B_WARNING_ALERT);
+				alert->SetShortcut(0, B_ESCAPE);
+				if (alert->Go() != 1)
+					break;
+
 				fSelectedAudioNodeID = nodeID;
 				// Update menu marks
 				for (int32 i = 0; i < fAudioMenu->CountItems(); i++) {
