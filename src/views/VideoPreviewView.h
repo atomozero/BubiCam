@@ -22,6 +22,7 @@ public:
 	virtual void		AttachedToWindow();
 	virtual void		MouseWheelChanged(BMessage* message);
 	virtual void		MouseDown(BPoint where);
+	virtual void		MouseUp(BPoint where);
 	virtual void		MouseMoved(BPoint where, uint32 transit, const BMessage* msg);
 
 	void				SetFrame(BBitmap* bitmap);
@@ -33,6 +34,7 @@ public:
 	void				SetShowStats(bool show);
 	void				SetShowHistogram(bool show);
 	void				ResetZoom();
+	bool				IsFrozen() const { return fFrozen; }
 	void				CaptureReference();
 	void				ClearReference();
 	void				SetCompareMode(bool enabled);
@@ -77,6 +79,11 @@ private:
 	BPoint				fPanOffset;
 	BPoint				fLastMousePos;
 	bool				fIsPanning;
+
+	// Click-to-freeze and drag-to-save
+	bool				fFrozen;
+	bool				fDragInitiated;
+	BPoint				fClickPoint;
 
 	// Histogram data (256 bins per channel)
 	uint32				fHistR[256];

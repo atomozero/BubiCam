@@ -38,6 +38,9 @@ VideoPreviewView::VideoPreviewView(const char* name)
 	fPanOffset(0, 0),
 	fLastMousePos(0, 0),
 	fIsPanning(false),
+	fFrozen(false),
+	fDragInitiated(false),
+	fClickPoint(0, 0),
 	fHistogramDirty(true)
 {
 	memset(fHistR, 0, sizeof(fHistR));
@@ -101,6 +104,30 @@ VideoPreviewView::Draw(BRect updateRect)
 				FillRect(BRect(destRect.left, 0, destRect.right, destRect.top - 1));
 			if (destRect.bottom < bounds.bottom)
 				FillRect(BRect(destRect.left, destRect.bottom + 1, destRect.right, bounds.bottom));
+		}
+
+		// Draw frozen indicator
+		if (fFrozen) {
+			SetDrawingMode(B_OP_ALPHA);
+			// Border flash
+			SetHighColor(255, 200, 0, 140);
+			BRect b = Bounds();
+			StrokeRect(b);
+			StrokeRect(b.InsetByCopy(1, 1));
+
+			// "PAUSED" label top-right
+			BFont font(be_bold_font);
+			font.SetSize(11);
+			SetFont(&font);
+			const char* label = "PAUSED - drag to save";
+			float tw = StringWidth(label);
+			BRect labelRect(b.right - tw - 14, b.top + 4,
+				b.right - 4, b.top + 22);
+			SetHighColor(0, 0, 0, 180);
+			FillRoundRect(labelRect, 4, 4);
+			SetHighColor(255, 200, 0, 240);
+			DrawString(label, BPoint(labelRect.left + 5, labelRect.bottom - 4));
+			SetDrawingMode(B_OP_COPY);
 		}
 
 		// Draw stats overlay
@@ -186,14 +213,36 @@ VideoPreviewView::MouseDown(BPoint where)
 	uint32 buttons;
 	GetMouse(&where, &buttons);
 
-	if (buttons & B_PRIMARY_MOUSE_BUTTON && fZoomLevel > 1.0f) {
-		fIsPanning = true;
-		fLastMousePos = where;
-		SetMouseEventMask(B_POINTER_EVENTS, B_NO_POINTER_HISTORY);
+	if (buttons & B_PRIMARY_MOUSE_BUTTON) {
+		if (fZoomLevel > 1.0f) {
+			// Pan mode when zoomed in
+			fIsPanning = true;
+			fLastMousePos = where;
+			SetMouseEventMask(B_POINTER_EVENTS, B_NO_POINTER_HISTORY);
+		} else if (fCurrentFrame != NULL) {
+			// Freeze the frame on click
+			fFrozen = true;
+			fDragInitiated = false;
+			fClickPoint = where;
+			SetMouseEventMask(B_POINTER_EVENTS, B_NO_POINTER_HISTORY);
+			Invalidate();
+		}
 	} else if (buttons & B_SECONDARY_MOUSE_BUTTON) {
-		// Initiate drag & drop of the current frame as a PNG file
 		_InitiateDrag(where);
 	}
+}
+
+
+void
+VideoPreviewView::MouseUp(BPoint where)
+{
+	if (fFrozen) {
+		// Unfreeze after click release or after drag completes
+		fFrozen = false;
+		fDragInitiated = false;
+		Invalidate();
+	}
+	fIsPanning = false;
 }
 
 
@@ -210,6 +259,17 @@ VideoPreviewView::MouseMoved(BPoint where, uint32 transit, const BMessage* msg)
 		fPanOffset.y += where.y - fLastMousePos.y;
 		fLastMousePos = where;
 		Invalidate();
+		return;
+	}
+
+	if (fFrozen && !fDragInitiated) {
+		// Check if mouse has moved enough to start a drag
+		float dx = where.x - fClickPoint.x;
+		float dy = where.y - fClickPoint.y;
+		if (dx * dx + dy * dy > 16) {  // 4px threshold
+			fDragInitiated = true;
+			_InitiateDrag(where);
+		}
 	}
 }
 
@@ -291,6 +351,10 @@ void
 VideoPreviewView::SetFrame(BBitmap* bitmap)
 {
 	if (bitmap == NULL)
+		return;
+
+	// Don't update the displayed frame while frozen (click-to-freeze)
+	if (fFrozen)
 		return;
 
 	BAutolock lock(fFrameLock);
