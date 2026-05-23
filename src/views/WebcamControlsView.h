@@ -16,6 +16,8 @@
 #include <StringView.h>
 #include <ObjectList.h>
 #include <ParameterWeb.h>
+#include <Message.h>
+#include <Path.h>
 
 class WebcamDevice;
 
@@ -37,9 +39,12 @@ struct ControlInfo {
 	BView*			view;
 	int32			parameterId;
 
+	float			defaultValue;
+
 	ControlInfo()
 		: type(CONTROL_SLIDER), minValue(0), maxValue(100),
-		  currentValue(50), view(NULL), parameterId(-1) {}
+		  currentValue(50), view(NULL), parameterId(-1),
+		  defaultValue(50) {}
 };
 
 
@@ -55,6 +60,10 @@ public:
 	void				Clear();
 	void				RefreshControls();
 
+	// Presets
+	status_t			SavePreset(const char* path);
+	status_t			LoadPreset(const char* path);
+
 	// Control change callback
 	void				SetTarget(BHandler* target) { fTarget = target; }
 
@@ -69,19 +78,29 @@ private:
 							int32 paramId);
 	void				_ClearControls();
 	void				_ApplyControlValue(int32 paramId, float value);
+	void				_ResetToDefaults();
+	void				_ToggleAutoParam(const char* paramName);
+	static BPath		_PresetsDirectory();
 
 	WebcamDevice*		fDevice;
 	BHandler*			fTarget;
 	BObjectList<ControlInfo> fControls;
 	BView*				fControlsContainer;
 	BStringView*		fNoControlsLabel;
+	BMessage			fDefaultValues;
 };
 
 // Message constants for controls
 enum {
 	MSG_CONTROL_CHANGED		= 'ctch',
 	MSG_CONTROL_RESET		= 'ctrs',
-	MSG_CONTROL_REFRESH		= 'ctrf'
+	MSG_CONTROL_REFRESH		= 'ctrf',
+	MSG_PRESET_SAVE			= 'prsv',
+	MSG_PRESET_LOAD			= 'prld',
+	MSG_PRESET_SAVED		= 'prsd',
+	MSG_PRESET_LOADED		= 'prlo',
+	MSG_LOCK_AE				= 'lkae',
+	MSG_LOCK_AWB			= 'lkwb'
 };
 
 #endif // WEBCAM_CONTROLS_VIEW_H

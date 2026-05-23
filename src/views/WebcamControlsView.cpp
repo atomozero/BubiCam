@@ -13,6 +13,11 @@
 #include <SeparatorView.h>
 #include <ScrollView.h>
 #include <MediaRoster.h>
+#include <File.h>
+#include <FilePanel.h>
+#include <FindDirectory.h>
+#include <Directory.h>
+#include <Alert.h>
 
 #include <stdio.h>
 
@@ -39,19 +44,36 @@ WebcamControlsView::WebcamControlsView(const char* name)
 	fNoControlsLabel->SetAlignment(B_ALIGN_CENTER);
 
 	// Control buttons
-	BButton* resetButton = new BButton("resetButton", "Reset All",
-		new BMessage(MSG_CONTROL_RESET));
 	BButton* refreshButton = new BButton("refreshButton", "Load Controls",
 		new BMessage(MSG_CONTROL_REFRESH));
+	BButton* resetButton = new BButton("resetButton", "Reset",
+		new BMessage(MSG_CONTROL_RESET));
+	BButton* savePresetButton = new BButton("savePreset", "Save",
+		new BMessage(MSG_PRESET_SAVE));
+	BButton* loadPresetButton = new BButton("loadPreset", "Load",
+		new BMessage(MSG_PRESET_LOAD));
+
+	BButton* lockAEButton = new BButton("lockAE", "Lock AE",
+		new BMessage(MSG_LOCK_AE));
+	BButton* lockAWBButton = new BButton("lockAWB", "Lock AWB",
+		new BMessage(MSG_LOCK_AWB));
 
 	BLayoutBuilder::Group<>(this, B_VERTICAL, B_USE_SMALL_SPACING)
 		.SetInsets(B_USE_SMALL_INSETS)
 		.Add(fNoControlsLabel)
 		.Add(fControlsContainer)
 		.AddGlue()
-		.AddGroup(B_HORIZONTAL)
+		.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
+			.Add(lockAEButton)
+			.Add(lockAWBButton)
+		.End()
+		.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
 			.Add(refreshButton)
 			.Add(resetButton)
+		.End()
+		.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
+			.Add(savePresetButton)
+			.Add(loadPresetButton)
 		.End();
 
 	fControlsContainer->Hide();
@@ -70,13 +92,15 @@ WebcamControlsView::AttachedToWindow()
 	BView::AttachedToWindow();
 
 	// Set button targets
-	BButton* resetButton = dynamic_cast<BButton*>(FindView("resetButton"));
-	if (resetButton != NULL)
-		resetButton->SetTarget(this);
-
-	BButton* refreshButton = dynamic_cast<BButton*>(FindView("refreshButton"));
-	if (refreshButton != NULL)
-		refreshButton->SetTarget(this);
+	const char* buttonNames[] = {
+		"resetButton", "refreshButton", "savePreset", "loadPreset",
+		"lockAE", "lockAWB"
+	};
+	for (size_t i = 0; i < sizeof(buttonNames) / sizeof(buttonNames[0]); i++) {
+		BButton* btn = dynamic_cast<BButton*>(FindView(buttonNames[i]));
+		if (btn != NULL)
+			btn->SetTarget(this);
+	}
 }
 
 
@@ -116,12 +140,78 @@ WebcamControlsView::MessageReceived(BMessage* message)
 		}
 
 		case MSG_CONTROL_RESET:
-			RefreshControls();
+			_ResetToDefaults();
 			break;
 
 		case MSG_CONTROL_REFRESH:
 			_BuildControls();
 			break;
+
+		case MSG_PRESET_SAVE:
+		{
+			BPath dir = _PresetsDirectory();
+			BMessenger messenger(this);
+			BFilePanel* panel = new BFilePanel(B_SAVE_PANEL, &messenger,
+				NULL, 0, false, new BMessage(MSG_PRESET_SAVED));
+			panel->SetPanelDirectory(dir.Path());
+			panel->SetSaveText("controls.bcpreset");
+			panel->Show();
+			break;
+		}
+
+		case MSG_PRESET_LOAD:
+		{
+			BPath dir = _PresetsDirectory();
+			BMessenger messenger(this);
+			BFilePanel* panel = new BFilePanel(B_OPEN_PANEL, &messenger,
+				NULL, 0, false, new BMessage(MSG_PRESET_LOADED));
+			panel->SetPanelDirectory(dir.Path());
+			panel->Show();
+			break;
+		}
+
+		case MSG_LOCK_AE:
+			_ToggleAutoParam("Auto Exposure");
+			_ToggleAutoParam("auto_exposure");
+			break;
+
+		case MSG_LOCK_AWB:
+			_ToggleAutoParam("Auto White Balance");
+			_ToggleAutoParam("auto_wb");
+			break;
+
+		case MSG_PRESET_SAVED:
+		{
+			entry_ref ref;
+			const char* name;
+			if (message->FindRef("directory", &ref) == B_OK
+				&& message->FindString("name", &name) == B_OK) {
+				BPath path(&ref);
+				path.Append(name);
+				status_t status = SavePreset(path.Path());
+				if (status == B_OK) {
+					BAlert* alert = new BAlert("Preset",
+						"Controls preset saved.", "OK");
+					alert->Go(NULL);
+				}
+			}
+			break;
+		}
+
+		case MSG_PRESET_LOADED:
+		{
+			entry_ref ref;
+			if (message->FindRef("refs", &ref) == B_OK) {
+				BPath path(&ref);
+				status_t status = LoadPreset(path.Path());
+				if (status == B_OK) {
+					BAlert* alert = new BAlert("Preset",
+						"Controls preset loaded.", "OK");
+					alert->Go(NULL);
+				}
+			}
+			break;
+		}
 
 		default:
 			BView::MessageReceived(message);
@@ -343,6 +433,7 @@ WebcamControlsView::_AddSliderControl(const char* label, const char* param,
 	info->minValue = min;
 	info->maxValue = max;
 	info->currentValue = current;
+	info->defaultValue = current;
 	info->view = slider;
 	info->parameterId = paramId;
 	fControls.AddItem(info);
@@ -368,6 +459,7 @@ WebcamControlsView::_AddCheckboxControl(const char* label, const char* param,
 	info->parameterName = param;
 	info->type = CONTROL_CHECKBOX;
 	info->currentValue = current ? 1.0f : 0.0f;
+	info->defaultValue = current ? 1.0f : 0.0f;
 	info->view = checkbox;
 	info->parameterId = paramId;
 	fControls.AddItem(info);
@@ -405,6 +497,7 @@ WebcamControlsView::_AddMenuControl(const char* label, const char* param,
 	info->parameterName = param;
 	info->type = CONTROL_MENU;
 	info->currentValue = (float)current;
+	info->defaultValue = (float)current;
 	info->view = field;
 	info->parameterId = paramId;
 	fControls.AddItem(info);
@@ -478,4 +571,195 @@ WebcamControlsView::_ApplyControlValue(int32 paramId, float value)
 		msg.AddFloat("value", value);
 		BMessenger(fTarget).SendMessage(&msg);
 	}
+}
+
+
+void
+WebcamControlsView::_ResetToDefaults()
+{
+	for (int32 i = 0; i < fControls.CountItems(); i++) {
+		ControlInfo* info = fControls.ItemAt(i);
+		if (info == NULL)
+			continue;
+
+		float defVal = info->defaultValue;
+
+		// Update UI
+		switch (info->type) {
+			case CONTROL_SLIDER:
+			{
+				BSlider* slider = dynamic_cast<BSlider*>(info->view);
+				if (slider != NULL)
+					slider->SetValue((int32)defVal);
+				break;
+			}
+			case CONTROL_CHECKBOX:
+			{
+				BCheckBox* cb = dynamic_cast<BCheckBox*>(info->view);
+				if (cb != NULL)
+					cb->SetValue(defVal != 0 ? B_CONTROL_ON : B_CONTROL_OFF);
+				break;
+			}
+			case CONTROL_MENU:
+			{
+				BMenuField* field = dynamic_cast<BMenuField*>(info->view);
+				if (field != NULL && field->Menu() != NULL) {
+					BMenuItem* item = field->Menu()->ItemAt((int32)defVal);
+					if (item != NULL)
+						item->SetMarked(true);
+				}
+				break;
+			}
+		}
+
+		// Apply to driver
+		_ApplyControlValue(info->parameterId, defVal);
+		info->currentValue = defVal;
+	}
+}
+
+
+status_t
+WebcamControlsView::SavePreset(const char* path)
+{
+	BMessage preset;
+	preset.AddString("preset_type", "BubiCam_controls");
+	preset.AddInt32("version", 1);
+
+	for (int32 i = 0; i < fControls.CountItems(); i++) {
+		ControlInfo* info = fControls.ItemAt(i);
+		if (info == NULL)
+			continue;
+
+		BMessage control;
+		control.AddString("name", info->name);
+		control.AddString("param", info->parameterName);
+		control.AddInt32("type", info->type);
+		control.AddInt32("param_id", info->parameterId);
+		control.AddFloat("value", info->currentValue);
+		control.AddFloat("min", info->minValue);
+		control.AddFloat("max", info->maxValue);
+
+		preset.AddMessage("control", &control);
+	}
+
+	BFile file(path, B_WRITE_ONLY | B_CREATE_FILE | B_ERASE_FILE);
+	if (file.InitCheck() != B_OK)
+		return file.InitCheck();
+
+	return preset.Flatten(&file);
+}
+
+
+status_t
+WebcamControlsView::LoadPreset(const char* path)
+{
+	BFile file(path, B_READ_ONLY);
+	if (file.InitCheck() != B_OK)
+		return file.InitCheck();
+
+	BMessage preset;
+	status_t status = preset.Unflatten(&file);
+	if (status != B_OK)
+		return status;
+
+	// Verify it's a valid preset
+	const char* type;
+	if (preset.FindString("preset_type", &type) != B_OK
+		|| strcmp(type, "BubiCam_controls") != 0)
+		return B_BAD_DATA;
+
+	// Apply each control value
+	BMessage control;
+	for (int32 i = 0; preset.FindMessage("control", i, &control) == B_OK; i++) {
+		const char* paramName;
+		float value;
+		if (control.FindString("param", &paramName) != B_OK
+			|| control.FindFloat("value", &value) != B_OK)
+			continue;
+
+		// Find matching control by parameter name
+		for (int32 j = 0; j < fControls.CountItems(); j++) {
+			ControlInfo* info = fControls.ItemAt(j);
+			if (info == NULL || info->parameterName != paramName)
+				continue;
+
+			// Update UI
+			switch (info->type) {
+				case CONTROL_SLIDER:
+				{
+					BSlider* slider = dynamic_cast<BSlider*>(info->view);
+					if (slider != NULL)
+						slider->SetValue((int32)value);
+					break;
+				}
+				case CONTROL_CHECKBOX:
+				{
+					BCheckBox* cb = dynamic_cast<BCheckBox*>(info->view);
+					if (cb != NULL)
+						cb->SetValue(value != 0 ? B_CONTROL_ON : B_CONTROL_OFF);
+					break;
+				}
+				case CONTROL_MENU:
+				{
+					BMenuField* field = dynamic_cast<BMenuField*>(info->view);
+					if (field != NULL && field->Menu() != NULL) {
+						BMenuItem* item = field->Menu()->ItemAt((int32)value);
+						if (item != NULL)
+							item->SetMarked(true);
+					}
+					break;
+				}
+			}
+
+			// Apply to driver
+			_ApplyControlValue(info->parameterId, value);
+			info->currentValue = value;
+			break;
+		}
+	}
+
+	return B_OK;
+}
+
+
+void
+WebcamControlsView::_ToggleAutoParam(const char* paramName)
+{
+	for (int32 i = 0; i < fControls.CountItems(); i++) {
+		ControlInfo* info = fControls.ItemAt(i);
+		if (info == NULL || info->type != CONTROL_CHECKBOX)
+			continue;
+
+		if (info->parameterName.ICompare(paramName) != 0
+			&& info->name.ICompare(paramName) != 0)
+			continue;
+
+		// Toggle the value
+		float newValue = (info->currentValue != 0) ? 0.0f : 1.0f;
+
+		BCheckBox* cb = dynamic_cast<BCheckBox*>(info->view);
+		if (cb != NULL)
+			cb->SetValue(newValue != 0 ? B_CONTROL_ON : B_CONTROL_OFF);
+
+		_ApplyControlValue(info->parameterId, newValue);
+		info->currentValue = newValue;
+		return;
+	}
+}
+
+
+BPath
+WebcamControlsView::_PresetsDirectory()
+{
+	BPath path;
+	find_directory(B_USER_SETTINGS_DIRECTORY, &path);
+	path.Append("BubiCam/presets");
+
+	// Create directory if it doesn't exist
+	BDirectory dir;
+	if (dir.SetTo(path.Path()) != B_OK)
+		create_directory(path.Path(), 0755);
+
+	return path;
 }
