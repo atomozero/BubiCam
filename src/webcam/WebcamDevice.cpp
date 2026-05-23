@@ -1285,7 +1285,6 @@ WebcamDevice::_SetupAudioConnection()
 	}
 
 	// Strategy 1: Try to get audio outputs directly from the video producer node.
-	// Some webcam drivers expose both video and audio from the same node.
 	int32 outputCount = 0;
 	media_output outputs[10];
 	status = roster->GetFreeOutputsFor(fMediaNode, outputs, 10, &outputCount,
@@ -1295,7 +1294,7 @@ WebcamDevice::_SetupAudioConnection()
 		(int)outputCount, strerror(status));
 
 	if (status != B_OK || outputCount == 0) {
-		LOG_INFO("No audio output on video node, trying fallback...");
+		LOG_INFO("No audio output on video node, searching for webcam AudioProducer...");
 
 		media_node audioNode;
 		bool foundAudioNode = false;
@@ -1313,7 +1312,77 @@ WebcamDevice::_SetupAudioConnection()
 			}
 		}
 
-		// Otherwise use system default audio input
+		// Strategy 2: Search dormant nodes for an AudioProducer from the same
+		// addon as our video node. The UVC driver registers video and audio
+		// as separate flavors under the same media_addon.
+		if (!foundAudioNode) {
+			const int32 kMaxNodes = 64;
+			dormant_node_info dormantNodes[kMaxNodes];
+			int32 dormantCount = kMaxNodes;
+
+			status = roster->GetDormantNodes(dormantNodes, &dormantCount,
+				NULL, NULL, NULL, B_BUFFER_PRODUCER, 0);
+
+			LOG_INFO("Audio: scanning %d dormant nodes for webcam audio (our addon=%d)",
+				(int)dormantCount, (int)fDormantInfo.addon);
+
+			for (int32 i = 0; i < dormantCount && !foundAudioNode; i++) {
+				// Match by addon ID - same driver, different flavor
+				if (dormantNodes[i].addon != fDormantInfo.addon)
+					continue;
+				// Skip our own video flavor
+				if (dormantNodes[i].flavor_id == fDormantInfo.flavor_id)
+					continue;
+
+				// Check if this flavor produces raw audio
+				dormant_flavor_info flavorInfo;
+				status = roster->GetDormantFlavorInfoFor(dormantNodes[i], &flavorInfo);
+				if (status != B_OK)
+					continue;
+
+				bool hasAudioOutput = false;
+				for (int32 j = 0; j < flavorInfo.out_format_count; j++) {
+					if (flavorInfo.out_formats[j].type == B_MEDIA_RAW_AUDIO) {
+						hasAudioOutput = true;
+						break;
+					}
+				}
+
+				if (!hasAudioOutput)
+					continue;
+
+				LOG_INFO("Audio: found webcam AudioProducer '%s' (addon=%d flavor=%d)",
+					dormantNodes[i].name,
+					(int)dormantNodes[i].addon,
+					(int)dormantNodes[i].flavor_id);
+
+				// Instantiate the audio node
+				status = roster->InstantiateDormantNode(dormantNodes[i],
+					&audioNode, B_FLAVOR_IS_GLOBAL);
+				if (status != B_OK) {
+					status = roster->InstantiateDormantNode(dormantNodes[i],
+						&audioNode, 0);
+				}
+
+				if (status == B_OK) {
+					status = roster->GetFreeOutputsFor(audioNode, outputs, 10,
+						&outputCount, B_MEDIA_RAW_AUDIO);
+					if (status == B_OK && outputCount > 0) {
+						foundAudioNode = true;
+						LOG_INFO("Audio: webcam AudioProducer instantiated, %d outputs",
+							(int)outputCount);
+					} else {
+						LOG_INFO("Audio: AudioProducer has no free outputs");
+						roster->ReleaseNode(audioNode);
+					}
+				} else {
+					LOG_INFO("Audio: failed to instantiate AudioProducer: %s",
+						strerror(status));
+				}
+			}
+		}
+
+		// Strategy 3: Fall back to system default audio input
 		if (!foundAudioNode) {
 			status = roster->GetAudioInput(&audioNode);
 			if (status == B_OK) {
