@@ -913,6 +913,14 @@ MainWindow::MessageReceived(BMessage* message)
 		case MSG_DEVICES_CHANGED:
 		{
 			// Auto-refresh triggered by media node watcher (hot-plug)
+			// If preview is active, don't refresh - our own consumer nodes
+			// being created/destroyed would trigger this and kill the preview
+			if (fIsPreviewActive) {
+				// Just note it for next manual refresh
+				fStatusBar->SetText("Device change detected (refresh when idle)");
+				break;
+			}
+
 			fStatusBar->SetText("Device change detected, refreshing...");
 			_PopulateWebcamMenu();
 			int32 count = fWebcamRoster->CountDevices();
