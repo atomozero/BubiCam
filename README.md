@@ -2,18 +2,53 @@
 
 Webcam tester for Haiku OS. Useful for testing and debugging USB webcam drivers.
 
-![BubiCam Screenshot](img/screenshot133.png)
+![BubiCam Screenshot](img/screenshot200.png)
 
 ## Features
 
-- Live video preview with FPS stats
+### Video
+- Live video preview with FPS, frame count, and drop stats
+- MJPEG decompression via libjpeg-turbo
+- YUV422, YUV420, NV12, NV21, UYVY format conversions (SSE2-optimized)
+- Zoom (1x-8x) with mouse wheel, pan with click-drag
+- RGB histogram overlay (Cmd+H)
+- A/B format comparison (capture reference, split-view side-by-side)
+- Grid overlay (rule of thirds, center crosshair)
+- Fullscreen mode (Enter)
+- Floating always-on-top preview window
+
+### Recording
+- Video recording to AVI (Motion JPEG) with audio
+- Time-lapse capture with configurable interval
+- Circular buffer for retroactive "save last N seconds"
+- Screenshot capture (PNG)
+
+### Audio
+- Audio VU meter for built-in microphones
+- Audio source selection (webcam mic, system input, or none)
+- Audio recording integrated into AVI output
+
+### Driver Testing
+- Stress test (repeated start/stop cycles)
+- Latency test (capture-to-display timing)
+- Format benchmark (compare performance across formats)
+- Memory leak test
+- Cycle test (connect/disconnect hot-plug robustness)
+- Export test results as CSV or JSON with timestamps
+- Diagnostic report generation for bug reports
+
+### Device Info
 - Driver and USB device info display
 - UVC descriptor parsing
 - Syslog monitor (filtered for USB/webcam messages)
-- Audio VU meter for built-in microphones
+- USB packet inspection
 - Webcam controls (brightness, contrast, etc.)
-- Screenshot capture (PNG)
 - Export driver info (text/JSON)
+- Raw frame export for driver debugging
+
+### Integration
+- MCP server for Claude Code integration
+- System theme support (adapts to dark/light themes)
 
 ## Build
 
@@ -45,8 +80,15 @@ Or copy `objects.x86_64-cc13-release/BubiCam` to `~/config/apps/`.
 | Cmd+T | Stop preview |
 | Cmd+P | Screenshot |
 | Cmd+E | Export info |
+| Cmd+H | Toggle histogram |
+| Cmd+G | Toggle grid overlay |
+| Cmd+B | Capture reference frame |
+| Cmd+Shift+B | A/B compare mode |
+| Cmd+0 | Reset zoom |
 | Cmd+L | Clear syslog |
 | Cmd+Shift+M | Restart media services |
+| Enter | Fullscreen video |
+| Escape | Exit fullscreen |
 
 ## Troubleshooting
 
@@ -55,6 +97,10 @@ Or copy `objects.x86_64-cc13-release/BubiCam` to `~/config/apps/`.
 **"Name not found" error**: Use Tools > Restart Media Services.
 
 **Preview not working**: Check syslog for errors. Try restarting media services.
+
+**No video frames (bandwidth issue)**: The UVC driver may have selected insufficient USB bandwidth. BubiCam will detect this after 4 seconds and offer to switch to a lower resolution. Check syslog for `WaitFrame TIMEOUT` messages.
+
+**Kernel panic on stop/start**: Haiku's USB stack can panic with "USB object did not become idle!" when isochronous pipes are torn down too quickly. BubiCam includes a 1-second settle delay to mitigate this, but the root cause is a kernel bug.
 
 ## License
 
