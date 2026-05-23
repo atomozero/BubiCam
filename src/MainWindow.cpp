@@ -121,6 +121,10 @@ MainWindow::MainWindow()
 	fMCPServer(NULL),
 	fMCPMenuItem(NULL),
 	fRecorder(NULL),
+	fTimelapseRunner(NULL),
+	fTimelapseCount(0),
+	fTimelapseInterval(5000000),
+	fFloatingWindow(NULL),
 	fAutoStartPreview(true),
 	fDriverCrashed(false),
 	fWatchdogAlertShown(false),
@@ -178,6 +182,7 @@ MainWindow::~MainWindow()
 		// which can hang. Let the OS reclaim the memory on exit.
 	}
 
+	delete fTimelapseRunner;
 	delete fSavePanel;
 	delete fLastFrame;
 	delete fRecorder;
@@ -282,6 +287,11 @@ MainWindow::_BuildMenu()
 		new BMessage(MSG_TOGGLE_COMPARE), 'B', B_SHIFT_KEY));
 	fToolsMenu->AddItem(new BMenuItem("Clear Reference",
 		new BMessage(MSG_CLEAR_REFERENCE)));
+	fToolsMenu->AddSeparatorItem();
+	fToolsMenu->AddItem(new BMenuItem("Start Time-Lapse" B_UTF8_ELLIPSIS,
+		new BMessage(MSG_TIMELAPSE_START), 'T'));
+	fToolsMenu->AddItem(new BMenuItem("Floating Preview",
+		new BMessage(MSG_FLOATING_PREVIEW), 'F', B_SHIFT_KEY));
 	fToolsMenu->AddSeparatorItem();
 	fToolsMenu->AddItem(new BMenuItem("Toggle Grid Overlay",
 		new BMessage(MSG_TOGGLE_GRID), 'G'));
@@ -1340,6 +1350,25 @@ MainWindow::MessageReceived(BMessage* message)
 			_StopRecording();
 			break;
 
+		case MSG_TIMELAPSE_START:
+			if (fTimelapseRunner != NULL)
+				_StopTimelapse();
+			else
+				_StartTimelapse();
+			break;
+
+		case MSG_TIMELAPSE_STOP:
+			_StopTimelapse();
+			break;
+
+		case MSG_TIMELAPSE_TICK:
+			_TimelapseTick();
+			break;
+
+		case MSG_FLOATING_PREVIEW:
+			_ShowFloatingPreview();
+			break;
+
 		case MSG_RESTART_PREVIEW:
 			// Called from MCP server when resolution is changed
 			if (fIsPreviewActive) {
@@ -1647,6 +1676,15 @@ MainWindow::_HandleFrameReceived(BMessage* message)
 	if (fLastFrame != NULL && fLastFrame->IsValid() &&
 		fLastFrame->BitsLength() >= bitmap->BitsLength()) {
 		memcpy(fLastFrame->Bits(), bitmap->Bits(), bitmap->BitsLength());
+	}
+
+	// Update floating preview window if open
+	if (fFloatingWindow != NULL && fFloatingWindow->LockLooperWithTimeout(1000) == B_OK) {
+		VideoPreviewView* floatView = dynamic_cast<VideoPreviewView*>(
+			fFloatingWindow->ChildAt(0));
+		if (floatView != NULL)
+			floatView->SetFrame(bitmap);
+		fFloatingWindow->UnlockLooper();
 	}
 }
 
@@ -2001,6 +2039,149 @@ MainWindow::_StopRecording()
 	fStatusBar->SetText(statusMsg.String());
 
 	_UpdateToolbarState();
+}
+
+
+// ============================================================================
+// Time-Lapse
+// ============================================================================
+
+void
+MainWindow::_StartTimelapse()
+{
+	if (!fIsPreviewActive || fLastFrame == NULL) {
+		BAlert* alert = new BAlert("Error",
+			"Start the video preview first.", "OK");
+		alert->Go();
+		return;
+	}
+
+	// Ask user for interval
+	BAlert* alert = new BAlert("Time-Lapse Interval",
+		"Choose capture interval:",
+		"1 sec", "5 sec", "30 sec",
+		B_WIDTH_AS_USUAL, B_INFO_ALERT);
+	int32 choice = alert->Go();
+	if (choice < 0)
+		return;
+
+	bigtime_t intervals[] = { 1000000, 5000000, 30000000 };
+	fTimelapseInterval = intervals[choice];
+
+	// Create output directory
+	BPath dirPath = ExportUtils::GetScreenshotDirectory();
+	BString folderName("BubiCam_Timelapse_");
+	folderName << ExportUtils::GetTimestamp();
+	fTimelapsePath.SetTo(dirPath.Path());
+	fTimelapsePath.Append(folderName.String());
+
+	create_directory(fTimelapsePath.Path(), 0755);
+
+	fTimelapseCount = 0;
+
+	// Start the timer
+	BMessage tickMsg(MSG_TIMELAPSE_TICK);
+	fTimelapseRunner = new BMessageRunner(BMessenger(this),
+		&tickMsg, fTimelapseInterval);
+
+	// Capture first frame immediately
+	_TimelapseTick();
+
+	// Update menu item
+	BMenuItem* item = fToolsMenu->FindItem(MSG_TIMELAPSE_START);
+	if (item != NULL) {
+		item->SetLabel("Stop Time-Lapse");
+		item->SetMarked(true);
+	}
+
+	BString statusMsg;
+	statusMsg.SetToFormat("Time-lapse started (every %d sec) to %s",
+		(int)(fTimelapseInterval / 1000000), folderName.String());
+	fStatusBar->SetText(statusMsg.String());
+}
+
+
+void
+MainWindow::_StopTimelapse()
+{
+	delete fTimelapseRunner;
+	fTimelapseRunner = NULL;
+
+	BMenuItem* item = fToolsMenu->FindItem(MSG_TIMELAPSE_START);
+	if (item != NULL) {
+		item->SetLabel("Start Time-Lapse" B_UTF8_ELLIPSIS);
+		item->SetMarked(false);
+	}
+
+	BString statusMsg;
+	statusMsg.SetToFormat("Time-lapse stopped: %u frames captured",
+		(unsigned)fTimelapseCount);
+	fStatusBar->SetText(statusMsg.String());
+}
+
+
+void
+MainWindow::_TimelapseTick()
+{
+	if (fLastFrame == NULL || !fIsPreviewActive) {
+		_StopTimelapse();
+		return;
+	}
+
+	// Save current frame as JPEG
+	BString filename;
+	filename.SetToFormat("frame_%06u.jpg", (unsigned)fTimelapseCount);
+
+	BPath filePath(fTimelapsePath);
+	filePath.Append(filename.String());
+
+	ExportUtils::SaveScreenshot(fLastFrame, filePath.Path(), 'JPEG');
+	fTimelapseCount++;
+
+	BString statusMsg;
+	statusMsg.SetToFormat("Time-lapse: %u frames (every %d sec)",
+		(unsigned)fTimelapseCount, (int)(fTimelapseInterval / 1000000));
+	fStatusBar->SetText(statusMsg.String());
+}
+
+
+// ============================================================================
+// Floating Preview Window
+// ============================================================================
+
+void
+MainWindow::_ShowFloatingPreview()
+{
+	if (fFloatingWindow != NULL && fFloatingWindow->LockLooper()) {
+		// Already exists - bring to front or close
+		if (fFloatingWindow->IsHidden()) {
+			fFloatingWindow->Show();
+		} else {
+			fFloatingWindow->Hide();
+		}
+		fFloatingWindow->UnlockLooper();
+		return;
+	}
+
+	// Create floating window
+	BRect frame(100, 100, 420, 340);
+	fFloatingWindow = new BWindow(frame, "BubiCam Preview",
+		B_FLOATING_WINDOW_LOOK, B_FLOATING_ALL_WINDOW_FEEL,
+		B_NOT_ZOOMABLE | B_ASYNCHRONOUS_CONTROLS);
+
+	VideoPreviewView* floatPreview = new VideoPreviewView("floatPreview");
+	fFloatingWindow->AddChild(floatPreview);
+
+	// Share current frame
+	if (fLastFrame != NULL) {
+		BBitmap* copy = new BBitmap(fLastFrame->Bounds(),
+			fLastFrame->ColorSpace());
+		if (copy != NULL && copy->IsValid())
+			memcpy(copy->Bits(), fLastFrame->Bits(), fLastFrame->BitsLength());
+		floatPreview->SetFrame(copy);
+	}
+
+	fFloatingWindow->Show();
 }
 
 

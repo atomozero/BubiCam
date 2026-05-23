@@ -16,6 +16,7 @@
 #include <StringView.h>
 #include <FilePanel.h>
 #include <Bitmap.h>
+#include <Path.h>
 #include <Button.h>
 #include <Locker.h>
 #include <ToolBar.h>
@@ -71,6 +72,10 @@ enum {
 	MSG_CAPTURE_REFERENCE	= 'cprf',
 	MSG_TOGGLE_COMPARE		= 'tgcm',
 	MSG_CLEAR_REFERENCE		= 'clrf',
+	MSG_TIMELAPSE_START		= 'tlst',
+	MSG_TIMELAPSE_STOP		= 'tlsp',
+	MSG_TIMELAPSE_TICK		= 'tltk',
+	MSG_FLOATING_PREVIEW	= 'flpv',
 	MSG_TOGGLE_AUTO_PREVIEW	= 'tgap',
 	MSG_RESTORE_DEVICE		= 'rstd',
 	MSG_FACTORY_RESET		= 'frst',
@@ -117,6 +122,10 @@ private:
 	void				_DoRestartMediaServices(bool askConfirmation);
 	void				_StartRecording();
 	void				_StopRecording();
+	void				_StartTimelapse();
+	void				_StopTimelapse();
+	void				_TimelapseTick();
+	void				_ShowFloatingPreview();
 	void				_UpdateRecordingStatus();
 	void				_SaveSettings();
 	void				_LoadSettings();
@@ -179,6 +188,15 @@ private:
 
 	// Video recording
 	VideoRecorder*		fRecorder;
+
+	// Time-lapse
+	BMessageRunner*		fTimelapseRunner;
+	BPath				fTimelapsePath;
+	uint32				fTimelapseCount;
+	bigtime_t			fTimelapseInterval;  // microseconds
+
+	// Floating preview
+	BWindow*			fFloatingWindow;
 
 	// Settings
 	bool				fAutoStartPreview;
