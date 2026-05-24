@@ -142,6 +142,8 @@ MainWindow::MainWindow()
 	fLastFrameReceived(0),
 	fPreviewStartTime(0),
 	fLastWatchdogFrameCount(0),
+	fLastWatchdogDropCount(0),
+	fCatastrophicDropCount(0),
 	fWatchdogRunner(NULL)
 {
 	fWebcamRoster = new WebcamRoster();
@@ -806,6 +808,8 @@ MainWindow::_StartPreview()
 	fLastFrameReceived = system_time();
 	fPreviewStartTime = system_time();
 	fLastWatchdogFrameCount = 0;
+	fLastWatchdogDropCount = 0;
+	fCatastrophicDropCount = 0;
 	fBandwidthAlertShown = false;
 	fDriverCrashed = false;
 	fStatusBar->SetText("Preview active");
@@ -1888,6 +1892,55 @@ MainWindow::_CheckWatchdog()
 					actualFPS);
 				fStatusBar->SetText(warning.String());
 				fStatusBar->SetHighColor(200, 100, 0);
+			}
+		}
+	}
+
+	// Check for catastrophic drop rate (XHCI failure scenario)
+	// If drops keep growing but captured frames don't, the USB controller
+	// is losing almost all isochronous transfers
+	{
+		uint32 currentFrames = 0;
+		uint32 currentDrops = 0;
+		BAutolock lock(fWebcamLock);
+		if (fCurrentWebcam != NULL) {
+			currentFrames = fCurrentWebcam->FramesCaptured();
+			currentDrops = fCurrentWebcam->FramesDropped();
+		}
+		lock.Unlock();
+
+		// Calculate drops since last watchdog check (every 2 seconds)
+		uint32 newFrames = currentFrames - fLastWatchdogFrameCount;
+		uint32 newDrops = currentDrops - fLastWatchdogDropCount;
+		fLastWatchdogFrameCount = currentFrames;
+		fLastWatchdogDropCount = currentDrops;
+
+		// If we have significant activity but >80% drops, it's catastrophic
+		uint32 totalNew = newFrames + newDrops;
+		if (totalNew > 5) {
+			float dropRate = (float)newDrops / totalNew;
+			if (dropRate > 0.80f) {
+				fCatastrophicDropCount++;
+			} else {
+				fCatastrophicDropCount = 0;
+			}
+
+			// 3 consecutive watchdog cycles (6 seconds) with >80% drops
+			// means USB controller is failing - auto-stop to prevent hang
+			if (fCatastrophicDropCount >= 3) {
+				fprintf(stderr, "BubiCam: Catastrophic drop rate (>80%%) for "
+					"6+ seconds - auto-stopping to prevent hang\n");
+
+				fStatusBar->SetText(
+					"Auto-stopped: USB transfer failures (>80% packet loss). "
+					"Try a lower resolution or different USB port.");
+				fStatusBar->SetHighColor(200, 0, 0);
+
+				fCamLED->SetState(LED_RED);
+				fCamLED->SetBlinking(true);
+
+				_ForceStop();
+				return;
 			}
 		}
 	}

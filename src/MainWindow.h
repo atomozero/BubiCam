@@ -227,6 +227,8 @@ private:
 	bigtime_t			fLastFrameReceived;
 	bigtime_t			fPreviewStartTime;
 	uint32				fLastWatchdogFrameCount;
+	uint32				fLastWatchdogDropCount;
+	int32				fCatastrophicDropCount;
 	BMessageRunner*		fWatchdogRunner;
 };
 
