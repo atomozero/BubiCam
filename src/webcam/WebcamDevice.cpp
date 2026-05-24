@@ -1013,6 +1013,11 @@ WebcamDevice::_SetupVideoConnection()
 			fCurrentFormat.width = format.u.raw_video.display.line_width;
 			fCurrentFormat.height = format.u.raw_video.display.line_count;
 			fCurrentFormat.frameRate = format.u.raw_video.field_rate;
+			// Preserve colorSpace from the requested format if set
+			if (fCurrentFormat.colorSpace[0] == '\0' && fHasRequestedFormat)
+				strlcpy(fCurrentFormat.colorSpace,
+					fRequestedFormat.colorSpace,
+					sizeof(fCurrentFormat.colorSpace));
 			return B_OK;
 		}
 
@@ -1062,6 +1067,10 @@ WebcamDevice::_SetupVideoConnection()
 			fCurrentFormat.width = format.u.raw_video.display.line_width;
 			fCurrentFormat.height = format.u.raw_video.display.line_count;
 			fCurrentFormat.frameRate = format.u.raw_video.field_rate;
+			if (fCurrentFormat.colorSpace[0] == '\0' && fHasRequestedFormat)
+				strlcpy(fCurrentFormat.colorSpace,
+					fRequestedFormat.colorSpace,
+					sizeof(fCurrentFormat.colorSpace));
 		}
 
 		return B_OK;

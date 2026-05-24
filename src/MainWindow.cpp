@@ -256,6 +256,8 @@ MainWindow::_BuildMenu()
 		new BMessage(MSG_WEBCAM_STOP), 'T'));
 	fControlMenu->AddItem(new BMenuItem("Force Stop (Driver Frozen)",
 		new BMessage(MSG_FORCE_STOP)));
+	fControlMenu->AddItem(new BMenuItem("Reconnect",
+		new BMessage(MSG_RESTART_PREVIEW), 'R'));
 	fControlMenu->AddSeparatorItem();
 	fControlMenu->AddItem(new BMenuItem("Show Controls Panel",
 		new BMessage(MSG_TOGGLE_CONTROLS), 'K'));
@@ -908,6 +910,20 @@ MainWindow::_UpdateStatsBar()
 		resStr = "---";
 	fStatsResolution->SetText(resStr.String());
 
+	// Format (MJPEG/YUY2/etc.)
+	if (fCurrentWebcam != NULL) {
+		VideoFormat currentFmt = fCurrentWebcam->CurrentFormat();
+		fStatsFormat->SetText(
+			currentFmt.colorSpace[0] != '\0' ? currentFmt.colorSpace : "---");
+		if (strcasecmp(currentFmt.colorSpace, "MJPEG") == 0
+			|| strcasecmp(currentFmt.colorSpace, "JPEG") == 0)
+			fStatsFormat->SetHighColor(0, 150, 0);
+		else
+			fStatsFormat->SetHighUIColor(B_PANEL_TEXT_COLOR);
+	} else {
+		fStatsFormat->SetText("---");
+	}
+
 	// FPS with color coding
 	float fps = fVideoPreview->CurrentFPS();
 	BString fpsStr;
@@ -1418,11 +1434,10 @@ MainWindow::MessageReceived(BMessage* message)
 			break;
 
 		case MSG_RESTART_PREVIEW:
-			// Called from MCP server when resolution is changed
-			if (fIsPreviewActive) {
+			// Reconnect: stop and restart the stream
+			if (fIsPreviewActive)
 				_StopPreview();
-				_StartPreview();
-			}
+			_StartPreview();
 			break;
 
 		case MSG_WATCHDOG_CHECK:
@@ -1570,6 +1585,8 @@ MainWindow::_BuildStatsBar()
 
 	fStatsResolution = new BStringView("statsRes", "---");
 	fStatsResolution->SetAlignment(B_ALIGN_CENTER);
+	fStatsFormat = new BStringView("statsFormat", "---");
+	fStatsFormat->SetAlignment(B_ALIGN_CENTER);
 	fStatsFPS = new BStringView("statsFPS", "--- fps");
 	fStatsFPS->SetAlignment(B_ALIGN_CENTER);
 	fStatsFrames = new BStringView("statsFrames", "0 frames");
@@ -1580,6 +1597,7 @@ MainWindow::_BuildStatsBar()
 	BFont smallFont(be_plain_font);
 	smallFont.SetSize(10);
 	fStatsResolution->SetFont(&smallFont);
+	fStatsFormat->SetFont(&smallFont);
 	fStatsFPS->SetFont(&smallFont);
 	fStatsFrames->SetFont(&smallFont);
 	fStatsDropped->SetFont(&smallFont);
@@ -1590,6 +1608,7 @@ MainWindow::_BuildStatsBar()
 		.SetInsets(B_USE_SMALL_INSETS, 2, B_USE_SMALL_INSETS, 2)
 		.Add(fCamLED)
 		.Add(fStatsResolution)
+		.Add(fStatsFormat)
 		.Add(fStatsFPS)
 		.Add(fStatsFrames)
 		.Add(fStatsDropped)

@@ -172,6 +172,7 @@ private:
 	// Video stats bar
 	LEDView*			fCamLED;
 	BStringView*		fStatsResolution;
+	BStringView*		fStatsFormat;
 	BStringView*		fStatsFPS;
 	BStringView*		fStatsFrames;
 	BStringView*		fStatsDropped;

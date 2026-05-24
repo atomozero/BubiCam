@@ -33,6 +33,16 @@ public:
 	void				SetNoiseFilterEnabled(bool enabled);
 	bool				NoiseFilterEnabled() const { return fNoiseFilterEnabled; }
 
+	// Level filter: bit flags
+	enum {
+		LEVEL_ERROR		= 0x01,
+		LEVEL_WARNING	= 0x02,
+		LEVEL_INFO		= 0x04,
+		LEVEL_ALL		= 0x07
+	};
+	void				SetLevelFilter(uint32 levels);
+	uint32				LevelFilter() const { return fLevelFilter; }
+
 private:
 	bool				_IsNoisy(const char* line);
 	bool				_IsDuplicate(const char* line);
@@ -49,6 +59,8 @@ private:
 	int32				fMaxLines;
 
 	bool				fNoiseFilterEnabled;
+	uint32				fLevelFilter;
+	static uint32		_ClassifyLevel(const char* line);
 	BString				fLastLine;
 	int32				fDuplicateCount;
 

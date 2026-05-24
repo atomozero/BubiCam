@@ -38,6 +38,7 @@ SyslogView::SyslogView(const char* name)
 	fLastPosition(0),
 	fMaxLines(kMaxLines),
 	fNoiseFilterEnabled(true),
+	fLevelFilter(LEVEL_ALL),
 	fDuplicateCount(0)
 {
 	SetStylable(true);
@@ -191,6 +192,13 @@ SyslogView::_MonitorLoop()
 bool
 SyslogView::_MatchesFilter(const char* line)
 {
+	// Level filter: check severity before keyword matching
+	if (fLevelFilter != LEVEL_ALL) {
+		uint32 level = _ClassifyLevel(line);
+		if ((level & fLevelFilter) == 0)
+			return false;
+	}
+
 	if (fFilter.Length() == 0)
 		return true;
 
@@ -301,6 +309,32 @@ SyslogView::SetNoiseFilterEnabled(bool enabled)
 	fNoiseFilterEnabled = enabled;
 	fLastLine.SetTo("");
 	fDuplicateCount = 0;
+}
+
+
+void
+SyslogView::SetLevelFilter(uint32 levels)
+{
+	BAutolock lock(fLock);
+	fLevelFilter = levels;
+}
+
+
+uint32
+SyslogView::_ClassifyLevel(const char* line)
+{
+	// Classify syslog line by severity based on keywords
+	if (strcasestr(line, "error") != NULL
+		|| strcasestr(line, "fail") != NULL
+		|| strcasestr(line, "panic") != NULL
+		|| strcasestr(line, "fatal") != NULL) {
+		return LEVEL_ERROR;
+	}
+	if (strcasestr(line, "warn") != NULL
+		|| strcasestr(line, "timeout") != NULL) {
+		return LEVEL_WARNING;
+	}
+	return LEVEL_INFO;
 }
 
 

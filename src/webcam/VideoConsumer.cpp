@@ -743,6 +743,10 @@ VideoConsumer::_ConvertBuffer(BBuffer* buffer, BBitmap* destBitmap)
 		}
 	}
 
+	// Normalize B_UYVY (0x2000) which is not in all Haiku headers
+	if ((uint32)srcFormat == 0x2000)
+		srcFormat = B_YCbCr422;
+
 	switch (srcFormat) {
 		case B_RGB32:
 		case B_RGBA32:
@@ -787,15 +791,10 @@ VideoConsumer::_ConvertBuffer(BBuffer* buffer, BBitmap* destBitmap)
 
 		case B_YCbCr422:
 		case B_YUV422:
-		case (color_space)0x2000:  // B_UYVY (not in all Haiku headers)
 		{
 			// Auto-detect UYVY vs YUYV by sampling the first few macro-pixels.
-			// YUYV: Y0 U0 Y1 V0 -- bytes 0,2 are luma (typically 16-235)
-			// UYVY: U0 Y0 V0 Y1 -- bytes 0,2 are chroma (typically near 128)
-			// Heuristic: if average of even bytes is closer to 128 than to
-			// a typical luma range, it's likely UYVY.
-			bool isUYVY = (srcFormat == (color_space)0x2000);
-			if (!isUYVY && srcSize >= 32) {
+			bool isUYVY = false;
+			if (srcSize >= 32) {
 				int32 sumEven = 0;
 				int32 samples = min_c((int32)16, (int32)(srcSize / 2));
 				for (int32 i = 0; i < samples; i++)
