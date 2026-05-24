@@ -9,6 +9,15 @@
 
 #include <Bitmap.h>
 
+// Resource IDs for toolbar icons
+enum {
+	kIconReload		= 201,
+	kIconPlay		= 202,
+	kIconStop		= 203,
+	kIconScreenshot	= 204,
+	kIconRecord		= 205
+};
+
 class IconUtils {
 public:
 	static BBitmap*	CreateRefreshIcon(int32 size = 24);
@@ -19,12 +28,7 @@ public:
 	static BBitmap*	CreateRecordStopIcon(int32 size = 24);
 
 private:
-	static void		_SetPixel(BBitmap* bitmap, int x, int y, uint8 r, uint8 g, uint8 b, uint8 a = 255);
-	static void		_DrawCircle(BBitmap* bitmap, int cx, int cy, int r, uint8 red, uint8 green, uint8 blue);
-	static void		_FillCircle(BBitmap* bitmap, int cx, int cy, int r, uint8 red, uint8 green, uint8 blue);
-	static void		_DrawLine(BBitmap* bitmap, int x1, int y1, int x2, int y2, uint8 r, uint8 g, uint8 b);
-	static void		_FillRect(BBitmap* bitmap, int x1, int y1, int x2, int y2, uint8 r, uint8 g, uint8 b);
-	static void		_FillTriangle(BBitmap* bitmap, int x1, int y1, int x2, int y2, int x3, int y3, uint8 r, uint8 g, uint8 b);
+	static BBitmap*	_LoadHVIFIcon(int32 resourceID, int32 size);
 };
 
 #endif // ICON_UTILS_H
