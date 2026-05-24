@@ -109,38 +109,52 @@ VideoRecorder::StartWithAudio(const char* path, int32 width, int32 height,
 	float fps, float sampleRate, int32 channels, int32 bitsPerSample,
 	int jpegQuality)
 {
+	BAutolock lock(fLock);
+
 	// Validate audio parameters
 	if (sampleRate <= 0 || channels <= 0 || bitsPerSample <= 0) {
 		LOG_ERROR("Invalid audio params: %.0f Hz, %d ch, %d bit",
 			sampleRate, (int)channels, (int)bitsPerSample);
-		// Fall back to video-only recording
+		lock.Unlock();
 		return Start(path, width, height, fps, jpegQuality);
 	}
 
-	// Call Start() first (which resets fHasAudio to false),
-	// then set audio parameters AFTER the reset
-	status_t status = Start(path, width, height, fps, jpegQuality);
-	if (status != B_OK)
-		return status;
+	if (fRecording)
+		return B_BUSY;
 
-	// Now enable audio - must re-acquire lock since Start() released it
-	BAutolock lock(fLock);
+	status_t status = fFile.SetTo(path,
+		B_WRITE_ONLY | B_CREATE_FILE | B_ERASE_FILE);
+	if (status != B_OK) {
+		LOG_ERROR("Failed to create file: %s", strerror(status));
+		return status;
+	}
+
+	fWidth = width;
+	fHeight = height;
+	fFPS = fps > 0 ? fps : 30.0f;
+	fJPEGQuality = jpegQuality;
+	fFrameCount = 0;
 	fHasAudio = true;
 	fSampleRate = sampleRate;
 	fChannels = channels;
 	fBitsPerSample = bitsPerSample;
 	fAudioChunkCount = 0;
 	fTotalAudioBytes = 0;
-
-	// Re-write the AVI headers with audio stream included
-	fFile.Seek(0, SEEK_SET);
-	fFrameCount = 0;
 	fVideoIndex.MakeEmpty();
 	fAudioIndex.MakeEmpty();
-	_WriteAVIHeaders();
 
-	LOG_INFO("Audio enabled: %.0f Hz, %d ch, %d bit",
-		sampleRate, (int)channels, (int)bitsPerSample);
+	status = _WriteAVIHeaders();
+	if (status != B_OK) {
+		fFile.Unset();
+		return status;
+	}
+
+	fRecording = true;
+	fStartTime = system_time();
+
+	LOG_INFO("Recording started with audio: %s (%dx%d @ %.1f fps, %.0f Hz %d ch %d bit)",
+		path, (int)width, (int)height, fps, sampleRate, (int)channels,
+		(int)bitsPerSample);
 
 	return B_OK;
 }
@@ -274,12 +288,12 @@ VideoRecorder::_WriteAVIHeaders()
 	uint32 numStreams = fHasAudio ? 2 : 1;
 
 	// Calculate header list size
-	// Video strl: LIST(4) + strh(8+56) + strf(8+40) = 116
-	// Audio strl: LIST(4) + strh(8+56) + strf(8+18) = 94
-	uint32 videoStrlSize = 4 + 8 + 56 + 8 + 40;
+	// strl content: "strl"(4) + strh(8+56) + strf(8+40) = 116 (video) / 94 (audio)
+	// strl on disk: "LIST"(4) + size(4) + content = 8 + content
+	uint32 videoStrlSize = 4 + 8 + 56 + 8 + 40;  // content of video strl LIST
 	uint32 audioStrlSize = fHasAudio ? (4 + 8 + 56 + 8 + 18) : 0;
-	uint32 hdrlSize = 4 + 64 + (4 + videoStrlSize)
-		+ (fHasAudio ? (4 + audioStrlSize) : 0);
+	uint32 hdrlSize = 4 + 64 + (8 + videoStrlSize)
+		+ (fHasAudio ? (8 + audioStrlSize) : 0);
 
 	// RIFF header
 	_WriteFourCC("RIFF");
@@ -365,7 +379,7 @@ VideoRecorder::_WriteAVIHeaders()
 		_WriteFourCC("strh");
 		_WriteUInt32(56);
 		_WriteFourCC("auds");               // fccType
-		_WriteUInt32(1);                    // fccHandler (1 = PCM)
+		_WriteUInt32(0);                    // fccHandler (0 for PCM audio)
 		_WriteUInt32(0);                    // dwFlags
 		_WriteUInt16(0);                    // wPriority
 		_WriteUInt16(0);                    // wLanguage
