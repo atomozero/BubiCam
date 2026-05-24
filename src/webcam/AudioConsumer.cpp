@@ -344,10 +344,31 @@ AudioConsumer::_HandleBuffer(BBuffer* buffer)
 	float left = 0.0f, right = 0.0f;
 	_CalculateLevels(buffer->Data(), buffer->SizeUsed(), &left, &right);
 
+	// Noise gate: ignore levels below threshold (USB noise floor)
+	const float kNoiseGate = 0.005f;
+	if (left < kNoiseGate) left = 0.0f;
+	if (right < kNoiseGate) right = 0.0f;
+
+	// Exponential smoothing to prevent erratic jumps
+	// (alpha = 0.3 means ~70% of previous value retained)
+	const float kSmoothing = 0.3f;
+	static float sSmoothedLeft = 0.0f;
+	static float sSmoothedRight = 0.0f;
+	sSmoothedLeft = sSmoothedLeft * (1.0f - kSmoothing) + left * kSmoothing;
+	sSmoothedRight = sSmoothedRight * (1.0f - kSmoothing) + right * kSmoothing;
+
+	// Log levels periodically for debugging
+	static int32 sLevelLogCount = 0;
+	if (++sLevelLogCount <= 5 || (sLevelLogCount % 200) == 0) {
+		LOG_DEBUG("Audio level: raw L=%.4f R=%.4f, smoothed L=%.4f R=%.4f (fmt=%u)",
+			left, right, sSmoothedLeft, sSmoothedRight,
+			(unsigned)fFormat.u.raw_audio.format);
+	}
+
 	if (target != NULL) {
 		BMessage msg(fLevelMessage);
-		msg.AddFloat("left", left);
-		msg.AddFloat("right", right);
+		msg.AddFloat("left", sSmoothedLeft);
+		msg.AddFloat("right", sSmoothedRight);
 		target->PostMessage(&msg);
 	}
 }
