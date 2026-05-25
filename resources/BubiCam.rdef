@@ -87,9 +87,9 @@ resource(205, "icon_record") #'VICN' array {
 	$"AA01178400040A0201000240AAAA00000000000040AAAA42AAAA42AAAA"
 };
 
-resource file_types message {
-	"types" = "application/x-vnd.BubiCam"
-};
+/* No file_types - BubiCam does not handle files by reference.
+   Removing this prevents Haiku from showing BubiCam notifications
+   when USB webcam devices are connected. */
 
 resource vector_icon {
 	$"6E636966070500020106023E00000000000000003E00004A00004B000000DD82"
