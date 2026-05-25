@@ -1139,21 +1139,63 @@ MainWindow::MessageReceived(BMessage* message)
 		case MSG_DEVICES_CHANGED:
 		{
 			// Auto-refresh triggered by media node watcher (hot-plug)
-			// If preview is active, don't refresh - our own consumer nodes
-			// being created/destroyed would trigger this and kill the preview
-			if (fIsPreviewActive) {
-				// Just note it for next manual refresh
-				fStatusBar->SetText("Device change detected (refresh when idle)");
+			if (fIsPreviewActive && fCurrentWebcam != NULL) {
+				// Check if our current device's node is still valid
+				BMediaRoster* roster = BMediaRoster::Roster();
+				if (roster != NULL) {
+					media_node node = fCurrentWebcam->MediaNode();
+					live_node_info liveInfo;
+					// If the node is gone, the device was disconnected
+					if (roster->GetLiveNodeInfo(node, &liveInfo) != B_OK) {
+						// Device disconnected! Stop preview and refresh
+						BString deviceName(fCurrentWebcam->Name());
+						_StopPreview();
+						{
+							BAutolock lock(fWebcamLock);
+							fCurrentWebcam = NULL;
+							fCurrentWebcamIndex = -1;
+						}
+						if (fMCPServer != NULL)
+							fMCPServer->SetWebcamDevice(NULL);
+						fDriverTestView->SetDevice(NULL);
+
+						_PopulateWebcamMenu();
+
+						BString status;
+						status.SetToFormat("Disconnected: %s", deviceName.String());
+						fStatusBar->SetText(status.String());
+
+						// Try to auto-reconnect if the device reappears
+						BMessage* restoreMsg = new BMessage(MSG_RESTORE_DEVICE);
+						restoreMsg->AddString("device_name", deviceName.String());
+						BMessageRunner::StartSending(BMessenger(this),
+							restoreMsg, 2000000, 1);  // retry in 2s
+						break;
+					}
+				}
+				// Our node is still alive - a different device changed
+				// Don't disrupt the active preview
+				fStatusBar->SetText("New device detected (preview still active)");
 				break;
 			}
 
 			fStatusBar->SetText("Device change detected, refreshing...");
 			_PopulateWebcamMenu();
+
+			// Auto-select if only one webcam is available and none selected
 			int32 count = fWebcamRoster->CountDevices();
-			BString status;
-			status.SetToFormat("Hot-plug: %d webcam%s found",
-				(int)count, count != 1 ? "s" : "");
-			fStatusBar->SetText(status.String());
+			if (count == 1 && fCurrentWebcam == NULL) {
+				_SelectWebcam(0);
+				BString status;
+				status.SetToFormat("Auto-connected: %s",
+					fWebcamRoster->DeviceAt(0)->Name());
+				fStatusBar->SetText(status.String());
+			} else {
+				BString status;
+				status.SetToFormat("Hot-plug: %d webcam%s found",
+					(int)count, count != 1 ? "s" : "");
+				fStatusBar->SetText(status.String());
+			}
 			break;
 		}
 
