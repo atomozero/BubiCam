@@ -120,6 +120,7 @@ MainWindow::MainWindow()
 	fWebcamRoster(NULL),
 	fCurrentWebcam(NULL),
 	fCurrentWebcamIndex(-1),
+	fDevVideoWatching(false),
 	fSelectedAudioNodeID(-1),
 	fIsPreviewActive(false),
 	fSavePanel(NULL),
@@ -159,6 +160,11 @@ MainWindow::MainWindow()
 	// Start watching for media node changes (hot-plug detection)
 	fWebcamRoster->StartWatching();
 
+	// Watch /dev/video for USB device addition/removal
+	// This fires BEFORE the USB stack destroys the device, giving us
+	// time to release isochronous pipes and prevent kernel panic
+	_StartDeviceWatching();
+
 	// Allow window to be resized freely
 	BScreen screen(this);
 	BRect screenFrame = screen.Frame();
@@ -182,6 +188,8 @@ MainWindow::~MainWindow()
 
 	if (fSyslogView != NULL)
 		fSyslogView->StopMonitoring();
+
+	_StopDeviceWatching();
 
 	// Stop node watching (non-blocking)
 	if (fWebcamRoster != NULL) {
@@ -539,9 +547,11 @@ MainWindow::_PopulateFormatMenu()
 			VideoFormat* format = formats.ItemAt(i);
 			if (format != NULL) {
 				BString label;
+				const char* cs = format->colorSpace[0] != '\0'
+					? format->colorSpace : "auto";
 				label.SetToFormat("%dx%d @ %.1f fps (%s)",
 					format->width, format->height,
-					format->frameRate, format->colorSpace);
+					format->frameRate, cs);
 
 				BMessage* msg = new BMessage(MSG_FORMAT_SELECTED);
 				msg->AddInt32("index", i);
@@ -1135,6 +1145,10 @@ MainWindow::MessageReceived(BMessage* message)
 			_SaveSettings();
 			break;
 		}
+
+		case B_NODE_MONITOR:
+			_HandleDeviceNodeMonitor(message);
+			break;
 
 		case MSG_DEVICES_CHANGED:
 		{
@@ -2952,5 +2966,101 @@ MainWindow::_ExportRawFrame()
 	}
 
 	free(rawData);
+}
+
+
+void
+MainWindow::_StartDeviceWatching()
+{
+	// Watch /dev/video directory for device file creation/removal.
+	// B_ENTRY_REMOVED fires when the USB device file is deleted, which
+	// happens BEFORE the USB stack destroys the device and its pipes.
+	// This gives us a window to call StopCapture() and release the
+	// isochronous endpoints, preventing the "USB object did not become idle"
+	// kernel panic.
+	BDirectory dir("/dev/video");
+	if (dir.InitCheck() != B_OK) {
+		// /dev/video might not exist yet (no webcam driver loaded)
+		// Try /dev instead
+		dir.SetTo("/dev");
+		if (dir.InitCheck() != B_OK)
+			return;
+	}
+
+	node_ref nref;
+	if (dir.GetNodeRef(&nref) == B_OK) {
+		fDevVideoNodeRef = nref;
+		if (watch_node(&fDevVideoNodeRef, B_WATCH_DIRECTORY, this) == B_OK) {
+			fDevVideoWatching = true;
+		}
+	}
+}
+
+
+void
+MainWindow::_StopDeviceWatching()
+{
+	if (fDevVideoWatching) {
+		watch_node(&fDevVideoNodeRef, B_STOP_WATCHING, this);
+		fDevVideoWatching = false;
+	}
+}
+
+
+void
+MainWindow::_HandleDeviceNodeMonitor(BMessage* message)
+{
+	int32 opcode;
+	if (message->FindInt32("opcode", &opcode) != B_OK)
+		return;
+
+	switch (opcode) {
+		case B_ENTRY_REMOVED:
+		{
+			// A device file was removed from /dev/video - the webcam
+			// was physically disconnected. We MUST stop capture immediately
+			// to release isochronous USB pipes before the USB stack
+			// tries to destroy the device (which would cause a kernel panic).
+			if (fIsPreviewActive && fCurrentWebcam != NULL) {
+				fprintf(stderr, "BubiCam: USB device removed, "
+					"emergency stop to release USB pipes\n");
+
+				BString deviceName(fCurrentWebcam->Name());
+
+				// Stop capture IMMEDIATELY - this is time-critical
+				_StopPreview();
+				{
+					BAutolock lock(fWebcamLock);
+					fCurrentWebcam = NULL;
+					fCurrentWebcamIndex = -1;
+				}
+				if (fMCPServer != NULL)
+					fMCPServer->SetWebcamDevice(NULL);
+				fDriverTestView->SetDevice(NULL);
+
+				fStatusBar->SetText("Webcam disconnected");
+
+				// Schedule a device list refresh after the USB stack
+				// finishes cleanup
+				BMessage refreshMsg(MSG_REFRESH_DEVICES);
+				BMessageRunner::StartSending(BMessenger(this),
+					&refreshMsg, 1500000, 1);  // 1.5s delay
+			}
+			break;
+		}
+
+		case B_ENTRY_CREATED:
+		{
+			// A new device file appeared - a webcam was plugged in.
+			// Wait a moment for the driver to fully initialize, then
+			// refresh the device list.
+			if (!fIsPreviewActive) {
+				BMessage refreshMsg(MSG_REFRESH_DEVICES);
+				BMessageRunner::StartSending(BMessenger(this),
+					&refreshMsg, 2000000, 1);  // 2s delay for driver init
+			}
+			break;
+		}
+	}
 }
 

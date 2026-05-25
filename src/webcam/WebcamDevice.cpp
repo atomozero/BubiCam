@@ -94,6 +94,47 @@ StopNodeWithTimeout(BMediaRoster* roster, const media_node& node,
 }
 
 
+// Helper: set colorSpace string from negotiated media_format
+static void
+_SetColorSpaceFromFormat(VideoFormat& vf, const media_format& format)
+{
+	if (format.type == B_MEDIA_ENCODED_VIDEO) {
+		strlcpy(vf.colorSpace, "MJPEG", sizeof(vf.colorSpace));
+	} else if (format.type == B_MEDIA_RAW_VIDEO) {
+		switch (format.u.raw_video.display.format) {
+			case B_RGB32:
+			case B_RGBA32:
+				strlcpy(vf.colorSpace, "RGB32", sizeof(vf.colorSpace));
+				break;
+			case B_RGB24:
+				strlcpy(vf.colorSpace, "RGB24", sizeof(vf.colorSpace));
+				break;
+			case B_RGB16:
+				strlcpy(vf.colorSpace, "RGB16", sizeof(vf.colorSpace));
+				break;
+			case B_YCbCr422:
+				strlcpy(vf.colorSpace, "YCbCr422", sizeof(vf.colorSpace));
+				break;
+			case B_YCbCr420:
+				strlcpy(vf.colorSpace, "YCbCr420", sizeof(vf.colorSpace));
+				break;
+			case B_YUV422:
+				strlcpy(vf.colorSpace, "YUV422", sizeof(vf.colorSpace));
+				break;
+			case B_YUV420:
+				strlcpy(vf.colorSpace, "YUV420", sizeof(vf.colorSpace));
+				break;
+			default:
+				strlcpy(vf.colorSpace, ColorSpaceName(format.u.raw_video.display.format),
+					sizeof(vf.colorSpace));
+				break;
+		}
+	} else {
+		strlcpy(vf.colorSpace, "Unknown", sizeof(vf.colorSpace));
+	}
+}
+
+
 // Timing constants for media operations (in microseconds)
 // Start delay gives driver time to initialize before first frame
 const bigtime_t kMediaStartDelay = 100000;		// 100ms
@@ -432,7 +473,8 @@ WebcamDevice::_GatherVideoFormats()
 							vf->width = width;
 							vf->height = height;
 							vf->frameRate = 30.0f;
-							strlcpy(vf->colorSpace, "YUY2", sizeof(vf->colorSpace));
+							// Will be filled with actual format after connection
+							vf->colorSpace[0] = '\0';
 							fSupportedFormats.AddItem(vf);
 						}
 					}
@@ -1013,11 +1055,7 @@ WebcamDevice::_SetupVideoConnection()
 			fCurrentFormat.width = format.u.raw_video.display.line_width;
 			fCurrentFormat.height = format.u.raw_video.display.line_count;
 			fCurrentFormat.frameRate = format.u.raw_video.field_rate;
-			// Preserve colorSpace from the requested format if set
-			if (fCurrentFormat.colorSpace[0] == '\0' && fHasRequestedFormat)
-				strlcpy(fCurrentFormat.colorSpace,
-					fRequestedFormat.colorSpace,
-					sizeof(fCurrentFormat.colorSpace));
+			_SetColorSpaceFromFormat(fCurrentFormat, format);
 			return B_OK;
 		}
 
@@ -1067,11 +1105,8 @@ WebcamDevice::_SetupVideoConnection()
 			fCurrentFormat.width = format.u.raw_video.display.line_width;
 			fCurrentFormat.height = format.u.raw_video.display.line_count;
 			fCurrentFormat.frameRate = format.u.raw_video.field_rate;
-			if (fCurrentFormat.colorSpace[0] == '\0' && fHasRequestedFormat)
-				strlcpy(fCurrentFormat.colorSpace,
-					fRequestedFormat.colorSpace,
-					sizeof(fCurrentFormat.colorSpace));
 		}
+		_SetColorSpaceFromFormat(fCurrentFormat, format);
 
 		return B_OK;
 	}
@@ -1101,6 +1136,7 @@ WebcamDevice::_SetupVideoConnection()
 			fCurrentFormat.height = format.u.raw_video.display.line_count;
 			fCurrentFormat.frameRate = format.u.raw_video.field_rate;
 		}
+		_SetColorSpaceFromFormat(fCurrentFormat, format);
 
 		return B_OK;
 	}
@@ -1119,6 +1155,7 @@ WebcamDevice::_SetupVideoConnection()
 	if (status == B_OK) {
 		LOG_INFO("Connected: encoded video type=%d", format.type);
 		fVideoConnected = true;
+		_SetColorSpaceFromFormat(fCurrentFormat, format);
 		return B_OK;
 	}
 
@@ -1135,6 +1172,7 @@ WebcamDevice::_SetupVideoConnection()
 	if (status == B_OK) {
 		LOG_INFO("Connected: unknown type, negotiated=%d", format.type);
 		fVideoConnected = true;
+		_SetColorSpaceFromFormat(fCurrentFormat, format);
 		return B_OK;
 	}
 
@@ -1293,6 +1331,7 @@ WebcamDevice::_SetupVideoConnection()
 		fCurrentFormat.height = format.u.raw_video.display.line_count;
 		fCurrentFormat.frameRate = format.u.raw_video.field_rate;
 	}
+	_SetColorSpaceFromFormat(fCurrentFormat, format);
 
 	return B_OK;
 }
