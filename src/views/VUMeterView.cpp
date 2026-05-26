@@ -58,19 +58,22 @@ VUMeterView::SetLevel(float left, float right)
 
 	bigtime_t now = system_time();
 
-	// Update peak hold
+	// Update peak hold with smooth decay after hold time
 	if (fLeftLevel >= fLeftPeak) {
 		fLeftPeak = fLeftLevel;
 		fLeftPeakTime = now;
 	} else if (now - fLeftPeakTime > kPeakHoldTime) {
-		fLeftPeak = fLeftLevel;
+		// Smooth decay: ~12 dB/second
+		float decay = (now - fLeftPeakTime - kPeakHoldTime) / 1000000.0f * 0.25f;
+		fLeftPeak = fmax(fLeftLevel, fLeftPeak - decay);
 	}
 
 	if (fRightLevel >= fRightPeak) {
 		fRightPeak = fRightLevel;
 		fRightPeakTime = now;
 	} else if (now - fRightPeakTime > kPeakHoldTime) {
-		fRightPeak = fRightLevel;
+		float decay = (now - fRightPeakTime - kPeakHoldTime) / 1000000.0f * 0.25f;
+		fRightPeak = fmax(fRightLevel, fRightPeak - decay);
 	}
 
 	lock.Unlock();
@@ -173,16 +176,18 @@ VUMeterView::_DrawScale(BRect rect)
 
 	float meterWidth = rect.Width();
 
-	// dB scale markers
+	// dB scale markers - positions match actual linear RMS values
+	// dB = 20*log10(level), so level = 10^(dB/20)
+	// -60dB=0.001, -40dB=0.01, -20dB=0.1, -12dB=0.25, -6dB=0.5, -3dB=0.71, 0dB=1.0
 	struct {
-		float position;  // 0.0 to 1.0
+		float position;  // 0.0 to 1.0 (linear amplitude)
 		const char* label;
 	} markers[] = {
-		{0.0f, "-∞"},
-		{0.3f, "-20"},
-		{0.5f, "-12"},
-		{0.7f, "-6"},
-		{0.85f, "-3"},
+		{0.0f, "-inf"},
+		{0.1f, "-20"},
+		{0.25f, "-12"},
+		{0.5f, "-6"},
+		{0.71f, "-3"},
 		{1.0f, "0"}
 	};
 
@@ -197,17 +202,18 @@ VUMeterView::_DrawScale(BRect rect)
 rgb_color
 VUMeterView::_ColorForLevel(float level)
 {
-	if (level < 0.7f) {
-		// Green zone (safe)
-		int green = 180 + (int)(75 * level / 0.7f);
+	// Green below -6 dB (0.5), yellow -6 to -3 dB, red above -3 dB (0.71)
+	if (level < 0.5f) {
+		// Green zone (safe, up to -6 dB)
+		int green = 180 + (int)(75 * level / 0.5f);
 		return make_color(0, green, 0);
-	} else if (level < 0.85f) {
-		// Yellow zone (caution)
-		float t = (level - 0.7f) / 0.15f;
+	} else if (level < 0.71f) {
+		// Yellow zone (caution, -6 to -3 dB)
+		float t = (level - 0.5f) / 0.21f;
 		return make_color((int)(255 * t), 220, 0);
 	} else {
-		// Red zone (clipping)
-		float t = (level - 0.85f) / 0.15f;
+		// Red zone (clipping, above -3 dB)
+		float t = (level - 0.71f) / 0.29f;
 		return make_color(255, (int)(200 * (1 - t)), 0);
 	}
 }

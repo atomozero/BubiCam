@@ -1243,10 +1243,10 @@ MainWindow::MessageReceived(BMessage* message)
 
 		case MSG_AUDIO_LEVEL:
 		{
-			// Only show audio levels if video frames are actually arriving.
-			// When the driver has bandwidth issues (no video frames),
-			// audio may still flow but the levels are misleading.
-			if (fDriverCrashed || (fBandwidthAlertShown && fVideoPreview->FramesReceived() == 0)) {
+			// Suppress audio levels only if the driver has actually crashed.
+			// Audio may work independently from video (e.g., separate audio node),
+			// so don't suppress during bandwidth issues.
+			if (fDriverCrashed || !fIsPreviewActive) {
 				fVUMeter->SetLevel(0.0f, 0.0f);
 				break;
 			}

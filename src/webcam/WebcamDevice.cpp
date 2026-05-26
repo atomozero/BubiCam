@@ -1397,7 +1397,12 @@ WebcamDevice::_SetupAudioConnection()
 					&outputCount, B_MEDIA_RAW_AUDIO);
 				if (status == B_OK && outputCount > 0) {
 					foundAudioNode = true;
+					fAudioProducerNode = audioNode;
+					// Not instantiated by us - it's a live node reference
+					fAudioProducerInstantiated = false;
 					LOG_INFO("Using user-selected audio node ID=%d", fAudioNodeID);
+				} else {
+					roster->ReleaseNode(audioNode);
 				}
 			}
 		}
@@ -1486,7 +1491,12 @@ WebcamDevice::_SetupAudioConnection()
 					&outputCount, B_MEDIA_RAW_AUDIO);
 				if (status == B_OK && outputCount > 0) {
 					foundAudioNode = true;
+					fAudioProducerNode = audioNode;
+					// System default - not instantiated by us
+					fAudioProducerInstantiated = false;
 					LOG_INFO("Using system audio input for VU meter");
+				} else {
+					roster->ReleaseNode(audioNode);
 				}
 			}
 		}

@@ -34,7 +34,11 @@ AudioConsumer::AudioConsumer(const char* name, BLooper* target,
 	fLevelMessage(levelMessage),
 	fConnected(false),
 	fInternalLatency(kAudioLatency),
-	fLastLevelTime(0)
+	fLastLevelTime(0),
+	fSmoothedLeft(0.0f),
+	fSmoothedRight(0.0f),
+	fBufferCount(0),
+	fLevelLogCount(0)
 {
 	fInput = media_input();
 	fFormat = media_format();
@@ -282,8 +286,7 @@ AudioConsumer::_HandleBuffer(BBuffer* buffer)
 		return;
 
 	// Log first buffer details for debugging
-	static int32 sBufferCount = 0;
-	if (++sBufferCount <= 2) {
+	if (++fBufferCount <= 2) {
 		size_t bufSize = buffer->SizeUsed();
 		int32 ch = fFormat.u.raw_audio.channel_count;
 		uint32 fmt = fFormat.u.raw_audio.format;
@@ -297,7 +300,7 @@ AudioConsumer::_HandleBuffer(BBuffer* buffer)
 		int32 expectedFrameSize = ch * sampleSize;
 		LOG_INFO("Audio buffer #%d: %zu bytes, %d ch x %d bytes = %d per frame, "
 			"frames=%zu, byte_order=%d",
-			(int)sBufferCount, bufSize, (int)ch, (int)sampleSize,
+			(int)fBufferCount, bufSize, (int)ch, (int)sampleSize,
 			(int)expectedFrameSize,
 			expectedFrameSize > 0 ? bufSize / expectedFrameSize : 0,
 			(int)fFormat.u.raw_audio.byte_order);
@@ -344,31 +347,29 @@ AudioConsumer::_HandleBuffer(BBuffer* buffer)
 	float left = 0.0f, right = 0.0f;
 	_CalculateLevels(buffer->Data(), buffer->SizeUsed(), &left, &right);
 
-	// Noise gate: ignore levels below threshold (USB noise floor)
-	const float kNoiseGate = 0.005f;
+	// Noise gate: very low threshold - only suppress near-zero USB noise
+	// Previous 0.005 (-46 dB) was too aggressive, suppressing real quiet audio
+	const float kNoiseGate = 0.001f;  // -60 dB
 	if (left < kNoiseGate) left = 0.0f;
 	if (right < kNoiseGate) right = 0.0f;
 
 	// Exponential smoothing to prevent erratic jumps
-	// (alpha = 0.3 means ~70% of previous value retained)
-	const float kSmoothing = 0.3f;
-	static float sSmoothedLeft = 0.0f;
-	static float sSmoothedRight = 0.0f;
-	sSmoothedLeft = sSmoothedLeft * (1.0f - kSmoothing) + left * kSmoothing;
-	sSmoothedRight = sSmoothedRight * (1.0f - kSmoothing) + right * kSmoothing;
+	// (alpha = 0.4 means more responsive, ~60% of previous value retained)
+	const float kSmoothing = 0.4f;
+	fSmoothedLeft = fSmoothedLeft * (1.0f - kSmoothing) + left * kSmoothing;
+	fSmoothedRight = fSmoothedRight * (1.0f - kSmoothing) + right * kSmoothing;
 
 	// Log levels periodically for debugging
-	static int32 sLevelLogCount = 0;
-	if (++sLevelLogCount <= 5 || (sLevelLogCount % 200) == 0) {
+	if (++fLevelLogCount <= 5 || (fLevelLogCount % 200) == 0) {
 		LOG_DEBUG("Audio level: raw L=%.4f R=%.4f, smoothed L=%.4f R=%.4f (fmt=%u)",
-			left, right, sSmoothedLeft, sSmoothedRight,
+			left, right, fSmoothedLeft, fSmoothedRight,
 			(unsigned)fFormat.u.raw_audio.format);
 	}
 
 	if (target != NULL) {
 		BMessage msg(fLevelMessage);
-		msg.AddFloat("left", sSmoothedLeft);
-		msg.AddFloat("right", sSmoothedRight);
+		msg.AddFloat("left", fSmoothedLeft);
+		msg.AddFloat("right", fSmoothedRight);
 		target->PostMessage(&msg);
 	}
 }
@@ -427,8 +428,23 @@ AudioConsumer::_CalculateLevels(const void* data, size_t size,
 		case media_raw_audio_format::B_AUDIO_INT:
 		{
 			size_t samples = size / sizeof(int32);
-			_CalculateLevelsTyped(static_cast<const int32*>(data),
-				samples, channels, (int32)2147483647, outLeft, outRight);
+			uint32 byteOrder = fFormat.u.raw_audio.byte_order;
+
+			if (byteOrder == B_MEDIA_BIG_ENDIAN) {
+				int32* swapped = new int32[samples];
+				const uint8* raw = static_cast<const uint8*>(data);
+				for (size_t i = 0; i < samples; i++) {
+					size_t o = i * 4;
+					swapped[i] = (int32)((raw[o + 3]) | (raw[o + 2] << 8) |
+						(raw[o + 1] << 16) | (raw[o] << 24));
+				}
+				_CalculateLevelsTyped(swapped, samples, channels,
+					(int32)2147483647, outLeft, outRight);
+				delete[] swapped;
+			} else {
+				_CalculateLevelsTyped(static_cast<const int32*>(data),
+					samples, channels, (int32)2147483647, outLeft, outRight);
+			}
 			break;
 		}
 
@@ -437,6 +453,20 @@ AudioConsumer::_CalculateLevels(const void* data, size_t size,
 			const float* samples = static_cast<const float*>(data);
 			size_t sampleCount = size / sizeof(float);
 			size_t frameCount = sampleCount / channels;
+
+			// Byte-swap floats if big-endian
+			float* swapped = NULL;
+			uint32 byteOrder = fFormat.u.raw_audio.byte_order;
+			if (byteOrder == B_MEDIA_BIG_ENDIAN) {
+				swapped = new float[sampleCount];
+				const uint8* raw = static_cast<const uint8*>(data);
+				for (size_t i = 0; i < sampleCount; i++) {
+					uint32 v = (uint32)((raw[i*4+3]) | (raw[i*4+2]<<8) |
+						(raw[i*4+1]<<16) | (raw[i*4]<<24));
+					memcpy(&swapped[i], &v, sizeof(float));
+				}
+				samples = swapped;
+			}
 
 			if (frameCount > 0) {
 				// Compute DC offset
@@ -463,6 +493,7 @@ AudioConsumer::_CalculateLevels(const void* data, size_t size,
 				*outRight = channels > 1 ?
 					(float)sqrt(sumRight / frameCount) : *outLeft;
 			}
+			delete[] swapped;
 			break;
 		}
 

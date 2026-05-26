@@ -76,6 +76,12 @@ private:
 
 	bigtime_t			fInternalLatency;
 	bigtime_t			fLastLevelTime;
+
+	// Smoothing state (per-instance, not static)
+	float				fSmoothedLeft;
+	float				fSmoothedRight;
+	int32				fBufferCount;
+	int32				fLevelLogCount;
 };
 
 #endif // AUDIO_CONSUMER_H
