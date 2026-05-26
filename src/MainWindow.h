@@ -19,6 +19,7 @@
 #include <Path.h>
 #include <Button.h>
 #include <Locker.h>
+#include <NodeMonitor.h>
 #include <ObjectList.h>
 #include <ToolBar.h>
 
@@ -141,6 +142,9 @@ private:
 
 	void				_EnterVideoFullscreen();
 	void				_ExitVideoFullscreen();
+	void				_StartDeviceWatching();
+	void				_StopDeviceWatching();
+	void				_HandleDeviceNodeMonitor(BMessage* message);
 
 	bool				fIsFullscreen;
 	BWindow*			fFullscreenWindow;
@@ -181,6 +185,8 @@ private:
 	WebcamDevice*		fCurrentWebcam;
 	mutable BLocker		fWebcamLock;	// Protects fCurrentWebcam access
 	int32				fCurrentWebcamIndex;
+	node_ref			fDevVideoNodeRef;	// /dev/video node for monitoring
+	bool				fDevVideoWatching;
 	int32				fSelectedAudioNodeID;  // -1 = auto, 0 = none, >0 = specific node
 	bool				fIsPreviewActive;
 
