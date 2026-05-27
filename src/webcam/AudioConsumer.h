@@ -56,6 +56,10 @@ public:
 	// Target management (thread-safe)
 	void				SetTarget(BLooper* target);
 
+	// Direct recorder access (bypasses message loop for audio data)
+	void				SetRecorder(class VideoRecorder* recorder);
+	void				ClearRecorder();
+
 private:
 	void				_HandleBuffer(BBuffer* buffer);
 	void				_CalculateLevels(const void* data, size_t size,
@@ -82,6 +86,10 @@ private:
 	float				fSmoothedRight;
 	int32				fBufferCount;
 	int32				fLevelLogCount;
+
+	// Direct recording path (bypasses message loop)
+	class VideoRecorder*	fRecorder;
+	mutable BLocker		fRecorderLock;
 };
 
 #endif // AUDIO_CONSUMER_H

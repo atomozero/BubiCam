@@ -136,6 +136,7 @@ public:
 	// Frame access (for MCP server)
 	BBitmap*			GetCurrentFrame() const;
 	VideoConsumer*		GetVideoConsumer() const { return fVideoConsumer; }
+	AudioConsumer*		GetAudioConsumer() const { return fAudioConsumer; }
 
 	// Capture statistics
 	uint32				FramesCaptured() const;

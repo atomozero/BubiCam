@@ -20,6 +20,7 @@
 #include "ExportUtils.h"
 #include "IconUtils.h"
 #include "VideoRecorder.h"
+#include "AudioConsumer.h"
 
 // Logging macros using centralized ErrorUtils
 #define LOG_MODULE "MainWindow"
@@ -2354,8 +2355,15 @@ MainWindow::_StartRecording()
 		return;
 	}
 
-	BString statusMsg;
+	// Connect recorder directly to audio consumer for zero-loss recording
 	bool hasAudio = fRecorder->HasAudio();
+	if (hasAudio && webcam != NULL) {
+		AudioConsumer* audioConsumer = webcam->GetAudioConsumer();
+		if (audioConsumer != NULL)
+			audioConsumer->SetRecorder(fRecorder);
+	}
+
+	BString statusMsg;
 	statusMsg.SetToFormat("Recording%s to %s",
 		hasAudio ? " (with audio)" : "", filename.String());
 	fStatusBar->SetText(statusMsg.String());
@@ -2369,6 +2377,19 @@ MainWindow::_StopRecording()
 {
 	if (fRecorder == NULL || !fRecorder->IsRecording())
 		return;
+
+	// Disconnect recorder from audio consumer BEFORE stopping
+	// to prevent writes to a stopped recorder
+	WebcamDevice* webcam = NULL;
+	{
+		BAutolock lock(fWebcamLock);
+		webcam = fCurrentWebcam;
+	}
+	if (webcam != NULL) {
+		AudioConsumer* audioConsumer = webcam->GetAudioConsumer();
+		if (audioConsumer != NULL)
+			audioConsumer->ClearRecorder();
+	}
 
 	uint32 frames = fRecorder->FramesRecorded();
 	bigtime_t duration = fRecorder->Duration();

@@ -6,6 +6,7 @@
 
 #include "AudioConsumer.h"
 #include "MainWindow.h"
+#include "VideoRecorder.h"
 
 #include <Autolock.h>
 #include <Buffer.h>
@@ -38,7 +39,8 @@ AudioConsumer::AudioConsumer(const char* name, BLooper* target,
 	fSmoothedLeft(0.0f),
 	fSmoothedRight(0.0f),
 	fBufferCount(0),
-	fLevelLogCount(0)
+	fLevelLogCount(0),
+	fRecorder(NULL)
 {
 	fInput = media_input();
 	fFormat = media_format();
@@ -280,6 +282,22 @@ AudioConsumer::SetTarget(BLooper* target)
 
 
 void
+AudioConsumer::SetRecorder(VideoRecorder* recorder)
+{
+	BAutolock lock(fRecorderLock);
+	fRecorder = recorder;
+}
+
+
+void
+AudioConsumer::ClearRecorder()
+{
+	BAutolock lock(fRecorderLock);
+	fRecorder = NULL;
+}
+
+
+void
 AudioConsumer::_HandleBuffer(BBuffer* buffer)
 {
 	if (buffer == NULL)
@@ -326,36 +344,34 @@ AudioConsumer::_HandleBuffer(BBuffer* buffer)
 	if (target == NULL)
 		return;
 
-	// Send audio data for recording, converting float to 16-bit PCM if needed
+	// Write audio directly to recorder (bypasses message loop to prevent
+	// buffer loss from queue congestion during video frame processing)
 	size_t dataSize = buffer->SizeUsed();
 	if (dataSize > 0) {
-		BMessage audioMsg(MSG_AUDIO_BUFFER);
-		uint32 audioFormat = fFormat.u.raw_audio.format;
+		BAutolock recLock(fRecorderLock);
+		if (fRecorder != NULL) {
+			uint32 audioFormat = fFormat.u.raw_audio.format;
 
-		if (audioFormat == media_raw_audio_format::B_AUDIO_FLOAT) {
-			// Convert 32-bit float to 16-bit PCM for AVI compatibility
-			const float* floatData = static_cast<const float*>(buffer->Data());
-			size_t sampleCount = dataSize / sizeof(float);
-			size_t pcmSize = sampleCount * sizeof(int16);
-			int16* pcmData = new int16[sampleCount];
+			if (audioFormat == media_raw_audio_format::B_AUDIO_FLOAT) {
+				// Convert 32-bit float to 16-bit PCM for AVI compatibility
+				const float* floatData = static_cast<const float*>(buffer->Data());
+				size_t sampleCount = dataSize / sizeof(float);
+				size_t pcmSize = sampleCount * sizeof(int16);
+				int16* pcmData = new int16[sampleCount];
 
-			for (size_t i = 0; i < sampleCount; i++) {
-				float sample = floatData[i];
-				// Clamp to [-1.0, 1.0]
-				if (sample > 1.0f) sample = 1.0f;
-				if (sample < -1.0f) sample = -1.0f;
-				pcmData[i] = (int16)(sample * 32767.0f);
+				for (size_t i = 0; i < sampleCount; i++) {
+					float sample = floatData[i];
+					if (sample > 1.0f) sample = 1.0f;
+					if (sample < -1.0f) sample = -1.0f;
+					pcmData[i] = (int16)(sample * 32767.0f);
+				}
+
+				fRecorder->AddAudioBuffer(pcmData, pcmSize);
+				delete[] pcmData;
+			} else {
+				fRecorder->AddAudioBuffer(buffer->Data(), dataSize);
 			}
-
-			audioMsg.AddData("audio_data", B_RAW_TYPE, pcmData, pcmSize);
-			audioMsg.AddInt64("size", (int64)pcmSize);
-			audioMsg.AddBool("converted_from_float", true);
-			delete[] pcmData;
-		} else {
-			audioMsg.AddData("audio_data", B_RAW_TYPE, buffer->Data(), dataSize);
-			audioMsg.AddInt64("size", (int64)dataSize);
 		}
-		target->PostMessage(&audioMsg);
 	}
 
 	bigtime_t now = system_time();
