@@ -561,7 +561,9 @@ WebcamDevice::_GatherAudioInfo()
 					fAudioBitsPerSample = 32;
 					break;
 				case media_raw_audio_format::B_AUDIO_FLOAT:
-					fAudioBitsPerSample = 32;
+					// AudioConsumer converts float to 16-bit PCM before
+					// sending to recorder, so report 16-bit here
+					fAudioBitsPerSample = 16;
 					break;
 				default:
 					fAudioBitsPerSample = 16;
