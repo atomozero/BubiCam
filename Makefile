@@ -24,6 +24,7 @@ SRCS = \
 	src/mcp/MCPServer.cpp \
 	src/utils/ExportUtils.cpp \
 	src/utils/IconUtils.cpp \
+	src/utils/StreamServer.cpp \
 	src/utils/VideoRecorder.cpp
 
 RDEFS = resources/BubiCam.rdef

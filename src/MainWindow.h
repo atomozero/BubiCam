@@ -34,6 +34,7 @@ class WebcamControlsView;
 class WebcamRoster;
 class WebcamDevice;
 class MCPServer;
+class StreamServer;
 class VideoRecorder;
 
 // Message constants
@@ -87,7 +88,8 @@ enum {
 	MSG_GRID_MODE			= 'grmd',
 	MSG_FULLSCREEN			= 'fscr',
 	MSG_AUDIO_SOURCE		= 'auds',
-	MSG_AUDIO_NONE			= 'audn'
+	MSG_AUDIO_NONE			= 'audn',
+	MSG_STREAM_TOGGLE		= 'sttg'
 };
 
 
@@ -197,6 +199,10 @@ private:
 	// MCP Server
 	MCPServer*			fMCPServer;
 	BMenuItem*			fMCPMenuItem;
+
+	// Stream Server
+	StreamServer*		fStreamServer;
+	BMenuItem*			fStreamMenuItem;
 
 	// Video recording
 	VideoRecorder*		fRecorder;

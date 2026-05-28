@@ -17,6 +17,7 @@
 #include "WebcamRoster.h"
 #include "WebcamDevice.h"
 #include "MCPServer.h"
+#include "StreamServer.h"
 #include "ExportUtils.h"
 #include "IconUtils.h"
 #include "VideoRecorder.h"
@@ -129,6 +130,8 @@ MainWindow::MainWindow()
 	fSavingJson(false),
 	fMCPServer(NULL),
 	fMCPMenuItem(NULL),
+	fStreamServer(NULL),
+	fStreamMenuItem(NULL),
 	fRecorder(NULL),
 	fTimelapseRunner(NULL),
 	fTimelapseCount(0),
@@ -153,6 +156,9 @@ MainWindow::MainWindow()
 
 	// Create MCP server
 	fMCPServer = new MCPServer(BMessenger(this));
+
+	// Create stream server
+	fStreamServer = new StreamServer(BMessenger(this));
 
 	_BuildMenu();
 	_BuildLayout();
@@ -207,6 +213,13 @@ MainWindow::~MainWindow()
 	delete fSavePanel;
 	delete fLastFrame;
 	delete fRecorder;
+
+	// Stop stream server
+	if (fStreamServer != NULL) {
+		fStreamServer->Stop();
+		delete fStreamServer;
+		fStreamServer = NULL;
+	}
 
 	// Stop MCP server - QuitRequested already stopped it and cleared device,
 	// so Lock()/Quit() should return quickly
@@ -345,6 +358,9 @@ MainWindow::_BuildMenu()
 	fMCPMenuItem = new BMenuItem("Enable MCP Server (Port 9847)",
 		new BMessage(MSG_MCP_TOGGLE));
 	fToolsMenu->AddItem(fMCPMenuItem);
+	fStreamMenuItem = new BMenuItem("Start MJPEG Stream (Port 8080)",
+		new BMessage(MSG_STREAM_TOGGLE));
+	fToolsMenu->AddItem(fStreamMenuItem);
 	fMenuBar->AddItem(fToolsMenu);
 }
 
@@ -1380,6 +1396,51 @@ MainWindow::MessageReceived(BMessage* message)
 			break;
 		}
 
+		case MSG_STREAM_TOGGLE:
+		{
+			if (fStreamServer->IsRunning()) {
+				fStreamServer->Stop();
+				fStreamMenuItem->SetLabel("Start MJPEG Stream (Port 8080)");
+				fStreamMenuItem->SetMarked(false);
+				fStatusBar->SetText("MJPEG stream stopped");
+			} else {
+				if (fStreamServer->Start(8080) == B_OK) {
+					fStreamMenuItem->SetLabel("Stop MJPEG Stream (Port 8080)");
+					fStreamMenuItem->SetMarked(true);
+					fStatusBar->SetText("MJPEG stream at http://localhost:8080/");
+				} else {
+					fStatusBar->SetText("Failed to start stream server");
+				}
+			}
+			break;
+		}
+
+		case MSG_STREAM_STARTED:
+		{
+			fStreamMenuItem->SetLabel("Stop MJPEG Stream (Port 8080)");
+			fStreamMenuItem->SetMarked(true);
+			break;
+		}
+
+		case MSG_STREAM_STOPPED:
+		{
+			fStreamMenuItem->SetLabel("Start MJPEG Stream (Port 8080)");
+			fStreamMenuItem->SetMarked(false);
+			break;
+		}
+
+		case MSG_STREAM_CLIENT:
+		{
+			int32 count;
+			if (message->FindInt32("count", &count) == B_OK) {
+				BString status;
+				status.SetToFormat("MJPEG stream: %d client%s connected",
+					(int)count, count == 1 ? "" : "s");
+				fStatusBar->SetText(status.String());
+			}
+			break;
+		}
+
 		case MSG_MCP_STATUS:
 		{
 			bool running;
@@ -1782,6 +1843,10 @@ MainWindow::_HandleFrameReceived(BMessage* message)
 	// Record frame if recording is active
 	if (fRecorder != NULL && fRecorder->IsRecording())
 		fRecorder->AddFrame(bitmap);
+
+	// Feed frame to stream server
+	if (fStreamServer != NULL && fStreamServer->IsRunning())
+		fStreamServer->FeedFrame(bitmap);
 
 	// Keep a copy for screenshots
 	if (fLastFrame == NULL ||
@@ -2359,8 +2424,12 @@ MainWindow::_StartRecording()
 	bool hasAudio = fRecorder->HasAudio();
 	if (hasAudio && webcam != NULL) {
 		AudioConsumer* audioConsumer = webcam->GetAudioConsumer();
-		if (audioConsumer != NULL)
+		fprintf(stderr, "Recording: hasAudio=%d, webcam=%p, audioConsumer=%p\n",
+			hasAudio, webcam, audioConsumer);
+		if (audioConsumer != NULL) {
 			audioConsumer->SetRecorder(fRecorder);
+			fprintf(stderr, "Recording: SetRecorder(%p) on AudioConsumer\n", fRecorder);
+		}
 	}
 
 	BString statusMsg;
