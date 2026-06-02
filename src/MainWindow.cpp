@@ -767,11 +767,78 @@ MainWindow::_SelectFormat(int32 index)
 	// Restart preview to apply the new format
 	bool wasActive = fIsPreviewActive;
 	if (wasActive) {
-		fStatusBar->SetText("Changing resolution...");
+		BString statusMsg;
+		statusMsg.SetToFormat("Changing to %dx%d...",
+			(int)selectedFormat->width, (int)selectedFormat->height);
+		fStatusBar->SetText(statusMsg.String());
 		UpdateIfNeeded();
 
 		_StopPreview();
-		_StartPreview();
+
+		// Brief pause to let the driver fully release USB resources
+		// before re-acquiring them at a different resolution
+		snooze(500000);  // 500ms
+
+		status_t err = fCurrentWebcam->StartCapture(this);
+		if (err != B_OK) {
+			// Resolution change failed - try to recover with previous format
+			fCurrentWebcam->ClearRequestedFormat();
+			BString errMsg;
+			errMsg.SetToFormat("Resolution change failed: %s. Retrying previous format...",
+				strerror(err));
+			fStatusBar->SetText(errMsg.String());
+			UpdateIfNeeded();
+
+			snooze(500000);
+
+			err = fCurrentWebcam->StartCapture(this);
+			if (err == B_OK) {
+				fIsPreviewActive = true;
+				fLastFrameReceived = system_time();
+				fPreviewStartTime = system_time();
+				fLastWatchdogFrameCount = 0;
+				fLastWatchdogDropCount = 0;
+				fCatastrophicDropCount = 0;
+				fBandwidthAlertShown = false;
+				fDriverCrashed = false;
+
+				delete fWatchdogRunner;
+				fWatchdogRunner = new BMessageRunner(BMessenger(this),
+					new BMessage(MSG_WATCHDOG_CHECK), 2000000);
+
+				fStatusBar->SetText("Recovered with previous resolution");
+				_UpdateToolbarState();
+			} else {
+				fStatusBar->SetText("Resolution change failed. Select webcam again.");
+				_UpdateToolbarState();
+			}
+		} else {
+			// StartCapture succeeded, set up the preview UI state
+			fIsPreviewActive = true;
+			fLastFrameReceived = system_time();
+			fPreviewStartTime = system_time();
+			fLastWatchdogFrameCount = 0;
+			fLastWatchdogDropCount = 0;
+			fCatastrophicDropCount = 0;
+			fBandwidthAlertShown = false;
+			fDriverCrashed = false;
+
+			fCamLED->SetBlinking(false);
+			fCamLED->SetState(LED_GREEN);
+
+			delete fWatchdogRunner;
+			fWatchdogRunner = new BMessageRunner(BMessenger(this),
+				new BMessage(MSG_WATCHDOG_CHECK), 2000000);
+
+			BString okMsg;
+			okMsg.SetToFormat("Resolution changed to %dx%d",
+				(int)selectedFormat->width, (int)selectedFormat->height);
+			fStatusBar->SetText(okMsg.String());
+
+			_PopulateFormatMenu();
+			_UpdateToolbarState();
+			_UpdateDriverInfo();
+		}
 	}
 }
 
@@ -1787,6 +1854,16 @@ MainWindow::_HandleFrameReceived(BMessage* message)
 
 	BBitmap* bitmap = NULL;
 	if (message->FindPointer("bitmap", (void**)&bitmap) != B_OK)
+		return;
+
+	if (bitmap == NULL || !bitmap->IsValid())
+		return;
+
+	// Sanity check: reject frames with unreasonable dimensions
+	BRect bounds = bitmap->Bounds();
+	int32 w = (int32)(bounds.Width() + 1);
+	int32 h = (int32)(bounds.Height() + 1);
+	if (w <= 0 || h <= 0 || w > 4096 || h > 4096)
 		return;
 
 	fVideoPreview->SetFrame(bitmap);
