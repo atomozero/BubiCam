@@ -32,7 +32,7 @@
 class VideoConsumer : public BMediaEventLooper, public BBufferConsumer {
 public:
 						VideoConsumer(const char* name, BLooper* target,
-							uint32 frameMessage, uint32 audioMessage);
+							uint32 frameMessage);
 	virtual				~VideoConsumer();
 
 	// BMediaNode interface
@@ -120,7 +120,6 @@ private:
 	BLooper*			fTarget;
 	mutable BLocker		fTargetLock;
 	uint32				fFrameMessage;
-	uint32				fAudioMessage;
 
 	media_input			fInput;
 	media_destination	fDestination;

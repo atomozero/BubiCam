@@ -22,6 +22,16 @@
 
 class VideoConsumer;
 class AudioConsumer;
+class AudioSink;
+
+// Default messages posted to the capture target looper.
+// They are owned by the capture library (not the application) so the
+// component has no backward dependency on any app header. Override them
+// per-capture via StartCapture() to plug into your own message protocol.
+enum {
+	MSG_WEBCAM_FRAME		= 'frcv',
+	MSG_WEBCAM_AUDIO_LEVEL	= 'audl'
+};
 
 // Video format information
 struct VideoFormat {
@@ -124,8 +134,13 @@ public:
 	const dormant_node_info& DormantInfo() const { return fDormantInfo; }
 	void				MarkNodeReleased() { fNodeInstantiated = false; }
 
-	// Capture control
-	status_t			StartCapture(BLooper* target);
+	// Capture control.
+	// frameMessage / audioLevelMessage are the BMessage 'what' codes posted
+	// to 'target' for each video frame and audio level update. Defaults keep
+	// backward compatibility; override to integrate with a custom protocol.
+	status_t			StartCapture(BLooper* target,
+							uint32 frameMessage = MSG_WEBCAM_FRAME,
+							uint32 audioLevelMessage = MSG_WEBCAM_AUDIO_LEVEL);
 	void				StopCapture();
 	bool				IsCapturing() const { return fIsCapturing; }
 
@@ -133,10 +148,14 @@ public:
 	void				SetAudioNodeID(int32 nodeID) { fAudioNodeID = nodeID; }
 	int32				AudioNodeID() const { return fAudioNodeID; }
 
+	// Route captured audio to a sink (recorder, encoder, ...). Safe to call
+	// before or during capture; ignored if there is no active audio consumer.
+	void				SetAudioSink(AudioSink* sink);
+	void				ClearAudioSink();
+
 	// Frame access (for MCP server)
 	BBitmap*			GetCurrentFrame() const;
 	VideoConsumer*		GetVideoConsumer() const { return fVideoConsumer; }
-	AudioConsumer*		GetAudioConsumer() const { return fAudioConsumer; }
 
 	// Capture statistics
 	uint32				FramesCaptured() const;
@@ -214,6 +233,8 @@ private:
 	// Capture state
 	bool				fIsCapturing;
 	BLooper*			fTarget;
+	uint32				fFrameMessage;		// posted per video frame
+	uint32				fAudioLevelMessage;	// posted per audio level update
 	bool				fUsedLiveNode;	// True if we used an existing live node
 	int32				fAudioNodeID;	// -1=auto, 0=none, >0=specific node
 	mutable BLocker		fCaptureLock;	// Protects consumer pointers during capture/stop

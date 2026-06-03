@@ -7,7 +7,6 @@
 #include "WebcamDevice.h"
 #include "VideoConsumer.h"
 #include "AudioConsumer.h"
-#include "MainWindow.h"
 
 // Logging macros using centralized ErrorUtils
 #define LOG_MODULE "WebcamDevice"
@@ -178,6 +177,8 @@ WebcamDevice::WebcamDevice(const media_node& node, const dormant_node_info& info
 	fAudioProducerInstantiated(false),
 	fIsCapturing(false),
 	fTarget(NULL),
+	fFrameMessage(MSG_WEBCAM_FRAME),
+	fAudioLevelMessage(MSG_WEBCAM_AUDIO_LEVEL),
 	fUsedLiveNode(false),
 	fAudioNodeID(-1)
 {
@@ -211,6 +212,8 @@ WebcamDevice::WebcamDevice(const dormant_node_info& info, status_t instantiateEr
 	fAudioProducerInstantiated(false),
 	fIsCapturing(false),
 	fTarget(NULL),
+	fFrameMessage(MSG_WEBCAM_FRAME),
+	fAudioLevelMessage(MSG_WEBCAM_AUDIO_LEVEL),
 	fUsedLiveNode(false),
 	fAudioNodeID(-1)
 {
@@ -300,6 +303,32 @@ WebcamDevice::GetCurrentFrame() const
 	if (consumer != NULL)
 		return consumer->GetCurrentFrame();
 	return NULL;
+}
+
+
+void
+WebcamDevice::SetAudioSink(AudioSink* sink)
+{
+	AudioConsumer* consumer = NULL;
+	{
+		BAutolock lock(fCaptureLock);
+		consumer = fAudioConsumer;
+	}
+	if (consumer != NULL)
+		consumer->SetAudioSink(sink);
+}
+
+
+void
+WebcamDevice::ClearAudioSink()
+{
+	AudioConsumer* consumer = NULL;
+	{
+		BAutolock lock(fCaptureLock);
+		consumer = fAudioConsumer;
+	}
+	if (consumer != NULL)
+		consumer->ClearAudioSink();
 }
 
 
@@ -574,7 +603,8 @@ WebcamDevice::_GatherAudioInfo()
 
 
 status_t
-WebcamDevice::StartCapture(BLooper* target)
+WebcamDevice::StartCapture(BLooper* target, uint32 frameMessage,
+	uint32 audioLevelMessage)
 {
 	LOG_INFO("Starting capture for '%s'", fName.String());
 
@@ -586,6 +616,8 @@ WebcamDevice::StartCapture(BLooper* target)
 	}
 
 	fTarget = target;
+	fFrameMessage = frameMessage;
+	fAudioLevelMessage = audioLevelMessage;
 	fUsedLiveNode = false;
 
 	BMediaRoster* roster = BMediaRoster::Roster();
@@ -874,7 +906,7 @@ WebcamDevice::_SetupVideoConnection()
 
 	// Create video consumer
 	fVideoConsumer = new VideoConsumer("BubiCam Video", fTarget,
-		MSG_FRAME_RECEIVED, MSG_AUDIO_LEVEL);
+		fFrameMessage);
 
 	// Register consumer
 	status = roster->RegisterNode(fVideoConsumer);
@@ -1365,7 +1397,7 @@ WebcamDevice::_SetupAudioConnection()
 
 	// Create audio consumer
 	fAudioConsumer = new AudioConsumer("BubiCam Audio", fTarget,
-		MSG_AUDIO_LEVEL);
+		fAudioLevelMessage);
 
 	// Register consumer
 	status = roster->RegisterNode(fAudioConsumer);

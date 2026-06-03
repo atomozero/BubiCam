@@ -9,7 +9,6 @@
  */
 
 #include "VideoConsumer.h"
-#include "MainWindow.h"
 
 #include <Autolock.h>
 #include <Buffer.h>
@@ -51,14 +50,13 @@ const uint32 kFallbackHeight = 240;
 
 
 VideoConsumer::VideoConsumer(const char* name, BLooper* target,
-	uint32 frameMessage, uint32 audioMessage)
+	uint32 frameMessage)
 	:
 	BMediaNode(name),
 	BMediaEventLooper(),
 	BBufferConsumer(B_MEDIA_RAW_VIDEO),  // Prefer RAW_VIDEO but accept others in AcceptFormat
 	fTarget(target),
 	fFrameMessage(frameMessage),
-	fAudioMessage(audioMessage),
 	fConnected(false),
 	fBuffers(NULL),
 	fDisplayBitmap(NULL),

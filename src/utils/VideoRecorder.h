@@ -18,6 +18,8 @@
 #include <stdio.h>
 #include <jpeglib.h>
 
+#include "AudioSink.h"
+
 
 struct AVIIndexEntry {
 	off_t		offset;
@@ -25,10 +27,10 @@ struct AVIIndexEntry {
 };
 
 
-class VideoRecorder {
+class VideoRecorder : public AudioSink {
 public:
 						VideoRecorder();
-						~VideoRecorder();
+	virtual				~VideoRecorder();
 
 	status_t			Start(const char* path, int32 width, int32 height,
 							float fps = 30.0f, int jpegQuality = 85);
@@ -39,6 +41,11 @@ public:
 	status_t			AddFrame(BBitmap* bitmap);
 	status_t			AddAudioBuffer(const void* data, size_t size);
 	status_t			Stop();
+
+	// AudioSink: accepts raw PCM from the capture library and converts it
+	// (float -> int16 when needed) before storing it in the AVI stream.
+	virtual void		WriteAudio(const void* data, size_t size,
+							const media_raw_audio_format& format);
 
 	bool				IsRecording() const { return fRecording; }
 	bool				HasAudio() const { return fHasAudio; }
@@ -74,6 +81,11 @@ private:
 	int32				fBitsPerSample;
 	uint32				fAudioChunkCount;
 	uint32				fTotalAudioBytes;
+
+	// Reusable float->int16 conversion scratch. Avoids a heap allocation on
+	// every audio buffer: WriteAudio() runs on the real-time audio thread.
+	int16*				fAudioScratch;
+	size_t				fAudioScratchSamples;
 
 	// AVI structure tracking
 	off_t				fMoviListStart;

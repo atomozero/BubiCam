@@ -12,6 +12,8 @@
 #include <Looper.h>
 #include <MediaEventLooper.h>
 
+#include "AudioSink.h"
+
 class AudioConsumer : public BMediaEventLooper, public BBufferConsumer {
 public:
 						AudioConsumer(const char* name, BLooper* target,
@@ -56,14 +58,18 @@ public:
 	// Target management (thread-safe)
 	void				SetTarget(BLooper* target);
 
-	// Direct recorder access (bypasses message loop for audio data)
-	void				SetRecorder(class VideoRecorder* recorder);
-	void				ClearRecorder();
+	// Direct audio sink (bypasses message loop for audio data).
+	// The sink receives raw PCM straight from the audio thread.
+	void				SetAudioSink(AudioSink* sink);
+	void				ClearAudioSink();
 
 private:
 	void				_HandleBuffer(BBuffer* buffer);
 	void				_CalculateLevels(const void* data, size_t size,
 							float* outLeft, float* outRight);
+	// Returns a reusable buffer of at least 'bytes'. Avoids per-buffer
+	// allocation on the real-time audio thread.
+	uint8*				_SwapBuffer(size_t bytes);
 
 	template<typename T>
 	void				_CalculateLevelsTyped(const T* data, size_t samples,
@@ -87,9 +93,13 @@ private:
 	int32				fBufferCount;
 	int32				fLevelLogCount;
 
-	// Direct recording path (bypasses message loop)
-	class VideoRecorder*	fRecorder;
-	mutable BLocker		fRecorderLock;
+	// Direct audio path (bypasses message loop)
+	AudioSink*			fSink;
+	mutable BLocker		fSinkLock;
+
+	// Reusable byte-swap scratch (big-endian sources only)
+	uint8*				fSwapScratch;
+	size_t				fSwapScratchSize;
 };
 
 #endif // AUDIO_CONSUMER_H
