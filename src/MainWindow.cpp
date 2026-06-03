@@ -19,6 +19,9 @@
 #include "MCPServer.h"
 #include "StreamServer.h"
 #include "DeskbarReplicant.h"
+#include "PreviewReplicant.h"
+
+#include <Shelf.h>
 #include "NotificationUtils.h"
 #include "VideoFilter.h"
 #include "ExportUtils.h"
@@ -431,6 +434,8 @@ MainWindow::_BuildMenu()
 	fToolsMenu->AddSeparatorItem();
 	fToolsMenu->AddItem(new BMenuItem("Show in Deskbar",
 		new BMessage(MSG_TOGGLE_DESKBAR)));
+	fToolsMenu->AddItem(new BMenuItem("Preview on Desktop",
+		new BMessage(MSG_DESKTOP_REPLICANT)));
 	fToolsMenu->AddItem(new BMenuItem("Pixel Inspector",
 		new BMessage(MSG_TOGGLE_INSPECTOR), 'I'));
 	fToolsMenu->AddItem(new BMenuItem("Export Debug State" B_UTF8_ELLIPSIS,
@@ -1687,6 +1692,34 @@ MainWindow::MessageReceived(BMessage* message)
 					msg.SetToFormat("Filter '%s': %s", filter->Name(),
 						filter->IsEnabled() ? "enabled" : "disabled");
 					fStatusBar->SetText(msg.String());
+				}
+			}
+			break;
+		}
+
+		case MSG_DESKTOP_REPLICANT:
+		{
+			// Create a preview replicant and add it to the Desktop shelf
+			BRect frame(100, 100, 420, 340);
+			PreviewReplicant* replicant = new PreviewReplicant(frame,
+				"BubiCam Preview");
+
+			BMessage archive;
+			status_t err = replicant->Archive(&archive);
+			delete replicant;
+
+			if (err == B_OK) {
+				// Send to Tracker's Desktop shelf
+				BMessenger tracker("application/x-vnd.Be-TRAK");
+				if (tracker.IsValid()) {
+					BMessage addMsg(B_ARCHIVED_OBJECT);
+					addMsg.AddMessage("enclosure", &archive);
+					tracker.SendMessage(&addMsg);
+					fStatusBar->SetText(
+						"Preview replicant added to Desktop "
+						"(requires MJPEG stream to be running)");
+				} else {
+					fStatusBar->SetText("Tracker not available");
 				}
 			}
 			break;

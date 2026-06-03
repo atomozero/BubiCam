@@ -85,6 +85,7 @@ enum {
 	MSG_RESET_LAYOUT		= 'rlyt',
 	MSG_TOGGLE_INSPECTOR	= 'tgin',
 	MSG_EXPORT_DEBUG		= 'exdb',
+	MSG_DESKTOP_REPLICANT	= 'dkrp',
 	MSG_FILTER_TOGGLE		= 'fltg',
 	MSG_TIMELAPSE_START		= 'tlst',
 	MSG_TIMELAPSE_STOP		= 'tlsp',
