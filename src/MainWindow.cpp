@@ -832,14 +832,10 @@ MainWindow::_SelectFormat(int32 index)
 		fWatchdogAlertShown = true;
 		fChangingResolution = true;
 
-		// Stop capture but keep the producer node alive to avoid
-		// full device re-enumeration by the UVC driver
-		delete fWatchdogRunner;
-		fWatchdogRunner = NULL;
+		_StopPreview();
 
-		fCurrentWebcam->StopCaptureKeepNode();
-		fIsPreviewActive = false;
-		fVideoPreview->ClearFrame();
+		// Brief pause to let the driver release USB resources
+		snooze(500000);
 
 		status_t err = fCurrentWebcam->StartCapture(this);
 		if (err != B_OK) {
