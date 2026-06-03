@@ -3098,18 +3098,19 @@ MainWindow::_ShowFloatingPreview()
 	fFloatingWindow = new FloatingPreviewWindow(frame, BMessenger(this));
 
 	VideoPreviewView* floatPreview = new VideoPreviewView("floatPreview");
+	floatPreview->SetResizingMode(B_FOLLOW_ALL);
 	fFloatingWindow->AddChild(floatPreview);
 
-	// Share current frame
-	if (fLastFrame != NULL) {
-		BBitmap* copy = new BBitmap(fLastFrame->Bounds(),
-			fLastFrame->ColorSpace());
-		if (copy != NULL && copy->IsValid())
-			memcpy(copy->Bits(), fLastFrame->Bits(), fLastFrame->BitsLength());
-		floatPreview->SetFrame(copy);
-	}
+	// Resize the preview to fill the window
+	BRect windowBounds = fFloatingWindow->Bounds();
+	floatPreview->MoveTo(0, 0);
+	floatPreview->ResizeTo(windowBounds.Width(), windowBounds.Height());
 
 	fFloatingWindow->Show();
+
+	// Send the current frame after Show so the view is attached and sized
+	if (fLastFrame != NULL)
+		floatPreview->SetFrame(fLastFrame);
 }
 
 
