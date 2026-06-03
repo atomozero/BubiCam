@@ -48,6 +48,7 @@
 
 #include <Autolock.h>
 #include <Directory.h>
+#include <PropertyInfo.h>
 #include <File.h>
 #include <FindDirectory.h>
 
@@ -1774,6 +1775,110 @@ MainWindow::MessageReceived(BMessage* message)
 			break;
 		}
 
+		// Scripting (hey BubiCam get/set Property)
+		case B_GET_PROPERTY:
+		case B_SET_PROPERTY:
+		case B_EXECUTE_PROPERTY:
+		{
+			BMessage specifier;
+			int32 index;
+			int32 what;
+			const char* property;
+			if (message->GetCurrentSpecifier(&index, &specifier, &what,
+					&property) != B_OK) {
+				BWindow::MessageReceived(message);
+				break;
+			}
+
+			BMessage reply(B_REPLY);
+
+			if (strcmp(property, "Status") == 0 &&
+				message->what == B_GET_PROPERTY) {
+				const char* status = "idle";
+				if (fRecorder != NULL && fRecorder->IsRecording())
+					status = "recording";
+				else if (fIsPreviewActive)
+					status = "streaming";
+				reply.AddString("result", status);
+			} else if (strcmp(property, "FPS") == 0 &&
+				message->what == B_GET_PROPERTY) {
+				WebcamDevice* webcam = NULL;
+				{
+					BAutolock lock(fWebcamLock);
+					webcam = fCurrentWebcam;
+				}
+				reply.AddFloat("result",
+					webcam != NULL ? webcam->CurrentFPS() : 0.0f);
+			} else if (strcmp(property, "Device") == 0 &&
+				message->what == B_GET_PROPERTY) {
+				WebcamDevice* webcam = NULL;
+				{
+					BAutolock lock(fWebcamLock);
+					webcam = fCurrentWebcam;
+				}
+				reply.AddString("result",
+					webcam != NULL ? webcam->Name() : "none");
+			} else if (strcmp(property, "Streaming") == 0) {
+				if (message->what == B_GET_PROPERTY) {
+					reply.AddBool("result", fIsPreviewActive);
+				} else {
+					bool value;
+					if (specifier.FindBool("data", &value) == B_OK ||
+						message->FindBool("data", &value) == B_OK) {
+						if (value && !fIsPreviewActive && fCurrentWebcam != NULL)
+							_StartPreview();
+						else if (!value && fIsPreviewActive)
+							_StopPreview();
+						reply.AddInt32("error", B_OK);
+					}
+				}
+			} else if (strcmp(property, "Recording") == 0) {
+				if (message->what == B_GET_PROPERTY) {
+					reply.AddBool("result",
+						fRecorder != NULL && fRecorder->IsRecording());
+				} else {
+					bool value;
+					if (specifier.FindBool("data", &value) == B_OK ||
+						message->FindBool("data", &value) == B_OK) {
+						if (value)
+							_StartRecording();
+						else
+							_StopRecording();
+						reply.AddInt32("error", B_OK);
+					}
+				}
+			} else if (strcmp(property, "Screenshot") == 0 &&
+				message->what == B_EXECUTE_PROPERTY) {
+				_TakeScreenshot();
+				reply.AddInt32("error", B_OK);
+			} else if (strcmp(property, "FramesCaptured") == 0 &&
+				message->what == B_GET_PROPERTY) {
+				WebcamDevice* webcam = NULL;
+				{
+					BAutolock lock(fWebcamLock);
+					webcam = fCurrentWebcam;
+				}
+				reply.AddInt32("result",
+					webcam != NULL ? (int32)webcam->FramesCaptured() : 0);
+			} else if (strcmp(property, "FramesDropped") == 0 &&
+				message->what == B_GET_PROPERTY) {
+				WebcamDevice* webcam = NULL;
+				{
+					BAutolock lock(fWebcamLock);
+					webcam = fCurrentWebcam;
+				}
+				reply.AddInt32("result",
+					webcam != NULL ? (int32)webcam->FramesDropped() : 0);
+			} else {
+				BWindow::MessageReceived(message);
+				break;
+			}
+
+			reply.AddInt32("error", B_OK);
+			message->SendReply(&reply);
+			break;
+		}
+
 		default:
 			BWindow::MessageReceived(message);
 			break;
@@ -2848,6 +2953,100 @@ _ShutdownWatchdogThread(void* data)
 	fprintf(stderr, "BubiCam: Shutdown watchdog triggered after 10s - forcing exit\n");
 	_exit(1);
 	return 0;
+}
+
+
+// ============================================================================
+// Scripting support: hey BubiCam get/set Property
+// ============================================================================
+
+static const char* kScriptingSuite = "suite/x-vnd.BubiCam";
+
+static property_info sScriptingProperties[] = {
+	{
+		"Status",
+		{ B_GET_PROPERTY, 0 },
+		{ B_DIRECT_SPECIFIER, 0 },
+		"Current status (idle, streaming, recording)",
+		0, { B_STRING_TYPE }
+	},
+	{
+		"FPS",
+		{ B_GET_PROPERTY, 0 },
+		{ B_DIRECT_SPECIFIER, 0 },
+		"Current frames per second",
+		0, { B_FLOAT_TYPE }
+	},
+	{
+		"Device",
+		{ B_GET_PROPERTY, 0 },
+		{ B_DIRECT_SPECIFIER, 0 },
+		"Current webcam device name",
+		0, { B_STRING_TYPE }
+	},
+	{
+		"Streaming",
+		{ B_GET_PROPERTY, B_SET_PROPERTY, 0 },
+		{ B_DIRECT_SPECIFIER, 0 },
+		"Start/stop video preview (bool)",
+		0, { B_BOOL_TYPE }
+	},
+	{
+		"Recording",
+		{ B_GET_PROPERTY, B_SET_PROPERTY, 0 },
+		{ B_DIRECT_SPECIFIER, 0 },
+		"Start/stop video recording (bool)",
+		0, { B_BOOL_TYPE }
+	},
+	{
+		"Screenshot",
+		{ B_EXECUTE_PROPERTY, 0 },
+		{ B_DIRECT_SPECIFIER, 0 },
+		"Take a screenshot",
+		0, {}
+	},
+	{
+		"FramesCaptured",
+		{ B_GET_PROPERTY, 0 },
+		{ B_DIRECT_SPECIFIER, 0 },
+		"Total frames captured",
+		0, { B_INT32_TYPE }
+	},
+	{
+		"FramesDropped",
+		{ B_GET_PROPERTY, 0 },
+		{ B_DIRECT_SPECIFIER, 0 },
+		"Total frames dropped",
+		0, { B_INT32_TYPE }
+	},
+	{ 0 }
+};
+
+
+status_t
+MainWindow::GetSupportedSuites(BMessage* data)
+{
+	if (data == NULL)
+		return B_BAD_VALUE;
+
+	data->AddString("suites", kScriptingSuite);
+
+	BPropertyInfo propertyInfo(sScriptingProperties);
+	data->AddFlat("messages", &propertyInfo);
+
+	return BWindow::GetSupportedSuites(data);
+}
+
+
+BHandler*
+MainWindow::ResolveSpecifier(BMessage* message, int32 index,
+	BMessage* specifier, int32 what, const char* property)
+{
+	BPropertyInfo propertyInfo(sScriptingProperties);
+	if (propertyInfo.FindMatch(message, index, specifier, what, property) >= 0)
+		return this;
+
+	return BWindow::ResolveSpecifier(message, index, specifier, what, property);
 }
 
 

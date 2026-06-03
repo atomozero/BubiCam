@@ -102,6 +102,12 @@ public:
 	virtual void		MessageReceived(BMessage* message);
 	virtual bool		QuitRequested();
 
+	// Scripting support (hey BubiCam ...)
+	virtual status_t	GetSupportedSuites(BMessage* data);
+	virtual BHandler*	ResolveSpecifier(BMessage* message, int32 index,
+						BMessage* specifier, int32 what,
+						const char* property);
+
 private:
 	void				_BuildMenu();
 	void				_BuildLayout();
