@@ -122,8 +122,31 @@ PreviewReplicant::Draw(BRect updateRect)
 		// Draw the webcam frame scaled to fill the view
 		SetDrawingMode(B_OP_COPY);
 		DrawBitmap(fBitmap, fBitmap->Bounds(), bounds);
+
+		// Overlay status text on top of the frame if not streaming
+		if (fStatus.Length() > 0) {
+			SetDrawingMode(B_OP_ALPHA);
+
+			// Semi-transparent dark banner
+			BFont font(be_bold_font);
+			font.SetSize(11);
+			SetFont(&font);
+
+			float strWidth = StringWidth(fStatus.String());
+			float bannerH = 20;
+			float bannerY = (bounds.Height() - bannerH) / 2;
+			SetHighColor(0, 0, 0, 160);
+			FillRect(BRect(0, bannerY, bounds.right, bannerY + bannerH));
+
+			// White text centered
+			SetHighColor(255, 255, 255, 220);
+			DrawString(fStatus.String(),
+				BPoint((bounds.Width() - strWidth) / 2, bannerY + 15));
+
+			SetDrawingMode(B_OP_COPY);
+		}
 	} else {
-		// No frame - draw placeholder
+		// No frame at all - draw placeholder
 		SetHighColor(32, 32, 32);
 		FillRect(bounds);
 
@@ -180,7 +203,7 @@ PreviewReplicant::_FetchSnapshot()
 
 	if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
 		close(sock);
-		fStatus = "No stream (start webcam in BubiCam)";
+		fStatus = "No Stream";
 		Invalidate();
 		return;
 	}
