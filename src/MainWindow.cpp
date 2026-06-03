@@ -19,6 +19,7 @@
 #include "MCPServer.h"
 #include "StreamServer.h"
 #include "DeskbarReplicant.h"
+#include "NotificationUtils.h"
 #include "ExportUtils.h"
 #include "IconUtils.h"
 #include "VideoRecorder.h"
@@ -902,6 +903,7 @@ MainWindow::_StartPreview()
 			strerror(status), status);
 		BAlert* alert = new BAlert("Error", error.String(), "OK");
 		alert->Go();
+		NotificationUtils::Error("Capture Failed", error.String());
 		return;
 	}
 
@@ -1145,6 +1147,7 @@ MainWindow::_SaveScreenshot(const char* path)
 		BString msg;
 		msg.SetToFormat("Screenshot saved:\n%s", path);
 		fStatusBar->SetText("Screenshot saved");
+		NotificationUtils::Info("Screenshot", path);
 	} else {
 		BString error;
 		error.SetToFormat("Failed to save screenshot:\n%s", strerror(status));
@@ -2493,6 +2496,8 @@ MainWindow::_ForceStop()
 	_UpdateToolbarState();
 
 	fStatusBar->SetText("Preview force-stopped (driver was frozen)");
+	NotificationUtils::Error("Driver Frozen",
+		"The webcam driver stopped responding. Preview was force-stopped.");
 	fStatusBar->SetHighUIColor(B_PANEL_TEXT_COLOR);
 }
 
@@ -2664,6 +2669,7 @@ MainWindow::_StopRecording()
 	statusMsg.SetToFormat("Recording saved: %u frames, %.1f seconds",
 		(unsigned)frames, duration / 1000000.0);
 	fStatusBar->SetText(statusMsg.String());
+	NotificationUtils::Info("Recording Saved", statusMsg.String());
 
 	_UpdateToolbarState();
 }
