@@ -115,6 +115,7 @@ private:
 	bool				_DecompressMJPEG(const uint8* src, size_t srcSize,
 							BBitmap* destBitmap);
 	bool				_IsMJPEGData(const uint8* data, size_t size) const;
+	bool				_IsH264Data(const uint8* data, size_t size) const;
 	void				_SendFrameToTarget(BBitmap* bitmap);
 
 	BLooper*			fTarget;

@@ -603,7 +603,35 @@ VideoConsumer::_HandleBuffer(BBuffer* buffer)
 		}
 	}
 
-	if (_IsMJPEGData(bufData, bufSize)) {
+	if (_IsH264Data(bufData, bufSize)) {
+		// H.264 NAL unit detected. Currently we display an informational
+		// pattern since Haiku lacks a native H.264 decoder. A future
+		// version can integrate ffmpeg for actual decoding.
+		static int32 sH264WarnCount = 0;
+		if (++sH264WarnCount <= 3) {
+			LOG_WARNING("H.264 encoded frame detected (%zu bytes). "
+				"Decoding not yet supported - showing placeholder.",
+				bufSize);
+		}
+
+		BBitmap* dest = fDisplayBitmap;
+		if (dest == NULL && fBitmap[0] != NULL)
+			dest = fBitmap[0];
+		if (dest != NULL) {
+			uint8* dst = (uint8*)dest->Bits();
+			int32 bpr = dest->BytesPerRow();
+			// Blue gradient pattern with "H.264" indicator
+			for (int32 y = 0; y < fBitmapHeight; y++) {
+				uint32* row = reinterpret_cast<uint32*>(dst + y * bpr);
+				for (int32 x = 0; x < fBitmapWidth; x++) {
+					uint8 b = (uint8)(60 + y * 120 / fBitmapHeight);
+					uint8 g = (uint8)(20 + x * 40 / fBitmapWidth);
+					row[x] = 0xFF000000 | (g << 8) | b;
+				}
+			}
+			_SendFrameToTarget(dest);
+		}
+	} else if (_IsMJPEGData(bufData, bufSize)) {
 		// MJPEG frame - decompress to display bitmap
 		// Note: _DecompressMJPEG may recreate fDisplayBitmap if JPEG
 		// dimensions differ, so use fDisplayBitmap after the call
@@ -1291,6 +1319,20 @@ VideoConsumer::_IsMJPEGData(const uint8* data, size_t size) const
 {
 	// JPEG/MJPEG frames start with SOI marker 0xFFD8
 	return size >= 2 && data[0] == 0xFF && data[1] == 0xD8;
+}
+
+
+bool
+VideoConsumer::_IsH264Data(const uint8* data, size_t size) const
+{
+	// H.264 NAL units start with 0x00 0x00 0x01 or 0x00 0x00 0x00 0x01
+	if (size >= 4 && data[0] == 0x00 && data[1] == 0x00) {
+		if (data[2] == 0x01)
+			return true;
+		if (size >= 5 && data[2] == 0x00 && data[3] == 0x01)
+			return true;
+	}
+	return false;
 }
 
 
