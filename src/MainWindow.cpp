@@ -1699,29 +1699,30 @@ MainWindow::MessageReceived(BMessage* message)
 
 		case MSG_DESKTOP_REPLICANT:
 		{
-			// Create a preview replicant and add it to the Desktop shelf
-			BRect frame(100, 100, 420, 340);
-			PreviewReplicant* replicant = new PreviewReplicant(frame,
-				"BubiCam Preview");
-
-			BMessage archive;
-			status_t err = replicant->Archive(&archive);
-			delete replicant;
-
-			if (err == B_OK) {
-				// Send to Tracker's Desktop shelf
-				BMessenger tracker("application/x-vnd.Be-TRAK");
-				if (tracker.IsValid()) {
-					BMessage addMsg(B_ARCHIVED_OBJECT);
-					addMsg.AddMessage("enclosure", &archive);
-					tracker.SendMessage(&addMsg);
-					fStatusBar->SetText(
-						"Preview replicant added to Desktop "
-						"(requires MJPEG stream to be running)");
-				} else {
-					fStatusBar->SetText("Tracker not available");
-				}
+			// First ensure the MJPEG stream is running (replicant needs it)
+			if (fStreamServer != NULL && !fStreamServer->IsRunning()) {
+				fStreamServer->Start(8080);
+				fStreamMenuItem->SetMarked(true);
 			}
+
+			// Open a window with the replicant and its dragger.
+			// The user can drag the dragger handle onto the Desktop
+			// (with Show Replicants enabled in Deskbar menu).
+			BRect frame(100, 100, 420, 340);
+			BWindow* repWindow = new BWindow(frame,
+				"Drag to Desktop",
+				B_TITLED_WINDOW_LOOK, B_NORMAL_WINDOW_FEEL,
+				B_NOT_ZOOMABLE | B_ASYNCHRONOUS_CONTROLS);
+
+			PreviewReplicant* replicant = new PreviewReplicant(
+				repWindow->Bounds(), "BubiCam Preview");
+			replicant->SetResizingMode(B_FOLLOW_ALL);
+			repWindow->AddChild(replicant);
+			repWindow->Show();
+
+			fStatusBar->SetText(
+				"Drag the handle to the Desktop "
+				"(enable Show Replicants in Deskbar first)");
 			break;
 		}
 
