@@ -2145,6 +2145,8 @@ MainWindow::_HandleFrameReceived(BMessage* message)
 	int32 frameWidth = (int32)(bitmapBounds.Width() + 1);
 	int32 frameHeight = (int32)(bitmapBounds.Height() + 1);
 	fVideoPreview->SetResolution(frameWidth, frameHeight);
+	if (fIsFullscreen && fFullscreenPreview != NULL)
+		fFullscreenPreview->SetResolution(frameWidth, frameHeight);
 
 	// Sync device's current format with actual frame resolution
 	{
@@ -2172,10 +2174,14 @@ MainWindow::_HandleFrameReceived(BMessage* message)
 		webcam = fCurrentWebcam;
 	}
 	if (webcam != NULL) {
-		fVideoPreview->UpdateStats(
-			webcam->CurrentFPS(),
-			webcam->FramesCaptured(),
-			webcam->FramesDropped());
+		float fps = webcam->CurrentFPS();
+		uint32 captured = webcam->FramesCaptured();
+		uint32 dropped = webcam->FramesDropped();
+
+		fVideoPreview->UpdateStats(fps, captured, dropped);
+
+		if (fIsFullscreen && fFullscreenPreview != NULL)
+			fFullscreenPreview->UpdateStats(fps, captured, dropped);
 	}
 
 	_UpdateStatsBar();
