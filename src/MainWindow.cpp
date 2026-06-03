@@ -1653,6 +1653,13 @@ MainWindow::MessageReceived(BMessage* message)
 				VideoFilter* filter = fFilterChain->FilterAt(index);
 				if (filter != NULL) {
 					filter->SetEnabled(!filter->IsEnabled());
+
+					// Update checkmark on menu item
+					BMenuItem* source = NULL;
+					message->FindPointer("source", (void**)&source);
+					if (source != NULL)
+						source->SetMarked(filter->IsEnabled());
+
 					BString msg;
 					msg.SetToFormat("Filter '%s': %s", filter->Name(),
 						filter->IsEnabled() ? "enabled" : "disabled");
