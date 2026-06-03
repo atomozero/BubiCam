@@ -142,6 +142,7 @@ public:
 							uint32 frameMessage = MSG_WEBCAM_FRAME,
 							uint32 audioLevelMessage = MSG_WEBCAM_AUDIO_LEVEL);
 	void				StopCapture();
+	void				StopCaptureKeepNode();
 	bool				IsCapturing() const { return fIsCapturing; }
 
 	// Audio source selection (-1 = auto, 0 = none, >0 = specific node ID)
