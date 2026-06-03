@@ -214,6 +214,7 @@ private:
 	bool				fDevVideoWatching;
 	int32				fSelectedAudioNodeID;  // -1 = auto, 0 = none, >0 = specific node
 	bool				fIsPreviewActive;
+	bool				fChangingResolution;
 
 	BFilePanel*			fSavePanel;
 	BBitmap*			fLastFrame;

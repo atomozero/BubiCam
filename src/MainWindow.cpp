@@ -129,6 +129,7 @@ MainWindow::MainWindow()
 	fDevVideoWatching(false),
 	fSelectedAudioNodeID(-1),
 	fIsPreviewActive(false),
+	fChangingResolution(false),
 	fSavePanel(NULL),
 	fLastFrame(NULL),
 	fSavingJson(false),
@@ -826,9 +827,10 @@ MainWindow::_SelectFormat(int32 index)
 		fStatusBar->SetText(statusMsg.String());
 		UpdateIfNeeded();
 
-		// Suppress watchdog alerts during resolution change
+		// Suppress watchdog and device-change events during resolution change
 		fBandwidthAlertShown = true;
 		fWatchdogAlertShown = true;
+		fChangingResolution = true;
 
 		// Stop capture but keep the producer node alive to avoid
 		// full device re-enumeration by the UVC driver
@@ -897,6 +899,8 @@ MainWindow::_SelectFormat(int32 index)
 			_UpdateToolbarState();
 			_UpdateDriverInfo();
 		}
+
+		fChangingResolution = false;
 	}
 }
 
@@ -1290,11 +1294,17 @@ MainWindow::MessageReceived(BMessage* message)
 		}
 
 		case B_NODE_MONITOR:
-			_HandleDeviceNodeMonitor(message);
+			if (!fChangingResolution)
+				_HandleDeviceNodeMonitor(message);
 			break;
 
 		case MSG_DEVICES_CHANGED:
 		{
+			// Ignore device change events during resolution change -
+			// consumer disconnect/reconnect fires these spuriously
+			if (fChangingResolution)
+				break;
+
 			// Auto-refresh triggered by media node watcher (hot-plug)
 			if (fIsPreviewActive && fCurrentWebcam != NULL) {
 				// Check if our current device's node is still valid
