@@ -89,6 +89,29 @@ private:
 };
 
 
+// Floating preview window - notifies parent when closed
+static const uint32 kFloatingWindowClosed = 'fwcl';
+
+class FloatingPreviewWindow : public BWindow {
+public:
+	FloatingPreviewWindow(BRect frame, BMessenger parent)
+		: BWindow(frame, "BubiCam Preview",
+			B_FLOATING_WINDOW_LOOK, B_FLOATING_ALL_WINDOW_FEEL,
+			B_NOT_ZOOMABLE | B_ASYNCHRONOUS_CONTROLS),
+		  fParent(parent)
+	{}
+
+	bool QuitRequested()
+	{
+		fParent.SendMessage(kFloatingWindowClosed);
+		return true;
+	}
+
+private:
+	BMessenger	fParent;
+};
+
+
 #undef B_TRANSLATION_CONTEXT
 #define B_TRANSLATION_CONTEXT "MainWindow"
 
@@ -1767,6 +1790,11 @@ MainWindow::MessageReceived(BMessage* message)
 			_TimelapseTick();
 			break;
 
+		case kFloatingWindowClosed:
+			fFloatingWindow = NULL;
+			fStatusBar->SetText("Floating preview closed");
+			break;
+
 		case MSG_FLOATING_PREVIEW:
 			_ShowFloatingPreview();
 			break;
@@ -3067,9 +3095,7 @@ MainWindow::_ShowFloatingPreview()
 
 	// Create floating window
 	BRect frame(100, 100, 420, 340);
-	fFloatingWindow = new BWindow(frame, "BubiCam Preview",
-		B_FLOATING_WINDOW_LOOK, B_FLOATING_ALL_WINDOW_FEEL,
-		B_NOT_ZOOMABLE | B_ASYNCHRONOUS_CONTROLS);
+	fFloatingWindow = new FloatingPreviewWindow(frame, BMessenger(this));
 
 	VideoPreviewView* floatPreview = new VideoPreviewView("floatPreview");
 	fFloatingWindow->AddChild(floatPreview);
