@@ -648,19 +648,10 @@ WebcamDevice::StartCapture(BLooper* target, uint32 frameMessage,
 		LOG_DEBUG("Node instantiated, ID=%d", fMediaNodeID);
 	}
 
-	// Clean up stale consumers from a previous StopCaptureKeepNode call.
-	// These were already disconnected but not unregistered to avoid
-	// media_server notifications. Quietly dispose of them now.
-	if (fVideoConsumer != NULL) {
-		// Consumer is disconnected and has no target - just delete it.
-		// BMediaEventLooper destructor handles thread shutdown.
-		delete fVideoConsumer;
-		fVideoConsumer = NULL;
-	}
-	if (fAudioConsumer != NULL) {
-		delete fAudioConsumer;
-		fAudioConsumer = NULL;
-	}
+	// If consumers exist from a previous StopCaptureKeepNode, they will
+	// be reused by _SetupVideoConnection/_SetupAudioConnection to avoid
+	// RegisterNode/UnregisterNode events that Haiku displays as
+	// "Webcam connected/disconnected" system notifications.
 
 	// Set up video connection
 	status = _SetupVideoConnection();
@@ -980,19 +971,25 @@ WebcamDevice::_SetupVideoConnection()
 
 	status_t status;
 
-	// Create video consumer
-	fVideoConsumer = new VideoConsumer("BubiCam Video", fTarget,
-		fFrameMessage);
+	// Create or reuse video consumer
+	if (fVideoConsumer == NULL) {
+		fVideoConsumer = new VideoConsumer("BubiCam Video", fTarget,
+			fFrameMessage);
 
-	// Register consumer
-	status = roster->RegisterNode(fVideoConsumer);
-	if (status != B_OK) {
-		LOG_ERROR("RegisterNode failed: %s", strerror(status));
-		delete fVideoConsumer;
-		fVideoConsumer = NULL;
-		return status;
+		// Register consumer with media_server
+		status = roster->RegisterNode(fVideoConsumer);
+		if (status != B_OK) {
+			LOG_ERROR("RegisterNode failed: %s", strerror(status));
+			delete fVideoConsumer;
+			fVideoConsumer = NULL;
+			return status;
+		}
+		LOG_DEBUG("Consumer created and registered: node=%d",
+			fVideoConsumer->Node().node);
+	} else {
+		LOG_DEBUG("Reusing existing consumer: node=%d",
+			fVideoConsumer->Node().node);
 	}
-	LOG_DEBUG("Consumer registered: node=%d", fVideoConsumer->Node().node);
 
 	// Get video outputs from producer
 	int32 outputCount = 0;
@@ -1471,17 +1468,22 @@ WebcamDevice::_SetupAudioConnection()
 
 	status_t status;
 
-	// Create audio consumer
-	fAudioConsumer = new AudioConsumer("BubiCam Audio", fTarget,
-		fAudioLevelMessage);
+	// Create or reuse audio consumer
+	if (fAudioConsumer == NULL) {
+		fAudioConsumer = new AudioConsumer("BubiCam Audio", fTarget,
+			fAudioLevelMessage);
 
-	// Register consumer
-	status = roster->RegisterNode(fAudioConsumer);
-	if (status != B_OK) {
-		LOG_DEBUG("Failed to register audio consumer: %s", strerror(status));
-		delete fAudioConsumer;
-		fAudioConsumer = NULL;
-		return status;
+		// Register consumer
+		status = roster->RegisterNode(fAudioConsumer);
+		if (status != B_OK) {
+			LOG_DEBUG("Failed to register audio consumer: %s", strerror(status));
+			delete fAudioConsumer;
+			fAudioConsumer = NULL;
+			return status;
+		}
+	} else {
+		// Reuse existing consumer - just update target
+		fAudioConsumer->SetTarget(fTarget);
 	}
 
 	// Strategy 1: Try to get audio outputs directly from the video producer node.
