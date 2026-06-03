@@ -75,6 +75,7 @@ enum {
 	MSG_CAPTURE_REFERENCE	= 'cprf',
 	MSG_TOGGLE_COMPARE		= 'tgcm',
 	MSG_CLEAR_REFERENCE		= 'clrf',
+	MSG_TOGGLE_DESKBAR		= 'tgdb',
 	MSG_TIMELAPSE_START		= 'tlst',
 	MSG_TIMELAPSE_STOP		= 'tlsp',
 	MSG_TIMELAPSE_TICK		= 'tltk',

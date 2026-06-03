@@ -18,6 +18,7 @@
 #include "WebcamDevice.h"
 #include "MCPServer.h"
 #include "StreamServer.h"
+#include "DeskbarReplicant.h"
 #include "ExportUtils.h"
 #include "IconUtils.h"
 #include "VideoRecorder.h"
@@ -361,6 +362,9 @@ MainWindow::_BuildMenu()
 	fStreamMenuItem = new BMenuItem("Start MJPEG Stream (Port 8080)",
 		new BMessage(MSG_STREAM_TOGGLE));
 	fToolsMenu->AddItem(fStreamMenuItem);
+	fToolsMenu->AddSeparatorItem();
+	fToolsMenu->AddItem(new BMenuItem("Show in Deskbar",
+		new BMessage(MSG_TOGGLE_DESKBAR)));
 	fMenuBar->AddItem(fToolsMenu);
 }
 
@@ -1580,6 +1584,25 @@ MainWindow::MessageReceived(BMessage* message)
 			}
 			fStatusBar->SetText("Reference frame cleared");
 			break;
+
+		case MSG_TOGGLE_DESKBAR:
+		{
+			if (DeskbarReplicant::IsInstalledInDeskbar()) {
+				DeskbarReplicant::RemoveFromDeskbar();
+				fStatusBar->SetText("Removed from Deskbar");
+			} else {
+				status_t err = DeskbarReplicant::InstallInDeskbar();
+				if (err == B_OK)
+					fStatusBar->SetText("Installed in Deskbar");
+				else
+					fStatusBar->SetText("Failed to install in Deskbar");
+			}
+			// Update menu checkmark
+			BMenuItem* item = fToolsMenu->FindItem(MSG_TOGGLE_DESKBAR);
+			if (item != NULL)
+				item->SetMarked(DeskbarReplicant::IsInstalledInDeskbar());
+			break;
+		}
 
 		case MSG_RECORD_START:
 			_StartRecording();
