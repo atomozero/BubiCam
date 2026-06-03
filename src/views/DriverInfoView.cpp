@@ -8,6 +8,7 @@
 #include "WebcamDevice.h"
 #include "USBVideoParser.h"
 
+#include <math.h>
 #include <stdio.h>
 
 
@@ -182,6 +183,52 @@ DriverInfoView::SetDevice(WebcamDevice* device, bool isCapturing)
 				 strcmp(currentFormat.colorSpace, "NV21") == 0)
 			bpp = 12;
 
+		// Determine planes and chroma subsampling
+		int planes = 1;
+		const char* chromaSub = "4:4:4";
+		const char* planeLayout = "Packed";
+		bool isCompressed = false;
+
+		if (strcmp(currentFormat.colorSpace, "YUY2") == 0 ||
+			strcmp(currentFormat.colorSpace, "UYVY") == 0) {
+			chromaSub = "4:2:2";
+			planeLayout = "Packed (interleaved Y/U/V)";
+		} else if (strcmp(currentFormat.colorSpace, "I420") == 0) {
+			planes = 3;
+			chromaSub = "4:2:0";
+			planeLayout = "Planar (Y + U + V)";
+		} else if (strcmp(currentFormat.colorSpace, "NV12") == 0) {
+			planes = 2;
+			chromaSub = "4:2:0";
+			planeLayout = "Semi-planar (Y + interleaved UV)";
+		} else if (strcmp(currentFormat.colorSpace, "NV21") == 0) {
+			planes = 2;
+			chromaSub = "4:2:0";
+			planeLayout = "Semi-planar (Y + interleaved VU)";
+		} else if (strcmp(currentFormat.colorSpace, "MJPEG") == 0) {
+			isCompressed = true;
+			chromaSub = "4:2:0 (typical)";
+			planeLayout = "Compressed (JPEG stream)";
+		} else if (strcmp(currentFormat.colorSpace, "RGB32") == 0 ||
+				   strcmp(currentFormat.colorSpace, "BGRA") == 0) {
+			planeLayout = "Packed (B/G/R/A)";
+		} else if (strcmp(currentFormat.colorSpace, "RGB24") == 0) {
+			planeLayout = "Packed (R/G/B)";
+		}
+
+		// Stride (source bytes per row)
+		int32 srcStride = 0;
+		if (!isCompressed) {
+			switch (bpp) {
+				case 32: srcStride = currentFormat.width * 4; break;
+				case 24: srcStride = currentFormat.width * 3; break;
+				case 16: srcStride = currentFormat.width * 2; break;
+				case 12: srcStride = currentFormat.width; break; // Y plane stride
+				default: srcStride = currentFormat.width * bpp / 8; break;
+			}
+		}
+
+		// Display format details
 		if (bpp > 0) {
 			float rawBandwidth = currentFormat.width * currentFormat.height
 				* bpp * currentFormat.frameRate / 8.0f / 1024.0f / 1024.0f;
@@ -191,10 +238,39 @@ DriverInfoView::SetDevice(WebcamDevice* device, bool isCapturing)
 			_AppendField("Format Details", detailStr.String());
 		}
 
+		_AppendField("Chroma Subsampling", chromaSub);
+
+		BString planeStr;
+		planeStr.SetToFormat("%d - %s", planes, planeLayout);
+		_AppendField("Planes", planeStr.String());
+
+		if (srcStride > 0) {
+			BString strideStr;
+			strideStr.SetToFormat("%d bytes/row (source), %d bytes/row (display B_RGB32)",
+				(int)srcStride, (int)(currentFormat.width * 4));
+			_AppendField("Stride", strideStr.String());
+		}
+
+		// Destination buffer info
+		BString bufStr;
+		int32 destFrameSize = currentFormat.width * currentFormat.height * 4;
+		bufStr.SetToFormat("%d bytes (%.1f KB) per frame in B_RGB32",
+			(int)destFrameSize, destFrameSize / 1024.0f);
+		_AppendField("Display Buffer", bufStr.String());
+
+		// Resolution details
 		BString pixelStr;
-		pixelStr.SetToFormat("%d total pixels, %.2f megapixels",
+		float aspect = (float)currentFormat.width / currentFormat.height;
+		const char* aspectName = "custom";
+		if (fabs(aspect - 4.0f/3.0f) < 0.02f) aspectName = "4:3";
+		else if (fabs(aspect - 16.0f/9.0f) < 0.02f) aspectName = "16:9";
+		else if (fabs(aspect - 16.0f/10.0f) < 0.02f) aspectName = "16:10";
+		else if (fabs(aspect - 5.0f/4.0f) < 0.02f) aspectName = "5:4";
+
+		pixelStr.SetToFormat("%.2f MP (%d pixels), aspect %s (%.3f:1)",
+			currentFormat.width * currentFormat.height / 1000000.0f,
 			(int)(currentFormat.width * currentFormat.height),
-			currentFormat.width * currentFormat.height / 1000000.0f);
+			aspectName, aspect);
 		_AppendField("Resolution Details", pixelStr.String());
 	} else {
 		_AppendField("Current Format", "Not available (0x0)");
