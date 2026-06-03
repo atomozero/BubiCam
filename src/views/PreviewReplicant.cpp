@@ -34,7 +34,7 @@ PreviewReplicant::PreviewReplicant(BRect frame, const char* name)
 	fBitmap(NULL),
 	fRefreshRunner(NULL),
 	fStatus("Starting..."),
-	fPort(9847)
+	fPort(8080)
 {
 	// Add dragger in bottom-right corner
 	BRect draggerRect(frame.Width() - 7, frame.Height() - 7,
@@ -50,7 +50,7 @@ PreviewReplicant::PreviewReplicant(BMessage* archive)
 	fBitmap(NULL),
 	fRefreshRunner(NULL),
 	fStatus("Connecting..."),
-	fPort(9847)
+	fPort(8080)
 {
 	archive->FindInt16("port", (int16*)&fPort);
 }
@@ -180,7 +180,7 @@ PreviewReplicant::_FetchSnapshot()
 
 	if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
 		close(sock);
-		fStatus = "No stream (start MJPEG server)";
+		fStatus = "No stream (start webcam in BubiCam)";
 		Invalidate();
 		return;
 	}

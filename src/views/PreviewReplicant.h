@@ -6,8 +6,8 @@
  * PreviewReplicant - Draggable live webcam preview replicant.
  *
  * Can be embedded on the Desktop or in any Shelf-aware app.
- * Fetches JPEG snapshots from BubiCam's MCP server
- * (localhost:9847/snapshot) and displays them as a live preview.
+ * Fetches JPEG snapshots from BubiCam's MJPEG stream server
+ * (localhost:8080/snapshot) and displays them as a live preview.
  */
 
 #ifndef PREVIEW_REPLICANT_H

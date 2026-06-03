@@ -1005,6 +1005,16 @@ MainWindow::_StartPreview()
 	fWatchdogRunner = new BMessageRunner(BMessenger(this),
 		new BMessage(MSG_WATCHDOG_CHECK), 2000000);  // 2 seconds
 
+	// Auto-start stream server so Desktop replicant gets frames
+	if (fStreamServer != NULL && !fStreamServer->IsRunning()) {
+		if (fStreamServer->Start(8080) == B_OK) {
+			if (fStreamMenuItem != NULL) {
+				fStreamMenuItem->SetLabel("Stop MJPEG Stream (Port 8080)");
+				fStreamMenuItem->SetMarked(true);
+			}
+		}
+	}
+
 	// Refresh Format menu now that ParameterWeb is available
 	_PopulateFormatMenu();
 
