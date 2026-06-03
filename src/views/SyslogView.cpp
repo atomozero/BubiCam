@@ -7,6 +7,7 @@
 #include "SyslogView.h"
 
 #include <Autolock.h>
+#include <regex.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -202,10 +203,27 @@ SyslogView::_MatchesFilter(const char* line)
 	if (fFilter.Length() == 0)
 		return true;
 
+	// If filter starts with '/' treat it as a POSIX regex
+	if (fFilter[0] == '/') {
+		BString pattern(fFilter.String() + 1);
+		// Remove trailing '/' if present
+		if (pattern.Length() > 0 && pattern[pattern.Length() - 1] == '/')
+			pattern.Truncate(pattern.Length() - 1);
+
+		regex_t regex;
+		if (regcomp(&regex, pattern.String(),
+				REG_EXTENDED | REG_ICASE | REG_NOSUB) == 0) {
+			bool match = (regexec(&regex, line, 0, NULL, 0) == 0);
+			regfree(&regex);
+			return match;
+		}
+		// Invalid regex, fall through to literal matching
+	}
+
 	BString lineLower(line);
 	lineLower.ToLower();
 
-	// Simple OR filter matching
+	// Simple OR filter matching (pipe-separated keywords)
 	BString filter(fFilter);
 	filter.ToLower();
 
