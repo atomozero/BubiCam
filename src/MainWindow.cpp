@@ -826,6 +826,10 @@ MainWindow::_SelectFormat(int32 index)
 		fStatusBar->SetText(statusMsg.String());
 		UpdateIfNeeded();
 
+		// Suppress watchdog alerts during resolution change
+		fBandwidthAlertShown = true;
+		fWatchdogAlertShown = true;
+
 		_StopPreview();
 
 		// Brief pause to let the driver fully release USB resources
@@ -835,11 +839,9 @@ MainWindow::_SelectFormat(int32 index)
 		status_t err = fCurrentWebcam->StartCapture(this);
 		if (err != B_OK) {
 			// Resolution change failed - try to recover with previous format
+			// (no notification here - only notify if recovery also fails)
 			fCurrentWebcam->ClearRequestedFormat();
-			BString errMsg;
-			errMsg.SetToFormat("Resolution change failed: %s. Retrying previous format...",
-				strerror(err));
-			fStatusBar->SetText(errMsg.String());
+			fStatusBar->SetText("Retrying previous format...");
 			UpdateIfNeeded();
 
 			snooze(500000);
@@ -950,7 +952,6 @@ MainWindow::_StartPreview()
 			strerror(status), status);
 		BAlert* alert = new BAlert("Error", error.String(), "OK");
 		alert->Go();
-		NotificationUtils::Error("Capture Failed", error.String());
 		return;
 	}
 
@@ -2618,8 +2619,15 @@ MainWindow::_ForceStop()
 	_UpdateToolbarState();
 
 	fStatusBar->SetText("Preview force-stopped (driver was frozen)");
-	NotificationUtils::Error("Driver Frozen",
-		"The webcam driver stopped responding. Preview was force-stopped.");
+
+	// Only send system notification if not already shown recently
+	static bigtime_t sLastFrozenNotification = 0;
+	bigtime_t now = system_time();
+	if (now - sLastFrozenNotification > 30000000) {  // 30 second debounce
+		sLastFrozenNotification = now;
+		NotificationUtils::Error("Driver Frozen",
+			"The webcam driver stopped responding. Preview was force-stopped.");
+	}
 	fStatusBar->SetHighUIColor(B_PANEL_TEXT_COLOR);
 }
 
