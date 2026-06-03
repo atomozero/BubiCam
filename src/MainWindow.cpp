@@ -2355,6 +2355,18 @@ MainWindow::_HandleFrameReceived(BMessage* message)
 }
 
 
+static int32
+_USBEmergencyExitThread(void* data)
+{
+	// Wait 5 seconds then force-exit. _exit() bypasses all cleanup
+	// including stuck USB kernel calls that would hang forever.
+	snooze(5000000);
+	fprintf(stderr, "BubiCam: USB bus failure - emergency _exit()\n");
+	_exit(2);
+	return 0;
+}
+
+
 void
 MainWindow::_CheckWatchdog()
 {
@@ -2517,6 +2529,27 @@ MainWindow::_CheckWatchdog()
 
 	if (!fWatchdogAlertShown) {
 		fWatchdogAlertShown = true;
+
+		// After 15 seconds with no frames, the USB bus is likely dead
+		// (EHCI host system error). Force stop won't work because the
+		// driver threads are stuck in kernel USB calls.
+		if (timeSinceLastFrame > 15000000) {
+			fStatusBar->SetText(
+				"USB bus failure detected - forcing emergency exit in 5 seconds");
+			fStatusBar->SetHighColor(255, 0, 0);
+
+			NotificationUtils::Error("USB Bus Failure",
+				"BubiCam detected an unrecoverable USB error. "
+				"The application will exit to prevent a system hang.");
+
+			thread_id tid = spawn_thread(_USBEmergencyExitThread,
+				"usb_emergency_exit", B_LOW_PRIORITY, NULL);
+			if (tid >= 0)
+				resume_thread(tid);
+
+			return;
+		}
+
 		BAlert* alert = new BAlert("Driver Frozen",
 			"The webcam driver appears to be frozen.\n\n"
 			"No video frames have been received for several seconds.\n\n"
