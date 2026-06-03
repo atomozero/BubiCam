@@ -17,12 +17,18 @@ public:
 	virtual				~BubiCamApp();
 
 	virtual void		ReadyToRun();
+	virtual void		ArgvReceived(int32 argc, char** argv);
 	virtual void		MessageReceived(BMessage* message);
 	virtual bool		QuitRequested();
 	virtual void		AboutRequested();
 
 private:
+	void				_PrintUsage();
+	void				_RunHeadless();
+
 	MainWindow*			fMainWindow;
+	bool				fHeadless;
+	int32				fHeadlessDuration;	// seconds, 0 = until quit
 };
 
 #endif // BUBICAM_APP_H
