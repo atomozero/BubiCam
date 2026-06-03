@@ -239,6 +239,35 @@ VideoRecorder::AddAudioBuffer(const void* data, size_t size)
 }
 
 
+void
+VideoRecorder::WriteAudio(const void* data, size_t size,
+	const media_raw_audio_format& format)
+{
+	if (data == NULL || size == 0)
+		return;
+
+	if (format.format == media_raw_audio_format::B_AUDIO_FLOAT) {
+		// Convert 32-bit float to 16-bit PCM for AVI compatibility
+		const float* floatData = static_cast<const float*>(data);
+		size_t sampleCount = size / sizeof(float);
+		size_t pcmSize = sampleCount * sizeof(int16);
+		int16* pcmData = new int16[sampleCount];
+
+		for (size_t i = 0; i < sampleCount; i++) {
+			float sample = floatData[i];
+			if (sample > 1.0f) sample = 1.0f;
+			if (sample < -1.0f) sample = -1.0f;
+			pcmData[i] = (int16)(sample * 32767.0f);
+		}
+
+		AddAudioBuffer(pcmData, pcmSize);
+		delete[] pcmData;
+	} else {
+		AddAudioBuffer(data, size);
+	}
+}
+
+
 status_t
 VideoRecorder::Stop()
 {

@@ -12,6 +12,8 @@
 #include <Looper.h>
 #include <MediaEventLooper.h>
 
+#include "AudioSink.h"
+
 class AudioConsumer : public BMediaEventLooper, public BBufferConsumer {
 public:
 						AudioConsumer(const char* name, BLooper* target,
@@ -56,9 +58,10 @@ public:
 	// Target management (thread-safe)
 	void				SetTarget(BLooper* target);
 
-	// Direct recorder access (bypasses message loop for audio data)
-	void				SetRecorder(class VideoRecorder* recorder);
-	void				ClearRecorder();
+	// Direct audio sink (bypasses message loop for audio data).
+	// The sink receives raw PCM straight from the audio thread.
+	void				SetAudioSink(AudioSink* sink);
+	void				ClearAudioSink();
 
 private:
 	void				_HandleBuffer(BBuffer* buffer);
@@ -87,9 +90,9 @@ private:
 	int32				fBufferCount;
 	int32				fLevelLogCount;
 
-	// Direct recording path (bypasses message loop)
-	class VideoRecorder*	fRecorder;
-	mutable BLocker		fRecorderLock;
+	// Direct audio path (bypasses message loop)
+	AudioSink*			fSink;
+	mutable BLocker		fSinkLock;
 };
 
 #endif // AUDIO_CONSUMER_H

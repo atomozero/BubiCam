@@ -9,7 +9,6 @@
  */
 
 #include "VideoConsumer.h"
-#include "MainWindow.h"
 
 #include <Autolock.h>
 #include <Buffer.h>

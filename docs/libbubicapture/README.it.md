@@ -164,9 +164,14 @@ Controllo della cattura:
 
 | Metodo | Scopo |
 |---|---|
-| `status_t StartCapture(BLooper* target)` | Connette la pipeline e inizia a postare i frame a `target`. |
+| `status_t StartCapture(BLooper* target, uint32 frameMessage = MSG_WEBCAM_FRAME, uint32 audioLevelMessage = MSG_WEBCAM_AUDIO_LEVEL)` | Connette la pipeline e inizia a postare i frame a `target`. Passa i tuoi `what` per integrarti con un protocollo di messaggi tuo; i default restano `'frcv'`/`'audl'`. |
 | `void StopCapture()` | Ferma e disconnette. Sicuro da chiamare da qualsiasi thread. |
 | `bool IsCapturing()` | Se la cattura è in corso. |
+
+Per catturare i campioni audio (non solo i livelli) — per registrazione o
+encoding — passa un `AudioSink` all'`AudioConsumer` del device:
+`device->GetAudioConsumer()->SetAudioSink(mioSink)`. Il sink riceve il PCM
+grezzo direttamente dal thread audio (vedi `AudioSink.h`).
 
 Selezione del formato (chiamare **prima** di `StartCapture`):
 
@@ -206,13 +211,13 @@ struct complete.
 
 Messaggi di livello audio (quando l'audio è attivo):
 
-- `what`: `'audl'` (`MSG_AUDIO_LEVEL`)
+- `what`: `'audl'` (`MSG_WEBCAM_AUDIO_LEVEL`)
 - campi `"left"` / `"right"`: livelli di picco `float` in `0.0 .. 1.0`.
 
-> Nota: queste costanti `what` sono attualmente fisse nella libreria. Se incorpori
-> i sorgenti e ti servono valori diversi, cambiali dove `WebcamDevice` costruisce
-> i suoi consumer (`MSG_FRAME_RECEIVED` / `MSG_AUDIO_LEVEL`). Renderli parametri
-> di `StartCapture` è un miglioramento API pianificato.
+> I default sono `MSG_WEBCAM_FRAME` (`'frcv'`) e `MSG_WEBCAM_AUDIO_LEVEL`
+> (`'audl'`), definiti in `WebcamDevice.h` e di proprietà della libreria.
+> Sovrascrivili per-cattura con i parametri di `StartCapture` qui sopra — senza
+> toccare i sorgenti della libreria.
 
 ---
 

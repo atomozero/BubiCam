@@ -2427,8 +2427,8 @@ MainWindow::_StartRecording()
 		fprintf(stderr, "Recording: hasAudio=%d, webcam=%p, audioConsumer=%p\n",
 			hasAudio, webcam, audioConsumer);
 		if (audioConsumer != NULL) {
-			audioConsumer->SetRecorder(fRecorder);
-			fprintf(stderr, "Recording: SetRecorder(%p) on AudioConsumer\n", fRecorder);
+			audioConsumer->SetAudioSink(fRecorder);
+			fprintf(stderr, "Recording: SetAudioSink(%p) on AudioConsumer\n", fRecorder);
 		}
 	}
 
@@ -2457,7 +2457,7 @@ MainWindow::_StopRecording()
 	if (webcam != NULL) {
 		AudioConsumer* audioConsumer = webcam->GetAudioConsumer();
 		if (audioConsumer != NULL)
-			audioConsumer->ClearRecorder();
+			audioConsumer->ClearAudioSink();
 	}
 
 	uint32 frames = fRecorder->FramesRecorded();
