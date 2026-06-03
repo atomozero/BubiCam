@@ -9,6 +9,8 @@
 
 #include <Alert.h>
 #include <Catalog.h>
+#include <Mime.h>
+#include <Resources.h>
 
 #undef B_TRANSLATION_CONTEXT
 #define B_TRANSLATION_CONTEXT "BubiCamApp"
@@ -29,9 +31,59 @@ BubiCamApp::~BubiCamApp()
 }
 
 
+static void
+_RegisterMIMEType(const char* mimeType, const char* shortDesc,
+	const char* longDesc, const char* extension, const char* preferredApp)
+{
+	BMimeType mime(mimeType);
+	if (mime.IsInstalled())
+		return;
+
+	mime.Install();
+	mime.SetShortDescription(shortDesc);
+	mime.SetLongDescription(longDesc);
+	mime.SetPreferredApp(preferredApp);
+
+	if (extension != NULL) {
+		BMessage extensions;
+		extensions.AddString("extensions", extension);
+		mime.SetFileExtensions(&extensions);
+	}
+}
+
+
 void
 BubiCamApp::ReadyToRun()
 {
+	// Register custom MIME types for BubiCam file formats
+	_RegisterMIMEType(
+		"application/x-vnd.BubiCam-preset",
+		"BubiCam Preset",
+		"BubiCam webcam control preset file",
+		"bcpreset",
+		kApplicationSignature);
+
+	_RegisterMIMEType(
+		"application/x-vnd.BubiCam-report",
+		"BubiCam Report",
+		"BubiCam diagnostic report file",
+		"bcreport",
+		kApplicationSignature);
+
+	_RegisterMIMEType(
+		"text/x-vnd.BubiCam-testresults-csv",
+		"BubiCam Test CSV",
+		"BubiCam test results in CSV format",
+		"csv",
+		NULL);  // Don't claim ownership of .csv
+
+	_RegisterMIMEType(
+		"application/x-vnd.BubiCam-testresults-json",
+		"BubiCam Test JSON",
+		"BubiCam test results in JSON format",
+		NULL,
+		NULL);
+
 	fMainWindow = new MainWindow();
 	fMainWindow->Show();
 }
