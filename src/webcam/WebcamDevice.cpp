@@ -648,6 +648,24 @@ WebcamDevice::StartCapture(BLooper* target, uint32 frameMessage,
 		LOG_DEBUG("Node instantiated, ID=%d", fMediaNodeID);
 	}
 
+	// Clean up stale consumers from a previous StopCaptureKeepNode call
+	if (fVideoConsumer != NULL) {
+		media_node consumerNode = fVideoConsumer->Node();
+		if (consumerNode.node > 0) {
+			roster->StopNode(consumerNode, 0, true);
+			roster->UnregisterNode(fVideoConsumer);
+		}
+		fVideoConsumer = NULL;
+	}
+	if (fAudioConsumer != NULL) {
+		media_node consumerNode = fAudioConsumer->Node();
+		if (consumerNode.node > 0) {
+			roster->StopNode(consumerNode, 0, true);
+			roster->UnregisterNode(fAudioConsumer);
+		}
+		fAudioConsumer = NULL;
+	}
+
 	// Set up video connection
 	status = _SetupVideoConnection();
 	if (status != B_OK) {
@@ -894,14 +912,15 @@ WebcamDevice::StopCapture()
 void
 WebcamDevice::StopCaptureKeepNode()
 {
-	// Like StopCapture, but does NOT release/uninstantiate the producer node.
-	// Used during resolution changes to avoid full device re-enumeration.
+	// Minimal stop for resolution changes: only disconnect media connections.
+	// Does NOT unregister or release any nodes, avoiding media_server
+	// notifications that would trigger device re-enumeration.
 	BAutolock stopLock(fCaptureLock);
 
 	if (!fIsCapturing)
 		return;
 
-	LOG_INFO("Stopping capture (keeping producer node)");
+	LOG_INFO("Stopping capture (keeping all nodes)");
 
 	BMediaRoster* roster = BMediaRoster::Roster();
 	if (roster == NULL) {
@@ -910,54 +929,33 @@ WebcamDevice::StopCaptureKeepNode()
 		return;
 	}
 
-	VideoConsumer* videoConsumer = NULL;
-	AudioConsumer* audioConsumer = NULL;
-	media_node videoConsumerNode = media_node();
-	media_node audioConsumerNode = media_node();
-	media_node audioProducerNode = media_node();
-	media_output videoOutput, audioOutput;
-	media_input videoInput, audioInput;
-	bool wasVideoConnected, wasAudioConnected;
-	bool hadAudioProducer;
+	// Copy connection info under lock
+	media_output videoOutput = fVideoOutput;
+	media_input videoInput = fVideoInput;
+	media_output audioOutput = fAudioOutput;
+	media_input audioInput = fAudioInput;
+	bool wasVideoConnected = fVideoConnected;
+	bool wasAudioConnected = fAudioConnected;
 
-	videoConsumer = fVideoConsumer;
-	audioConsumer = fAudioConsumer;
+	VideoConsumer* videoConsumer = fVideoConsumer;
+	AudioConsumer* audioConsumer = fAudioConsumer;
 
-	if (videoConsumer != NULL)
-		videoConsumerNode = videoConsumer->Node();
-	if (audioConsumer != NULL)
-		audioConsumerNode = audioConsumer->Node();
-
-	videoOutput = fVideoOutput;
-	videoInput = fVideoInput;
-	audioOutput = fAudioOutput;
-	audioInput = fAudioInput;
-	wasVideoConnected = fVideoConnected;
-	wasAudioConnected = fAudioConnected;
-	audioProducerNode = fAudioProducerNode;
-	hadAudioProducer = fAudioProducerInstantiated;
-
+	// Mark as not capturing but keep consumer pointers for reuse
 	fIsCapturing = false;
-	fVideoConsumer = NULL;
-	fAudioConsumer = NULL;
 	fVideoConnected = false;
 	fAudioConnected = false;
+	// NOTE: fVideoConsumer and fAudioConsumer are NOT cleared -
+	// they will be cleaned up by the next StartCapture or full StopCapture
 
 	stopLock.Unlock();
 
-	// SetTarget(NULL) outside lock
+	// Tell consumers to stop forwarding frames
 	if (videoConsumer != NULL)
 		videoConsumer->SetTarget(NULL);
 	if (audioConsumer != NULL)
 		audioConsumer->SetAudioSink(NULL);
 
-	// Stop consumer nodes
-	if (videoConsumerNode.node > 0)
-		StopNodeWithTimeout(roster, videoConsumerNode);
-	if (audioConsumerNode.node > 0)
-		StopNodeWithTimeout(roster, audioConsumerNode);
-
-	// Disconnect
+	// Disconnect media connections only - no StopNode, no UnregisterNode
 	if (wasVideoConnected)
 		roster->Disconnect(videoOutput.node.node, videoOutput.source,
 			videoInput.node.node, videoInput.destination);
@@ -965,26 +963,11 @@ WebcamDevice::StopCaptureKeepNode()
 		roster->Disconnect(audioOutput.node.node, audioOutput.source,
 			audioInput.node.node, audioInput.destination);
 
-	// Unregister consumers
-	if (videoConsumer != NULL && videoConsumerNode.node > 0)
-		roster->UnregisterNode(videoConsumer);
-	if (audioConsumer != NULL && audioConsumerNode.node > 0)
-		roster->UnregisterNode(audioConsumer);
-
-	// Release audio producer (separate from video producer)
-	if (hadAudioProducer) {
-		roster->ReleaseNode(audioProducerNode);
-		fAudioProducerInstantiated = false;
-	}
-
-	// NOTE: Do NOT release the video producer node - keep it instantiated
-	// so the next StartCapture can reuse it without re-enumerating devices
-
 	fTarget = NULL;
 
-	snooze(200000);  // 200ms settle (shorter than full stop)
+	snooze(200000);  // 200ms USB settle
 
-	LOG_DEBUG("Capture stopped (node kept alive for format change)");
+	LOG_DEBUG("Capture stopped (nodes kept alive for format change)");
 }
 
 
