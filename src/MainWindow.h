@@ -83,6 +83,7 @@ enum {
 	MSG_TOGGLE_VUBAR		= 'tgvu',
 	MSG_RESET_LAYOUT		= 'rlyt',
 	MSG_TOGGLE_INSPECTOR	= 'tgin',
+	MSG_EXPORT_DEBUG		= 'exdb',
 	MSG_TIMELAPSE_START		= 'tlst',
 	MSG_TIMELAPSE_STOP		= 'tlsp',
 	MSG_TIMELAPSE_TICK		= 'tltk',
@@ -156,6 +157,7 @@ private:
 	void				_ConnectAudioSource(int32 nodeID);
 	void				_DisconnectAudio();
 
+	void				_ExportDebugState();
 	void				_EnterVideoFullscreen();
 	void				_ExitVideoFullscreen();
 	void				_StartDeviceWatching();

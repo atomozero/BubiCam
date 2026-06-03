@@ -386,6 +386,8 @@ MainWindow::_BuildMenu()
 		new BMessage(MSG_TOGGLE_DESKBAR)));
 	fToolsMenu->AddItem(new BMenuItem("Pixel Inspector",
 		new BMessage(MSG_TOGGLE_INSPECTOR), 'I'));
+	fToolsMenu->AddItem(new BMenuItem("Export Debug State" B_UTF8_ELLIPSIS,
+		new BMessage(MSG_EXPORT_DEBUG)));
 	fMenuBar->AddItem(fToolsMenu);
 }
 
@@ -1609,6 +1611,10 @@ MainWindow::MessageReceived(BMessage* message)
 					item->SetMarked(false);
 			}
 			fStatusBar->SetText("Reference frame cleared");
+			break;
+
+		case MSG_EXPORT_DEBUG:
+			_ExportDebugState();
 			break;
 
 		case MSG_TOGGLE_INSPECTOR:
@@ -3303,6 +3309,86 @@ MainWindow::_LoadSettings()
 		BMessage restoreMsg(MSG_RESTORE_DEVICE);
 		restoreMsg.AddString("device_name", lastDevice);
 		PostMessage(&restoreMsg);
+	}
+}
+
+
+void
+MainWindow::_ExportDebugState()
+{
+	BPath path;
+	find_directory(B_USER_DIRECTORY, &path);
+	BString filename("BubiCam_DebugState_");
+	filename << ExportUtils::GetTimestamp() << ".txt";
+	path.Append(filename.String());
+
+	BString report;
+	report << "=== BubiCam Debug State Export ===\n";
+	report << "Timestamp: " << ExportUtils::GetTimestamp() << "\n\n";
+
+	// Application state
+	report << "--- Application State ---\n";
+	report << "Preview active: " << (fIsPreviewActive ? "yes" : "no") << "\n";
+	report << "Recording: " << (fRecorder != NULL && fRecorder->IsRecording() ? "yes" : "no") << "\n";
+	report << "Driver crashed: " << (fDriverCrashed ? "yes" : "no") << "\n";
+	report << "Fullscreen: " << (fIsFullscreen ? "yes" : "no") << "\n\n";
+
+	// Device state
+	WebcamDevice* webcam = NULL;
+	{
+		BAutolock lock(fWebcamLock);
+		webcam = fCurrentWebcam;
+	}
+	report << "--- Webcam Device ---\n";
+	if (webcam != NULL) {
+		report << "Name: " << webcam->Name() << "\n";
+		report << "Driver: " << webcam->DriverName() << "\n";
+		report << "VID:PID: " << BString().SetToFormat("0x%04X:0x%04X",
+			webcam->VendorID(), webcam->ProductID()) << "\n";
+		report << "Capturing: " << (webcam->IsCapturing() ? "yes" : "no") << "\n";
+		report << "Frames captured: " << webcam->FramesCaptured() << "\n";
+		report << "Frames dropped: " << webcam->FramesDropped() << "\n";
+		report << "FPS: " << BString().SetToFormat("%.1f", webcam->CurrentFPS()) << "\n";
+		VideoFormat fmt = webcam->CurrentFormat();
+		report << "Format: " << BString().SetToFormat("%dx%d @ %.1f fps (%s)",
+			fmt.width, fmt.height, fmt.frameRate, fmt.colorSpace) << "\n";
+		report << "Audio: " << (webcam->SupportsAudio() ? "yes" : "no") << "\n";
+		if (webcam->HasDriverWarnings()) {
+			report << "Warnings: " << webcam->GetDriverWarnings() << "\n";
+		}
+	} else {
+		report << "No device selected\n";
+	}
+	report << "\n";
+
+	// Server state
+	report << "--- Server State ---\n";
+	if (fMCPServer != NULL)
+		report << "MCP server: " << (fMCPServer->IsRunning() ? "running" : "stopped") << "\n";
+	if (fStreamServer != NULL)
+		report << "Stream server: " << (fStreamServer->IsRunning() ? "running" : "stopped") << "\n";
+	report << "\n";
+
+	// System info
+	report << "--- System Info ---\n";
+	system_info sysInfo;
+	if (get_system_info(&sysInfo) == B_OK) {
+		report << "CPU count: " << sysInfo.cpu_count << "\n";
+		report << "Max pages: " << sysInfo.max_pages << "\n";
+		report << "Used pages: " << sysInfo.used_pages << "\n";
+	}
+	report << "\n=== End Debug State ===\n";
+
+	// Write to file
+	BFile file(path.Path(), B_WRITE_ONLY | B_CREATE_FILE | B_ERASE_FILE);
+	if (file.InitCheck() == B_OK) {
+		file.Write(report.String(), report.Length());
+		BString msg;
+		msg.SetToFormat("Debug state exported to:\n%s", path.Path());
+		fStatusBar->SetText("Debug state exported");
+		NotificationUtils::Info("Debug Export", path.Path());
+	} else {
+		fStatusBar->SetText("Failed to export debug state");
 	}
 }
 
