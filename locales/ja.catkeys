@@ -1,0 +1,25 @@
+1	Japanese	application/x-vnd.BubiCam	1
+File	MainWindow		ファイル
+About BubiCam…	MainWindow		BubiCam について…
+Take Screenshot	MainWindow		スクリーンショット撮影
+Start Recording	MainWindow		録画開始
+Stop Recording	MainWindow		録画停止
+Export Info as Text…	MainWindow		情報をテキストとしてエクスポート…
+Export Info as JSON…	MainWindow		情報を JSON としてエクスポート…
+Quit	MainWindow		終了
+Webcam	MainWindow		ウェブカメラ
+Refresh Devices	MainWindow		デバイス更新
+Format	MainWindow		フォーマット
+Control	MainWindow		操作
+Start Preview	MainWindow		プレビュー開始
+Stop Preview	MainWindow		プレビュー停止
+Force Stop (Driver Frozen)	MainWindow		強制停止（ドライバーフリーズ）
+Reconnect	MainWindow		再接続
+Show Controls Panel	MainWindow		コントロールパネル表示
+Restore Factory Defaults	MainWindow		初期設定に戻す
+Auto-start Preview on Launch	MainWindow		起動時にプレビューを自動開始
+Audio	MainWindow		オーディオ
+Tools	MainWindow		ツール
+No webcams found	MainWindow		ウェブカメラが見つかりません
+No webcams detected	MainWindow		ウェブカメラが検出されません
+Select a webcam from the menu	MainWindow		メニューからウェブカメラを選択

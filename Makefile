@@ -41,7 +41,7 @@ LOCAL_INCLUDE_PATHS = src src/views src/webcam src/mcp src/utils
 
 OPTIMIZE := FULL
 
-LOCALES =
+LOCALES = en it de zh ja
 
 DEFINES =
 

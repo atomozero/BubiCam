@@ -1,0 +1,25 @@
+1	Italian	application/x-vnd.BubiCam	1
+File	MainWindow		File
+About BubiCam…	MainWindow		Informazioni su BubiCam…
+Take Screenshot	MainWindow		Cattura schermata
+Start Recording	MainWindow		Avvia registrazione
+Stop Recording	MainWindow		Ferma registrazione
+Export Info as Text…	MainWindow		Esporta info come testo…
+Export Info as JSON…	MainWindow		Esporta info come JSON…
+Quit	MainWindow		Esci
+Webcam	MainWindow		Webcam
+Refresh Devices	MainWindow		Aggiorna dispositivi
+Format	MainWindow		Formato
+Control	MainWindow		Controllo
+Start Preview	MainWindow		Avvia anteprima
+Stop Preview	MainWindow		Ferma anteprima
+Force Stop (Driver Frozen)	MainWindow		Arresto forzato (driver bloccato)
+Reconnect	MainWindow		Riconnetti
+Show Controls Panel	MainWindow		Mostra pannello controlli
+Restore Factory Defaults	MainWindow		Ripristina impostazioni predefinite
+Auto-start Preview on Launch	MainWindow		Avvio automatico anteprima
+Audio	MainWindow		Audio
+Tools	MainWindow		Strumenti
+No webcams found	MainWindow		Nessuna webcam trovata
+No webcams detected	MainWindow		Nessuna webcam rilevata
+Select a webcam from the menu	MainWindow		Seleziona una webcam dal menu

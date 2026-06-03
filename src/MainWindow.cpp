@@ -242,68 +242,67 @@ MainWindow::_BuildMenu()
 	fMenuBar = new BMenuBar("menubar");
 
 	// File menu
-	BMenu* fileMenu = new BMenu("File");
-	fileMenu->AddItem(new BMenuItem("About BubiCam" B_UTF8_ELLIPSIS,
+	BMenu* fileMenu = new BMenu(B_TRANSLATE("File"));
+	fileMenu->AddItem(new BMenuItem(B_TRANSLATE("About BubiCam" B_UTF8_ELLIPSIS),
 		new BMessage(MSG_ABOUT)));
 	fileMenu->AddSeparatorItem();
-	fileMenu->AddItem(new BMenuItem("Take Screenshot",
+	fileMenu->AddItem(new BMenuItem(B_TRANSLATE("Take Screenshot"),
 		new BMessage(MSG_SCREENSHOT), 'P'));
-	fileMenu->AddItem(new BMenuItem("Start Recording",
+	fileMenu->AddItem(new BMenuItem(B_TRANSLATE("Start Recording"),
 		new BMessage(MSG_RECORD_START), 'G'));
-	fileMenu->AddItem(new BMenuItem("Stop Recording",
+	fileMenu->AddItem(new BMenuItem(B_TRANSLATE("Stop Recording"),
 		new BMessage(MSG_RECORD_STOP), 'G', B_SHIFT_KEY));
-	fileMenu->AddItem(new BMenuItem("Export Info as Text" B_UTF8_ELLIPSIS,
+	fileMenu->AddItem(new BMenuItem(B_TRANSLATE("Export Info as Text" B_UTF8_ELLIPSIS),
 		new BMessage(MSG_EXPORT_INFO), 'E'));
-	fileMenu->AddItem(new BMenuItem("Export Info as JSON" B_UTF8_ELLIPSIS,
+	fileMenu->AddItem(new BMenuItem(B_TRANSLATE("Export Info as JSON" B_UTF8_ELLIPSIS),
 		new BMessage(MSG_EXPORT_INFO_JSON), 'E', B_SHIFT_KEY));
 	fileMenu->AddSeparatorItem();
-	fileMenu->AddItem(new BMenuItem("Quit", new BMessage(B_QUIT_REQUESTED),
+	fileMenu->AddItem(new BMenuItem(B_TRANSLATE("Quit"), new BMessage(B_QUIT_REQUESTED),
 		'Q'));
 	fMenuBar->AddItem(fileMenu);
 
 	// Webcam menu
-	fWebcamMenu = new BMenu("Webcam");
-	fWebcamMenu->AddItem(new BMenuItem("Refresh Devices",
+	fWebcamMenu = new BMenu(B_TRANSLATE("Webcam"));
+	fWebcamMenu->AddItem(new BMenuItem(B_TRANSLATE("Refresh Devices"),
 		new BMessage(MSG_REFRESH_DEVICES), 'R'));
 	fWebcamMenu->AddSeparatorItem();
 	fMenuBar->AddItem(fWebcamMenu);
 
 	// Format menu
-	fFormatMenu = new BMenu("Format");
+	fFormatMenu = new BMenu(B_TRANSLATE("Format"));
 	fFormatMenu->SetEnabled(false);
 	fMenuBar->AddItem(fFormatMenu);
 
 	// Control menu
-	fControlMenu = new BMenu("Control");
-	fControlMenu->AddItem(new BMenuItem("Start Preview",
+	fControlMenu = new BMenu(B_TRANSLATE("Control"));
+	fControlMenu->AddItem(new BMenuItem(B_TRANSLATE("Start Preview"),
 		new BMessage(MSG_WEBCAM_START), 'S'));
-	fControlMenu->AddItem(new BMenuItem("Stop Preview",
+	fControlMenu->AddItem(new BMenuItem(B_TRANSLATE("Stop Preview"),
 		new BMessage(MSG_WEBCAM_STOP), 'T'));
-	fControlMenu->AddItem(new BMenuItem("Force Stop (Driver Frozen)",
+	fControlMenu->AddItem(new BMenuItem(B_TRANSLATE("Force Stop (Driver Frozen)"),
 		new BMessage(MSG_FORCE_STOP)));
-	fControlMenu->AddItem(new BMenuItem("Reconnect",
+	fControlMenu->AddItem(new BMenuItem(B_TRANSLATE("Reconnect"),
 		new BMessage(MSG_RESTART_PREVIEW), 'R'));
 	fControlMenu->AddSeparatorItem();
-	fControlMenu->AddItem(new BMenuItem("Show Controls Panel",
+	fControlMenu->AddItem(new BMenuItem(B_TRANSLATE("Show Controls Panel"),
 		new BMessage(MSG_TOGGLE_CONTROLS), 'K'));
-	fControlMenu->AddItem(new BMenuItem("Restore Factory Defaults",
+	fControlMenu->AddItem(new BMenuItem(B_TRANSLATE("Restore Factory Defaults"),
 		new BMessage(MSG_FACTORY_RESET)));
 	fControlMenu->AddSeparatorItem();
 	{
-		BMenuItem* autoPreviewItem = new BMenuItem("Auto-start Preview on Launch",
+		BMenuItem* autoPreviewItem = new BMenuItem(B_TRANSLATE("Auto-start Preview on Launch"),
 			new BMessage(MSG_TOGGLE_AUTO_PREVIEW));
 		autoPreviewItem->SetMarked(fAutoStartPreview);
 		fControlMenu->AddItem(autoPreviewItem);
 	}
 	fMenuBar->AddItem(fControlMenu);
 
-	// Tools menu
 	// Audio menu
-	fAudioMenu = new BMenu("Audio");
+	fAudioMenu = new BMenu(B_TRANSLATE("Audio"));
 	_PopulateAudioMenu();
 	fMenuBar->AddItem(fAudioMenu);
 
-	fToolsMenu = new BMenu("Tools");
+	fToolsMenu = new BMenu(B_TRANSLATE("Tools"));
 	fToolsMenu->AddItem(new BMenuItem("Driver Tests" B_UTF8_ELLIPSIS,
 		new BMessage(MSG_SHOW_DRIVER_TESTS), 'D'));
 	fToolsMenu->AddItem(new BMenuItem("USB Descriptors" B_UTF8_ELLIPSIS,
@@ -529,10 +528,10 @@ MainWindow::_PopulateWebcamMenu()
 
 	int32 count = fWebcamRoster->CountDevices();
 	if (count == 0) {
-		BMenuItem* noDevice = new BMenuItem("No webcams found", NULL);
+		BMenuItem* noDevice = new BMenuItem(B_TRANSLATE("No webcams found"), NULL);
 		noDevice->SetEnabled(false);
 		fWebcamMenu->AddItem(noDevice);
-		fStatusBar->SetText("No webcams detected");
+		fStatusBar->SetText(B_TRANSLATE("No webcams detected"));
 	} else {
 		for (int32 i = 0; i < count; i++) {
 			WebcamDevice* device = fWebcamRoster->DeviceAt(i);
@@ -543,7 +542,7 @@ MainWindow::_PopulateWebcamMenu()
 				fWebcamMenu->AddItem(item);
 			}
 		}
-		fStatusBar->SetText("Select a webcam from the menu");
+		fStatusBar->SetText(B_TRANSLATE("Select a webcam from the menu"));
 	}
 }
 

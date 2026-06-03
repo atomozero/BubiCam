@@ -1,0 +1,25 @@
+1	Chinese	application/x-vnd.BubiCam	1
+File	MainWindow		文件
+About BubiCam…	MainWindow		关于 BubiCam…
+Take Screenshot	MainWindow		截取屏幕
+Start Recording	MainWindow		开始录制
+Stop Recording	MainWindow		停止录制
+Export Info as Text…	MainWindow		导出信息为文本…
+Export Info as JSON…	MainWindow		导出信息为 JSON…
+Quit	MainWindow		退出
+Webcam	MainWindow		摄像头
+Refresh Devices	MainWindow		刷新设备
+Format	MainWindow		格式
+Control	MainWindow		控制
+Start Preview	MainWindow		开始预览
+Stop Preview	MainWindow		停止预览
+Force Stop (Driver Frozen)	MainWindow		强制停止（驱动冻结）
+Reconnect	MainWindow		重新连接
+Show Controls Panel	MainWindow		显示控制面板
+Restore Factory Defaults	MainWindow		恢复出厂设置
+Auto-start Preview on Launch	MainWindow		启动时自动开始预览
+Audio	MainWindow		音频
+Tools	MainWindow		工具
+No webcams found	MainWindow		未找到摄像头
+No webcams detected	MainWindow		未检测到摄像头
+Select a webcam from the menu	MainWindow		从菜单中选择摄像头
