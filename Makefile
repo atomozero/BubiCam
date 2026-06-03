@@ -22,6 +22,7 @@ SRCS = \
 	src/webcam/VideoConsumer.cpp \
 	src/webcam/AudioConsumer.cpp \
 	src/webcam/USBVideoParser.cpp \
+	src/webcam/VirtualProducer.cpp \
 	src/mcp/MCPServer.cpp \
 	src/utils/ExportUtils.cpp \
 	src/utils/IconUtils.cpp \
