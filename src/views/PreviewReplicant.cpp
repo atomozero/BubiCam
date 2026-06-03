@@ -213,29 +213,61 @@ PreviewReplicant::_FetchSnapshot()
 		return;
 	}
 
-	// Find JPEG data after HTTP headers (look for \r\n\r\n then JPEG SOI 0xFFD8)
-	uint8* jpegStart = NULL;
-	size_t jpegSize = 0;
+	// Check HTTP status code (first line: "HTTP/1.1 200 ...")
+	bool isHTTP200 = false;
+	for (size_t i = 0; i + 12 < totalRead; i++) {
+		if (buffer[i] == '2' && buffer[i+1] == '0' && buffer[i+2] == '0') {
+			isHTTP200 = true;
+			break;
+		}
+		if (buffer[i] == '\r' || buffer[i] == '\n')
+			break;  // Only check first line
+	}
+
+	if (!isHTTP200) {
+		// Server returned an error (503 = no frame yet, etc.)
+		// Keep current bitmap if we have one, just update status
+		if (fBitmap == NULL)
+			fStatus = "Waiting for frames...";
+		free(buffer);
+		Invalidate();
+		return;
+	}
+
+	// Find end of HTTP headers
+	uint8* bodyStart = NULL;
+	size_t bodySize = 0;
 
 	for (size_t i = 0; i + 3 < totalRead; i++) {
 		if (buffer[i] == '\r' && buffer[i+1] == '\n' &&
 			buffer[i+2] == '\r' && buffer[i+3] == '\n') {
-			jpegStart = buffer + i + 4;
-			jpegSize = totalRead - (i + 4);
+			bodyStart = buffer + i + 4;
+			bodySize = totalRead - (i + 4);
 			break;
 		}
 	}
 
-	if (jpegStart != NULL && jpegSize > 2 &&
-		jpegStart[0] == 0xFF && jpegStart[1] == 0xD8) {
+	// Find JPEG SOI marker (0xFF 0xD8) in body
+	uint8* jpegStart = NULL;
+	size_t jpegSize = 0;
+
+	if (bodyStart != NULL) {
+		for (size_t i = 0; i + 1 < bodySize; i++) {
+			if (bodyStart[i] == 0xFF && bodyStart[i+1] == 0xD8) {
+				jpegStart = bodyStart + i;
+				jpegSize = bodySize - i;
+				break;
+			}
+		}
+	}
+
+	if (jpegStart != NULL && jpegSize > 2) {
 		BBitmap* newBitmap = _DecodeJPEG(jpegStart, jpegSize);
 		if (newBitmap != NULL) {
 			delete fBitmap;
 			fBitmap = newBitmap;
 			fStatus = "";
 		}
-	} else {
-		fStatus = "Invalid response";
 	}
 
 	free(buffer);
