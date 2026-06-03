@@ -26,6 +26,8 @@ VideoPreviewView::VideoPreviewView(const char* name)
 	fCurrentFrame(NULL),
 	fReferenceFrame(NULL),
 	fCompareMode(false),
+	fInspectorMode(false),
+	fInspectorPoint(-1, -1),
 	fFrameLock("frame lock"),
 	fCurrentFPS(0.0f),
 	fFramesReceived(0),
@@ -143,6 +145,60 @@ VideoPreviewView::Draw(BRect updateRect)
 		// Draw grid overlay
 		if (fShowGrid)
 			_DrawGrid();
+
+		// Draw inspector overlay
+		if (fInspectorMode && fInspectorPoint.x >= 0 && fCurrentFrame != NULL) {
+			// Map screen point to bitmap coordinates
+			BRect vr = fVideoRect;
+			float bmpX = (fInspectorPoint.x - vr.left) / vr.Width()
+				* fCurrentFrame->Bounds().Width();
+			float bmpY = (fInspectorPoint.y - vr.top) / vr.Height()
+				* fCurrentFrame->Bounds().Height();
+
+			int32 px = (int32)bmpX;
+			int32 py = (int32)bmpY;
+			int32 bw = (int32)(fCurrentFrame->Bounds().Width() + 1);
+			int32 bh = (int32)(fCurrentFrame->Bounds().Height() + 1);
+
+			if (px >= 0 && px < bw && py >= 0 && py < bh) {
+				int32 bpr = fCurrentFrame->BytesPerRow();
+				const uint8* bits = (const uint8*)fCurrentFrame->Bits();
+				const uint8* pixel = bits + py * bpr + px * 4;
+				uint8 b = pixel[0], g = pixel[1], r = pixel[2], a = pixel[3];
+
+				fInspectorInfo.SetToFormat("(%d, %d)  R:%d G:%d B:%d A:%d  #%02X%02X%02X",
+					px, py, r, g, b, a, r, g, b);
+
+				// Draw crosshair
+				SetHighColor(255, 255, 0);
+				StrokeLine(BPoint(fInspectorPoint.x - 8, fInspectorPoint.y),
+					BPoint(fInspectorPoint.x + 8, fInspectorPoint.y));
+				StrokeLine(BPoint(fInspectorPoint.x, fInspectorPoint.y - 8),
+					BPoint(fInspectorPoint.x, fInspectorPoint.y + 8));
+
+				// Draw info box
+				SetDrawingMode(B_OP_ALPHA);
+				BRect infoRect(5, bounds.bottom - 25, 320, bounds.bottom - 5);
+				SetHighColor(0, 0, 0, 180);
+				FillRoundRect(infoRect, 3, 3);
+				SetHighColor(255, 255, 255, 230);
+				BFont font(be_fixed_font);
+				font.SetSize(10);
+				SetFont(&font);
+				DrawString(fInspectorInfo.String(),
+					BPoint(infoRect.left + 5, infoRect.bottom - 7));
+
+				// Draw color swatch
+				BRect swatch(infoRect.right - 18, infoRect.top + 3,
+					infoRect.right - 3, infoRect.bottom - 3);
+				SetHighColor(r, g, b);
+				FillRect(swatch);
+				SetHighColor(255, 255, 255);
+				StrokeRect(swatch);
+
+				SetDrawingMode(B_OP_COPY);
+			}
+		}
 	} else {
 		// No frame - draw placeholder
 		SetHighColor(fBackgroundColor);
@@ -220,6 +276,11 @@ VideoPreviewView::MouseDown(BPoint where)
 	GetMouse(&where, &buttons);
 
 	if (buttons & B_PRIMARY_MOUSE_BUTTON) {
+		if (fInspectorMode) {
+			fInspectorPoint = where;
+			Invalidate();
+			return;
+		}
 		if (fZoomLevel > 1.0f) {
 			// Pan mode when zoomed in
 			fIsPanning = true;
@@ -331,6 +392,19 @@ VideoPreviewView::SetBackgroundColor(rgb_color color)
 	fBackgroundColor = color;
 	SetViewColor(color);
 	SetLowColor(color);
+}
+
+
+void
+VideoPreviewView::SetInspectorMode(bool enabled)
+{
+	fInspectorMode = enabled;
+	if (!enabled)
+		fInspectorPoint.Set(-1, -1);
+	if (LockLooper()) {
+		Invalidate();
+		UnlockLooper();
+	}
 }
 
 

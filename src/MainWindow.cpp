@@ -384,6 +384,8 @@ MainWindow::_BuildMenu()
 	fToolsMenu->AddSeparatorItem();
 	fToolsMenu->AddItem(new BMenuItem("Show in Deskbar",
 		new BMessage(MSG_TOGGLE_DESKBAR)));
+	fToolsMenu->AddItem(new BMenuItem("Pixel Inspector",
+		new BMessage(MSG_TOGGLE_INSPECTOR), 'I'));
 	fMenuBar->AddItem(fToolsMenu);
 }
 
@@ -1608,6 +1610,19 @@ MainWindow::MessageReceived(BMessage* message)
 			}
 			fStatusBar->SetText("Reference frame cleared");
 			break;
+
+		case MSG_TOGGLE_INSPECTOR:
+		{
+			bool inspect = !fVideoPreview->InspectorMode();
+			fVideoPreview->SetInspectorMode(inspect);
+			BMenuItem* item = fToolsMenu->FindItem(MSG_TOGGLE_INSPECTOR);
+			if (item != NULL)
+				item->SetMarked(inspect);
+			fStatusBar->SetText(inspect
+				? "Pixel Inspector: click on preview to inspect"
+				: "Pixel Inspector disabled");
+			break;
+		}
 
 		case MSG_TOGGLE_SYSLOG:
 		{

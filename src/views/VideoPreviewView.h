@@ -40,6 +40,9 @@ public:
 	void				ResetZoom();
 	bool				IsFrozen() const { return fFrozen; }
 	void				SetBackgroundColor(rgb_color color);
+	void				SetInspectorMode(bool enabled);
+	bool				InspectorMode() const { return fInspectorMode; }
+
 	void				CaptureReference();
 	void				ClearReference();
 	void				SetCompareMode(bool enabled);
@@ -67,6 +70,9 @@ private:
 	BBitmap*			fCurrentFrame;
 	BBitmap*			fReferenceFrame;
 	bool				fCompareMode;
+	bool				fInspectorMode;
+	BPoint				fInspectorPoint;
+	BString				fInspectorInfo;
 	BLocker				fFrameLock;
 	BRect				fVideoRect;
 	rgb_color			fBackgroundColor;

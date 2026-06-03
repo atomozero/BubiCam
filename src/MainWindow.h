@@ -82,6 +82,7 @@ enum {
 	MSG_TOGGLE_SYSLOG		= 'tgsy',
 	MSG_TOGGLE_VUBAR		= 'tgvu',
 	MSG_RESET_LAYOUT		= 'rlyt',
+	MSG_TOGGLE_INSPECTOR	= 'tgin',
 	MSG_TIMELAPSE_START		= 'tlst',
 	MSG_TIMELAPSE_STOP		= 'tlsp',
 	MSG_TIMELAPSE_TICK		= 'tltk',
