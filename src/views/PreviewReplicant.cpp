@@ -34,7 +34,7 @@ PreviewReplicant::PreviewReplicant(BRect frame, const char* name)
 	fBitmap(NULL),
 	fRefreshRunner(NULL),
 	fStatus("Starting..."),
-	fPort(8080)
+	fPort(9847)
 {
 	// Add dragger in bottom-right corner
 	BRect draggerRect(frame.Width() - 7, frame.Height() - 7,
@@ -50,7 +50,7 @@ PreviewReplicant::PreviewReplicant(BMessage* archive)
 	fBitmap(NULL),
 	fRefreshRunner(NULL),
 	fStatus("Connecting..."),
-	fPort(8080)
+	fPort(9847)
 {
 	archive->FindInt16("port", (int16*)&fPort);
 }

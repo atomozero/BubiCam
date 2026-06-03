@@ -367,6 +367,49 @@ MCPServer::_HandleConnection(int socket)
 		BString result = _HandleMCPRequest(body);
 		_SendHTTPResponse(socket, 200, "OK", result);
 	}
+	else if (path == "/snapshot" && method == "GET") {
+		// Return raw JPEG snapshot for the Desktop replicant
+		WebcamDevice* device = _LockDevice();
+		if (device == NULL) {
+			_SendHTTPResponse(socket, 503, "Service Unavailable",
+				"{\"error\":\"No webcam device\"}");
+			return;
+		}
+
+		BBitmap* bitmap = device->GetCurrentFrame();
+		_UnlockDevice();
+
+		if (bitmap == NULL) {
+			_SendHTTPResponse(socket, 503, "Service Unavailable",
+				"{\"error\":\"No frame available\"}");
+			return;
+		}
+
+		// Encode as JPEG
+		BBitmapStream stream(bitmap);
+		BMallocIO output;
+		BTranslatorRoster* transRoster = BTranslatorRoster::Default();
+		status_t status = B_ERROR;
+		if (transRoster != NULL)
+			status = transRoster->Translate(&stream, NULL, NULL, &output, 'JPEG');
+		stream.DetachBitmap(&bitmap);
+
+		if (status == B_OK && output.BufferLength() > 0) {
+			BString header;
+			header << "HTTP/1.1 200 OK\r\n";
+			header << "Content-Type: image/jpeg\r\n";
+			header << "Content-Length: " << output.BufferLength() << "\r\n";
+			header << "Access-Control-Allow-Origin: *\r\n";
+			header << "Connection: close\r\n";
+			header << "\r\n";
+			send(socket, header.String(), header.Length(), 0);
+			send(socket, output.Buffer(), output.BufferLength(), 0);
+		} else {
+			_SendHTTPResponse(socket, 500, "Internal Server Error",
+				"{\"error\":\"JPEG encoding failed\"}");
+		}
+		return;
+	}
 	else if (path == "/health" && method == "GET") {
 		BString result = "{\"status\":\"ok\",\"server\":\"BubiCam MCP\",\"version\":\"1.0\"}";
 		_SendHTTPResponse(socket, 200, "OK", result);
