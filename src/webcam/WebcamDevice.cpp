@@ -648,21 +648,17 @@ WebcamDevice::StartCapture(BLooper* target, uint32 frameMessage,
 		LOG_DEBUG("Node instantiated, ID=%d", fMediaNodeID);
 	}
 
-	// Clean up stale consumers from a previous StopCaptureKeepNode call
+	// Clean up stale consumers from a previous StopCaptureKeepNode call.
+	// These were already disconnected but not unregistered to avoid
+	// media_server notifications. Quietly dispose of them now.
 	if (fVideoConsumer != NULL) {
-		media_node consumerNode = fVideoConsumer->Node();
-		if (consumerNode.node > 0) {
-			roster->StopNode(consumerNode, 0, true);
-			roster->UnregisterNode(fVideoConsumer);
-		}
+		// Consumer is disconnected and has no target - just delete it.
+		// BMediaEventLooper destructor handles thread shutdown.
+		delete fVideoConsumer;
 		fVideoConsumer = NULL;
 	}
 	if (fAudioConsumer != NULL) {
-		media_node consumerNode = fAudioConsumer->Node();
-		if (consumerNode.node > 0) {
-			roster->StopNode(consumerNode, 0, true);
-			roster->UnregisterNode(fAudioConsumer);
-		}
+		delete fAudioConsumer;
 		fAudioConsumer = NULL;
 	}
 
