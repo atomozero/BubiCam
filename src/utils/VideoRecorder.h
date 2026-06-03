@@ -21,6 +21,13 @@
 #include "AudioSink.h"
 
 
+// Video codec selection for recording
+enum video_codec_t {
+	VIDEO_CODEC_MJPEG	= 0,	// Motion JPEG (default, good compression)
+	VIDEO_CODEC_RAW		= 1		// Uncompressed RGB32 (lossless, large files)
+};
+
+
 struct AVIIndexEntry {
 	off_t		offset;
 	uint32		size;
@@ -31,6 +38,9 @@ class VideoRecorder : public AudioSink {
 public:
 						VideoRecorder();
 	virtual				~VideoRecorder();
+
+	void				SetCodec(video_codec_t codec) { fCodec = codec; }
+	video_codec_t		Codec() const { return fCodec; }
 
 	status_t			Start(const char* path, int32 width, int32 height,
 							float fps = 30.0f, int jpegQuality = 85);
@@ -71,6 +81,7 @@ private:
 	int32				fHeight;
 	float				fFPS;
 	int					fJPEGQuality;
+	video_codec_t		fCodec;
 	uint32				fFrameCount;
 	bigtime_t			fStartTime;
 

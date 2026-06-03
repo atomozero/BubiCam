@@ -252,6 +252,17 @@ MainWindow::_BuildMenu()
 		new BMessage(MSG_RECORD_START), 'G'));
 	fileMenu->AddItem(new BMenuItem(B_TRANSLATE("Stop Recording"),
 		new BMessage(MSG_RECORD_STOP), 'G', B_SHIFT_KEY));
+	{
+		BMenu* codecMenu = new BMenu(B_TRANSLATE("Recording Codec"));
+		BMenuItem* mjpegItem = new BMenuItem("Motion JPEG",
+			new BMessage(MSG_CODEC_MJPEG));
+		mjpegItem->SetMarked(true);
+		codecMenu->AddItem(mjpegItem);
+		codecMenu->AddItem(new BMenuItem("Uncompressed RGB32",
+			new BMessage(MSG_CODEC_RAW)));
+		codecMenu->SetRadioMode(true);
+		fileMenu->AddItem(codecMenu);
+	}
 	fileMenu->AddItem(new BMenuItem(B_TRANSLATE("Export Info as Text" B_UTF8_ELLIPSIS),
 		new BMessage(MSG_EXPORT_INFO), 'E'));
 	fileMenu->AddItem(new BMenuItem(B_TRANSLATE("Export Info as JSON" B_UTF8_ELLIPSIS),
@@ -1586,6 +1597,18 @@ MainWindow::MessageReceived(BMessage* message)
 					item->SetMarked(false);
 			}
 			fStatusBar->SetText("Reference frame cleared");
+			break;
+
+		case MSG_CODEC_MJPEG:
+			if (fRecorder != NULL)
+				fRecorder->SetCodec(VIDEO_CODEC_MJPEG);
+			fStatusBar->SetText("Recording codec: Motion JPEG");
+			break;
+
+		case MSG_CODEC_RAW:
+			if (fRecorder != NULL)
+				fRecorder->SetCodec(VIDEO_CODEC_RAW);
+			fStatusBar->SetText("Recording codec: Uncompressed RGB32");
 			break;
 
 		case MSG_TOGGLE_DESKBAR:

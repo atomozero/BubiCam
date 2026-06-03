@@ -36,6 +36,7 @@ VideoRecorder::VideoRecorder()
 	fHeight(0),
 	fFPS(30.0f),
 	fJPEGQuality(85),
+	fCodec(VIDEO_CODEC_MJPEG),
 	fFrameCount(0),
 	fStartTime(0),
 	fHasAudio(false),
@@ -172,26 +173,34 @@ VideoRecorder::AddFrame(BBitmap* bitmap)
 	if (!fRecording || bitmap == NULL)
 		return B_NOT_ALLOWED;
 
-	// Compress bitmap to JPEG
+	const uint8* frameData = NULL;
+	uint32 frameSize = 0;
 	uint8* jpegData = NULL;
-	unsigned long jpegSize = 0;
 
-	status_t status = _CompressFrameToJPEG(bitmap, &jpegData, &jpegSize);
-	if (status != B_OK || jpegData == NULL)
-		return status;
+	if (fCodec == VIDEO_CODEC_RAW) {
+		// Raw uncompressed RGB32 - write bitmap bits directly
+		frameData = (const uint8*)bitmap->Bits();
+		frameSize = (uint32)bitmap->BitsLength();
+	} else {
+		// MJPEG - compress bitmap to JPEG
+		unsigned long jpegSize = 0;
+		status_t status = _CompressFrameToJPEG(bitmap, &jpegData, &jpegSize);
+		if (status != B_OK || jpegData == NULL)
+			return status;
+		frameData = jpegData;
+		frameSize = (uint32)jpegSize;
+	}
 
-	// Write AVI chunk: '00dc' + size + data (+ padding)
-	off_t chunkStart = 0;
-	chunkStart = fFile.Position();
-
+	// Write AVI chunk: '00dc' (compressed) or '00db' (raw) + size + data
+	off_t chunkStart = fFile.Position();
 	off_t frameOffset = chunkStart - fMoviDataStart;
 
-	_WriteFourCC("00dc");
-	_WriteUInt32((uint32)jpegSize);
-	fFile.Write(jpegData, jpegSize);
+	_WriteFourCC(fCodec == VIDEO_CODEC_RAW ? "00db" : "00dc");
+	_WriteUInt32(frameSize);
+	fFile.Write(frameData, frameSize);
 
 	// Pad to 2-byte boundary
-	if (jpegSize & 1) {
+	if (frameSize & 1) {
 		uint8 pad = 0;
 		fFile.Write(&pad, 1);
 	}
@@ -199,7 +208,7 @@ VideoRecorder::AddFrame(BBitmap* bitmap)
 	// Record index entry
 	AVIIndexEntry* entry = new AVIIndexEntry();
 	entry->offset = frameOffset;
-	entry->size = (uint32)jpegSize;
+	entry->size = frameSize;
 	fVideoIndex.AddItem(entry);
 
 	fFrameCount++;
@@ -371,7 +380,7 @@ VideoRecorder::_WriteAVIHeaders()
 	_WriteFourCC("strh");
 	_WriteUInt32(56);
 	_WriteFourCC("vids");               // fccType
-	_WriteFourCC("MJPG");               // fccHandler
+	_WriteFourCC(fCodec == VIDEO_CODEC_RAW ? "\0\0\0\0" : "MJPG"); // fccHandler
 	_WriteUInt32(0);                    // dwFlags
 	_WriteUInt16(0);                    // wPriority
 	_WriteUInt16(0);                    // wLanguage
@@ -395,9 +404,14 @@ VideoRecorder::_WriteAVIHeaders()
 	_WriteUInt32(fWidth);               // biWidth
 	_WriteUInt32(fHeight);              // biHeight
 	_WriteUInt16(1);                    // biPlanes
-	_WriteUInt16(24);                   // biBitCount
-	_WriteFourCC("MJPG");               // biCompression
-	_WriteUInt32(fWidth * fHeight * 3); // biSizeImage
+	_WriteUInt16(fCodec == VIDEO_CODEC_RAW ? 32 : 24); // biBitCount
+	if (fCodec == VIDEO_CODEC_RAW) {
+		_WriteUInt32(0);                    // biCompression (BI_RGB = 0)
+		_WriteUInt32(fWidth * fHeight * 4); // biSizeImage
+	} else {
+		_WriteFourCC("MJPG");               // biCompression
+		_WriteUInt32(fWidth * fHeight * 3); // biSizeImage
+	}
 	_WriteUInt32(0);                    // biXPelsPerMeter
 	_WriteUInt32(0);                    // biYPelsPerMeter
 	_WriteUInt32(0);                    // biClrUsed
