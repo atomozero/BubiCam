@@ -82,6 +82,11 @@ private:
 	uint32				fAudioChunkCount;
 	uint32				fTotalAudioBytes;
 
+	// Reusable float->int16 conversion scratch. Avoids a heap allocation on
+	// every audio buffer: WriteAudio() runs on the real-time audio thread.
+	int16*				fAudioScratch;
+	size_t				fAudioScratchSamples;
+
 	// AVI structure tracking
 	off_t				fMoviListStart;
 	off_t				fMoviDataStart;

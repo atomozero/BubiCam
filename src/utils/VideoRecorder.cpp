@@ -44,6 +44,8 @@ VideoRecorder::VideoRecorder()
 	fBitsPerSample(0),
 	fAudioChunkCount(0),
 	fTotalAudioBytes(0),
+	fAudioScratch(NULL),
+	fAudioScratchSamples(0),
 	fMoviListStart(0),
 	fMoviDataStart(0),
 	fVideoIndex(20),
@@ -56,6 +58,8 @@ VideoRecorder::~VideoRecorder()
 {
 	if (fRecording)
 		Stop();
+
+	delete[] fAudioScratch;
 }
 
 
@@ -247,21 +251,25 @@ VideoRecorder::WriteAudio(const void* data, size_t size,
 		return;
 
 	if (format.format == media_raw_audio_format::B_AUDIO_FLOAT) {
-		// Convert 32-bit float to 16-bit PCM for AVI compatibility
+		// Convert 32-bit float to 16-bit PCM for AVI compatibility, reusing a
+		// scratch buffer to avoid allocating on the real-time audio thread.
 		const float* floatData = static_cast<const float*>(data);
 		size_t sampleCount = size / sizeof(float);
-		size_t pcmSize = sampleCount * sizeof(int16);
-		int16* pcmData = new int16[sampleCount];
+
+		if (sampleCount > fAudioScratchSamples) {
+			delete[] fAudioScratch;
+			fAudioScratch = new int16[sampleCount];
+			fAudioScratchSamples = sampleCount;
+		}
 
 		for (size_t i = 0; i < sampleCount; i++) {
 			float sample = floatData[i];
 			if (sample > 1.0f) sample = 1.0f;
 			if (sample < -1.0f) sample = -1.0f;
-			pcmData[i] = (int16)(sample * 32767.0f);
+			fAudioScratch[i] = (int16)(sample * 32767.0f);
 		}
 
-		AddAudioBuffer(pcmData, pcmSize);
-		delete[] pcmData;
+		AddAudioBuffer(fAudioScratch, sampleCount * sizeof(int16));
 	} else {
 		AddAudioBuffer(data, size);
 	}

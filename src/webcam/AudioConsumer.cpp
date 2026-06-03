@@ -38,7 +38,9 @@ AudioConsumer::AudioConsumer(const char* name, BLooper* target,
 	fSmoothedRight(0.0f),
 	fBufferCount(0),
 	fLevelLogCount(0),
-	fSink(NULL)
+	fSink(NULL),
+	fSwapScratch(NULL),
+	fSwapScratchSize(0)
 {
 	fInput = media_input();
 	fFormat = media_format();
@@ -70,6 +72,8 @@ AudioConsumer::~AudioConsumer()
 			fprintf(stderr, "AudioConsumer: looper thread did not exit in time\n");
 		}
 	}
+
+	delete[] fSwapScratch;
 }
 
 
@@ -393,6 +397,18 @@ AudioConsumer::_HandleBuffer(BBuffer* buffer)
 }
 
 
+uint8*
+AudioConsumer::_SwapBuffer(size_t bytes)
+{
+	if (bytes > fSwapScratchSize) {
+		delete[] fSwapScratch;
+		fSwapScratch = new uint8[bytes];
+		fSwapScratchSize = bytes;
+	}
+	return fSwapScratch;
+}
+
+
 void
 AudioConsumer::_CalculateLevels(const void* data, size_t size,
 	float* outLeft, float* outRight)
@@ -427,15 +443,15 @@ AudioConsumer::_CalculateLevels(const void* data, size_t size,
 			// Haiku x86 is little-endian (B_MEDIA_LITTLE_ENDIAN = 2)
 			if (byteOrder == B_MEDIA_BIG_ENDIAN) {
 				// Swap bytes for each int16 sample before computing levels
-				// Work on a temporary copy to avoid modifying the buffer
-				int16* swapped = new int16[samples];
+				// Work on a reusable copy to avoid modifying the buffer
+				int16* swapped = reinterpret_cast<int16*>(
+					_SwapBuffer(samples * sizeof(int16)));
 				const uint8* raw = static_cast<const uint8*>(data);
 				for (size_t i = 0; i < samples; i++) {
 					swapped[i] = (int16)((raw[i * 2 + 1]) | (raw[i * 2] << 8));
 				}
 				_CalculateLevelsTyped(swapped, samples, channels,
 					(int16)32767, outLeft, outRight);
-				delete[] swapped;
 			} else {
 				_CalculateLevelsTyped(static_cast<const int16*>(data),
 					samples, channels, (int16)32767, outLeft, outRight);
@@ -449,7 +465,8 @@ AudioConsumer::_CalculateLevels(const void* data, size_t size,
 			uint32 byteOrder = fFormat.u.raw_audio.byte_order;
 
 			if (byteOrder == B_MEDIA_BIG_ENDIAN) {
-				int32* swapped = new int32[samples];
+				int32* swapped = reinterpret_cast<int32*>(
+					_SwapBuffer(samples * sizeof(int32)));
 				const uint8* raw = static_cast<const uint8*>(data);
 				for (size_t i = 0; i < samples; i++) {
 					size_t o = i * 4;
@@ -458,7 +475,6 @@ AudioConsumer::_CalculateLevels(const void* data, size_t size,
 				}
 				_CalculateLevelsTyped(swapped, samples, channels,
 					(int32)2147483647, outLeft, outRight);
-				delete[] swapped;
 			} else {
 				_CalculateLevelsTyped(static_cast<const int32*>(data),
 					samples, channels, (int32)2147483647, outLeft, outRight);
@@ -473,10 +489,10 @@ AudioConsumer::_CalculateLevels(const void* data, size_t size,
 			size_t frameCount = sampleCount / channels;
 
 			// Byte-swap floats if big-endian
-			float* swapped = NULL;
 			uint32 byteOrder = fFormat.u.raw_audio.byte_order;
 			if (byteOrder == B_MEDIA_BIG_ENDIAN) {
-				swapped = new float[sampleCount];
+				float* swapped = reinterpret_cast<float*>(
+					_SwapBuffer(sampleCount * sizeof(float)));
 				const uint8* raw = static_cast<const uint8*>(data);
 				for (size_t i = 0; i < sampleCount; i++) {
 					uint32 v = (uint32)((raw[i*4+3]) | (raw[i*4+2]<<8) |
@@ -511,7 +527,6 @@ AudioConsumer::_CalculateLevels(const void* data, size_t size,
 				*outRight = channels > 1 ?
 					(float)sqrt(sumRight / frameCount) : *outLeft;
 			}
-			delete[] swapped;
 			break;
 		}
 

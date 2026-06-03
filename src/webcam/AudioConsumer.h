@@ -67,6 +67,9 @@ private:
 	void				_HandleBuffer(BBuffer* buffer);
 	void				_CalculateLevels(const void* data, size_t size,
 							float* outLeft, float* outRight);
+	// Returns a reusable buffer of at least 'bytes'. Avoids per-buffer
+	// allocation on the real-time audio thread.
+	uint8*				_SwapBuffer(size_t bytes);
 
 	template<typename T>
 	void				_CalculateLevelsTyped(const T* data, size_t samples,
@@ -93,6 +96,10 @@ private:
 	// Direct audio path (bypasses message loop)
 	AudioSink*			fSink;
 	mutable BLocker		fSinkLock;
+
+	// Reusable byte-swap scratch (big-endian sources only)
+	uint8*				fSwapScratch;
+	size_t				fSwapScratchSize;
 };
 
 #endif // AUDIO_CONSUMER_H

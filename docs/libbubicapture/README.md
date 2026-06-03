@@ -166,9 +166,8 @@ Capture control:
 | `bool IsCapturing()` | Whether capture is running. |
 
 To capture audio samples (not just levels) — for recording or encoding — give
-the device's `AudioConsumer` an `AudioSink`:
-`device->GetAudioConsumer()->SetAudioSink(mySink)`. The sink receives raw PCM
-directly from the audio thread (see `AudioSink.h`).
+the device an `AudioSink`: `device->SetAudioSink(mySink)`. The sink receives raw
+PCM directly from the audio thread (see `AudioSink.h`).
 
 Format selection (call **before** `StartCapture`):
 

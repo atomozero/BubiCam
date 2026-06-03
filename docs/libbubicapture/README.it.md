@@ -169,9 +169,8 @@ Controllo della cattura:
 | `bool IsCapturing()` | Se la cattura è in corso. |
 
 Per catturare i campioni audio (non solo i livelli) — per registrazione o
-encoding — passa un `AudioSink` all'`AudioConsumer` del device:
-`device->GetAudioConsumer()->SetAudioSink(mioSink)`. Il sink riceve il PCM
-grezzo direttamente dal thread audio (vedi `AudioSink.h`).
+encoding — passa un `AudioSink` al device: `device->SetAudioSink(mioSink)`. Il
+sink riceve il PCM grezzo direttamente dal thread audio (vedi `AudioSink.h`).
 
 Selezione del formato (chiamare **prima** di `StartCapture`):
 

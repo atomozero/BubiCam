@@ -22,6 +22,7 @@
 
 class VideoConsumer;
 class AudioConsumer;
+class AudioSink;
 
 // Default messages posted to the capture target looper.
 // They are owned by the capture library (not the application) so the
@@ -147,10 +148,14 @@ public:
 	void				SetAudioNodeID(int32 nodeID) { fAudioNodeID = nodeID; }
 	int32				AudioNodeID() const { return fAudioNodeID; }
 
+	// Route captured audio to a sink (recorder, encoder, ...). Safe to call
+	// before or during capture; ignored if there is no active audio consumer.
+	void				SetAudioSink(AudioSink* sink);
+	void				ClearAudioSink();
+
 	// Frame access (for MCP server)
 	BBitmap*			GetCurrentFrame() const;
 	VideoConsumer*		GetVideoConsumer() const { return fVideoConsumer; }
-	AudioConsumer*		GetAudioConsumer() const { return fAudioConsumer; }
 
 	// Capture statistics
 	uint32				FramesCaptured() const;

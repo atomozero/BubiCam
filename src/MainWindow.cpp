@@ -1283,10 +1283,8 @@ MainWindow::MessageReceived(BMessage* message)
 				if (message->FindData("audio_data", B_RAW_TYPE,
 						&data, &dataSize) == B_OK) {
 					static int32 sAudioLogCount = 0;
-					if (++sAudioLogCount <= 3) {
-						fprintf(stderr, "Recording: AddAudioBuffer %zd bytes\n",
-							(size_t)dataSize);
-					}
+					if (++sAudioLogCount <= 3)
+						LOG_DEBUG("Recording: AddAudioBuffer %zd bytes", (size_t)dataSize);
 					fRecorder->AddAudioBuffer(data, (size_t)dataSize);
 				}
 			}
@@ -2400,14 +2398,14 @@ MainWindow::_StartRecording()
 		webcam = fCurrentWebcam;
 	}
 	if (webcam != NULL && webcam->SupportsAudio()) {
-		fprintf(stderr, "Recording: StartWithAudio %.0f Hz, %d ch, %d bit\n",
+		LOG_INFO("Recording: StartWithAudio %.0f Hz, %d ch, %d bit",
 			webcam->AudioSampleRate(), (int)webcam->AudioChannels(),
 			(int)webcam->AudioBitsPerSample());
 		status = fRecorder->StartWithAudio(filePath.Path(), width, height, fps,
 			webcam->AudioSampleRate(), webcam->AudioChannels(),
 			webcam->AudioBitsPerSample());
 	} else {
-		fprintf(stderr, "Recording: Start (no audio, supportsAudio=%d, webcam=%p)\n",
+		LOG_INFO("Recording: Start (no audio, supportsAudio=%d, webcam=%p)",
 			webcam ? webcam->SupportsAudio() : -1, webcam);
 		status = fRecorder->Start(filePath.Path(), width, height, fps);
 	}
@@ -2423,13 +2421,8 @@ MainWindow::_StartRecording()
 	// Connect recorder directly to audio consumer for zero-loss recording
 	bool hasAudio = fRecorder->HasAudio();
 	if (hasAudio && webcam != NULL) {
-		AudioConsumer* audioConsumer = webcam->GetAudioConsumer();
-		fprintf(stderr, "Recording: hasAudio=%d, webcam=%p, audioConsumer=%p\n",
-			hasAudio, webcam, audioConsumer);
-		if (audioConsumer != NULL) {
-			audioConsumer->SetAudioSink(fRecorder);
-			fprintf(stderr, "Recording: SetAudioSink(%p) on AudioConsumer\n", fRecorder);
-		}
+		webcam->SetAudioSink(fRecorder);
+		LOG_DEBUG("Recording: routed audio to recorder sink %p", fRecorder);
 	}
 
 	BString statusMsg;
@@ -2454,11 +2447,8 @@ MainWindow::_StopRecording()
 		BAutolock lock(fWebcamLock);
 		webcam = fCurrentWebcam;
 	}
-	if (webcam != NULL) {
-		AudioConsumer* audioConsumer = webcam->GetAudioConsumer();
-		if (audioConsumer != NULL)
-			audioConsumer->ClearAudioSink();
-	}
+	if (webcam != NULL)
+		webcam->ClearAudioSink();
 
 	uint32 frames = fRecorder->FramesRecorded();
 	bigtime_t duration = fRecorder->Duration();

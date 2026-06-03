@@ -306,6 +306,32 @@ WebcamDevice::GetCurrentFrame() const
 }
 
 
+void
+WebcamDevice::SetAudioSink(AudioSink* sink)
+{
+	AudioConsumer* consumer = NULL;
+	{
+		BAutolock lock(fCaptureLock);
+		consumer = fAudioConsumer;
+	}
+	if (consumer != NULL)
+		consumer->SetAudioSink(sink);
+}
+
+
+void
+WebcamDevice::ClearAudioSink()
+{
+	AudioConsumer* consumer = NULL;
+	{
+		BAutolock lock(fCaptureLock);
+		consumer = fAudioConsumer;
+	}
+	if (consumer != NULL)
+		consumer->ClearAudioSink();
+}
+
+
 status_t
 WebcamDevice::GatherDeviceInfo()
 {
@@ -880,7 +906,7 @@ WebcamDevice::_SetupVideoConnection()
 
 	// Create video consumer
 	fVideoConsumer = new VideoConsumer("BubiCam Video", fTarget,
-		fFrameMessage, fAudioLevelMessage);
+		fFrameMessage);
 
 	// Register consumer
 	status = roster->RegisterNode(fVideoConsumer);
