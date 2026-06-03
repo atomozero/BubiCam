@@ -306,6 +306,13 @@ MainWindow::_BuildMenu()
 		autoPreviewItem->SetMarked(fAutoStartPreview);
 		fControlMenu->AddItem(autoPreviewItem);
 	}
+	fControlMenu->AddSeparatorItem();
+	fControlMenu->AddItem(new BMenuItem("Toggle Syslog Panel",
+		new BMessage(MSG_TOGGLE_SYSLOG)));
+	fControlMenu->AddItem(new BMenuItem("Toggle VU Meter",
+		new BMessage(MSG_TOGGLE_VUBAR)));
+	fControlMenu->AddItem(new BMenuItem("Reset Layout",
+		new BMessage(MSG_RESET_LAYOUT)));
 	fMenuBar->AddItem(fControlMenu);
 
 	// Audio menu
@@ -472,7 +479,8 @@ MainWindow::_BuildLayout()
 		.View());
 
 	// Left side: video + VU meter (toolbar is inside video box)
-	BSplitView* leftSplit = new BSplitView(B_VERTICAL);
+	fLeftSplit = new BSplitView(B_VERTICAL);
+	BSplitView* leftSplit = fLeftSplit;
 	leftSplit->AddChild(videoBox);
 	leftSplit->AddChild(vuBox);
 	leftSplit->SetItemWeight(0, 0.78f, true);
@@ -492,14 +500,16 @@ MainWindow::_BuildLayout()
 		.View());
 
 	// Right side: Tab view on top, Syslog on bottom
-	BSplitView* rightSplit = new BSplitView(B_VERTICAL);
+	fRightSplit = new BSplitView(B_VERTICAL);
+	BSplitView* rightSplit = fRightSplit;
 	rightSplit->AddChild(fRightTabView);
 	rightSplit->AddChild(syslogBox);
 	rightSplit->SetItemWeight(0, 0.55f, true);
 	rightSplit->SetItemWeight(1, 0.45f, true);
 
 	// Main horizontal split
-	BSplitView* mainSplit = new BSplitView(B_HORIZONTAL);
+	fMainSplit = new BSplitView(B_HORIZONTAL);
+	BSplitView* mainSplit = fMainSplit;
 	mainSplit->AddChild(leftSplit);
 	mainSplit->AddChild(rightSplit);
 	mainSplit->SetItemWeight(0, 0.25f, true);
@@ -1597,6 +1607,33 @@ MainWindow::MessageReceived(BMessage* message)
 					item->SetMarked(false);
 			}
 			fStatusBar->SetText("Reference frame cleared");
+			break;
+
+		case MSG_TOGGLE_SYSLOG:
+		{
+			// Toggle syslog panel visibility via collapsing split
+			bool visible = fRightSplit->IsItemCollapsed(1);
+			fRightSplit->SetItemCollapsed(1, !visible);
+			break;
+		}
+
+		case MSG_TOGGLE_VUBAR:
+		{
+			bool visible = fLeftSplit->IsItemCollapsed(1);
+			fLeftSplit->SetItemCollapsed(1, !visible);
+			break;
+		}
+
+		case MSG_RESET_LAYOUT:
+			fMainSplit->SetItemWeight(0, 0.25f, true);
+			fMainSplit->SetItemWeight(1, 0.75f, true);
+			fLeftSplit->SetItemWeight(0, 0.78f, true);
+			fLeftSplit->SetItemWeight(1, 0.22f, true);
+			fLeftSplit->SetItemCollapsed(1, false);
+			fRightSplit->SetItemWeight(0, 0.55f, true);
+			fRightSplit->SetItemWeight(1, 0.45f, true);
+			fRightSplit->SetItemCollapsed(1, false);
+			fStatusBar->SetText("Layout reset to defaults");
 			break;
 
 		case MSG_CODEC_MJPEG:

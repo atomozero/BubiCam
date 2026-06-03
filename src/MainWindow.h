@@ -21,6 +21,7 @@
 #include <Locker.h>
 #include <NodeMonitor.h>
 #include <ObjectList.h>
+#include <SplitView.h>
 #include <ToolBar.h>
 
 class LEDView;
@@ -78,6 +79,9 @@ enum {
 	MSG_TOGGLE_DESKBAR		= 'tgdb',
 	MSG_CODEC_MJPEG			= 'cdmj',
 	MSG_CODEC_RAW			= 'cdrw',
+	MSG_TOGGLE_SYSLOG		= 'tgsy',
+	MSG_TOGGLE_VUBAR		= 'tgvu',
+	MSG_RESET_LAYOUT		= 'rlyt',
 	MSG_TIMELAPSE_START		= 'tlst',
 	MSG_TIMELAPSE_STOP		= 'tlsp',
 	MSG_TIMELAPSE_TICK		= 'tltk',
@@ -180,6 +184,11 @@ private:
 	WebcamControlsView*	fWebcamControls;
 	BStringView*		fStatusBar;
 	BTabView*			fRightTabView;
+
+	// Split views (for layout persistence)
+	BSplitView*			fMainSplit;
+	BSplitView*			fLeftSplit;
+	BSplitView*			fRightSplit;
 
 	// Toolbar
 	BToolBar*			fToolbar;
