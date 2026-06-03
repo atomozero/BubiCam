@@ -20,6 +20,7 @@
 #include "StreamServer.h"
 #include "DeskbarReplicant.h"
 #include "NotificationUtils.h"
+#include "VideoFilter.h"
 #include "ExportUtils.h"
 #include "IconUtils.h"
 #include "VideoRecorder.h"
@@ -136,6 +137,7 @@ MainWindow::MainWindow()
 	fStreamServer(NULL),
 	fStreamMenuItem(NULL),
 	fRecorder(NULL),
+	fFilterChain(NULL),
 	fTimelapseRunner(NULL),
 	fTimelapseCount(0),
 	fTimelapseInterval(5000000),
@@ -162,6 +164,13 @@ MainWindow::MainWindow()
 
 	// Create stream server
 	fStreamServer = new StreamServer(BMessenger(this));
+
+	// Create video filter chain with built-in filters
+	fFilterChain = new VideoFilterChain();
+	fFilterChain->AddFilter(new GrayscaleFilter());
+	fFilterChain->AddFilter(new InvertFilter());
+	fFilterChain->AddFilter(new MirrorFilter());
+	fFilterChain->AddFilter(new SepiaFilter());
 
 	_BuildMenu();
 	_BuildLayout();
@@ -216,6 +225,7 @@ MainWindow::~MainWindow()
 	delete fSavePanel;
 	delete fLastFrame;
 	delete fRecorder;
+	delete fFilterChain;
 
 	// Stop stream server
 	if (fStreamServer != NULL) {
@@ -319,6 +329,19 @@ MainWindow::_BuildMenu()
 	fAudioMenu = new BMenu(B_TRANSLATE("Audio"));
 	_PopulateAudioMenu();
 	fMenuBar->AddItem(fAudioMenu);
+
+	// Filters menu
+	BMenu* filterMenu = new BMenu("Filters");
+	for (int32 i = 0; i < fFilterChain->CountFilters(); i++) {
+		VideoFilter* filter = fFilterChain->FilterAt(i);
+		if (filter != NULL) {
+			BMessage* msg = new BMessage(MSG_FILTER_TOGGLE);
+			msg->AddInt32("index", i);
+			BMenuItem* item = new BMenuItem(filter->Name(), msg);
+			filterMenu->AddItem(item);
+		}
+	}
+	fMenuBar->AddItem(filterMenu);
 
 	fToolsMenu = new BMenu(B_TRANSLATE("Tools"));
 	fToolsMenu->AddItem(new BMenuItem("Driver Tests" B_UTF8_ELLIPSIS,
@@ -1613,6 +1636,22 @@ MainWindow::MessageReceived(BMessage* message)
 			fStatusBar->SetText("Reference frame cleared");
 			break;
 
+		case MSG_FILTER_TOGGLE:
+		{
+			int32 index;
+			if (message->FindInt32("index", &index) == B_OK) {
+				VideoFilter* filter = fFilterChain->FilterAt(index);
+				if (filter != NULL) {
+					filter->SetEnabled(!filter->IsEnabled());
+					BString msg;
+					msg.SetToFormat("Filter '%s': %s", filter->Name(),
+						filter->IsEnabled() ? "enabled" : "disabled");
+					fStatusBar->SetText(msg.String());
+				}
+			}
+			break;
+		}
+
 		case MSG_EXPORT_DEBUG:
 			_ExportDebugState();
 			break;
@@ -2074,6 +2113,9 @@ MainWindow::_HandleFrameReceived(BMessage* message)
 	int32 h = (int32)(bounds.Height() + 1);
 	if (w <= 0 || h <= 0 || w > 4096 || h > 4096)
 		return;
+
+	// Apply video filters before display
+	fFilterChain->ApplyAll(bitmap);
 
 	fVideoPreview->SetFrame(bitmap);
 

@@ -37,6 +37,7 @@ class WebcamDevice;
 class MCPServer;
 class StreamServer;
 class VideoRecorder;
+class VideoFilterChain;
 
 // Message constants
 enum {
@@ -84,6 +85,7 @@ enum {
 	MSG_RESET_LAYOUT		= 'rlyt',
 	MSG_TOGGLE_INSPECTOR	= 'tgin',
 	MSG_EXPORT_DEBUG		= 'exdb',
+	MSG_FILTER_TOGGLE		= 'fltg',
 	MSG_TIMELAPSE_START		= 'tlst',
 	MSG_TIMELAPSE_STOP		= 'tlsp',
 	MSG_TIMELAPSE_TICK		= 'tltk',
@@ -227,6 +229,7 @@ private:
 
 	// Video recording
 	VideoRecorder*		fRecorder;
+	VideoFilterChain*	fFilterChain;
 
 	// Time-lapse
 	BMessageRunner*		fTimelapseRunner;

@@ -27,7 +27,8 @@ SRCS = \
 	src/utils/IconUtils.cpp \
 	src/utils/StreamServer.cpp \
 	src/utils/VideoRecorder.cpp \
-	src/utils/NotificationUtils.cpp
+	src/utils/NotificationUtils.cpp \
+	src/utils/VideoFilter.cpp
 
 RDEFS = resources/BubiCam.rdef
 
