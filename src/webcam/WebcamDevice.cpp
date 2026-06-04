@@ -692,9 +692,16 @@ WebcamDevice::StartCapture(BLooper* target, uint32 frameMessage,
 	// when the time source returns an invalid value. Use real_time_clock_usecs()
 	// as a fallback if the time source seems off.
 	BTimeSource* ts = roster->MakeTimeSourceFor(timeSource);
-	bigtime_t performanceNow = ts->Now();
 	bigtime_t realNow = BTimeSource::RealTime();
-	ts->Release();
+	bigtime_t performanceNow;
+
+	if (ts != NULL) {
+		performanceNow = ts->Now();
+		ts->Release();
+	} else {
+		LOG_WARNING("MakeTimeSourceFor returned NULL, using real time");
+		performanceNow = 0;  // Will trigger fallback below
+	}
 
 	bigtime_t startTime;
 	if (performanceNow <= 0 || performanceNow > realNow * 2) {
