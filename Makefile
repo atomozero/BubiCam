@@ -18,12 +18,6 @@ SRCS = \
 	src/views/LEDView.cpp \
 	src/views/DeskbarReplicant.cpp \
 	src/views/PreviewReplicant.cpp \
-	src/webcam/WebcamRoster.cpp \
-	src/webcam/WebcamDevice.cpp \
-	src/webcam/VideoConsumer.cpp \
-	src/webcam/AudioConsumer.cpp \
-	src/webcam/USBVideoParser.cpp \
-	src/webcam/VirtualProducer.cpp \
 	src/mcp/MCPServer.cpp \
 	src/utils/ExportUtils.cpp \
 	src/utils/IconUtils.cpp \
@@ -34,13 +28,13 @@ SRCS = \
 
 RDEFS = resources/BubiCam.rdef
 
-LIBS = be media tracker translation localestub device shared network jpeg $(STDCPPLIBS)
+LIBS = be media tracker translation localestub device shared network jpeg webcam $(STDCPPLIBS)
 
-LIBPATHS =
+LIBPATHS = lib/libwebcam/objects.x86_64-cc13-release
 
 SYSTEM_INCLUDE_PATHS = /boot/system/develop/headers/private/shared
 
-LOCAL_INCLUDE_PATHS = src src/views src/webcam src/mcp src/utils
+LOCAL_INCLUDE_PATHS = src src/views src/webcam src/mcp src/utils lib/libwebcam/include
 
 OPTIMIZE := FULL
 
