@@ -16,6 +16,7 @@
 #include <MediaAddOn.h>
 #include <TimeSource.h>
 
+#include <new>
 #include <stdio.h>
 #include <string.h>
 
@@ -131,23 +132,39 @@ WebcamRoster::EnumerateDevices()
 		return B_ERROR;
 	}
 
-	// Allocate array for dormant nodes
+	// Allocate array for dormant nodes and zero-initialize to prevent
+	// reading garbage data from partially-filled entries
 	const int32 kMaxNodes = 64;
-	dormant_node_info* dormantNodes = new dormant_node_info[kMaxNodes];
+	dormant_node_info* dormantNodes = new(std::nothrow) dormant_node_info[kMaxNodes];
+	if (dormantNodes == NULL) {
+		LOG_ERROR("Failed to allocate dormant node array");
+		return B_NO_MEMORY;
+	}
+	memset(dormantNodes, 0, sizeof(dormant_node_info) * kMaxNodes);
 	int32 dormantCount = kMaxNodes;
 
 	// Get video producer nodes
 	status_t status = roster->GetDormantNodes(dormantNodes, &dormantCount,
 		NULL, NULL, NULL, B_BUFFER_PRODUCER | B_PHYSICAL_INPUT, 0);
 
-	LOG_DEBUG("GetDormantNodes: found %d nodes", (int)dormantCount);
+	LOG_DEBUG("GetDormantNodes (physical): found %d nodes (status=%s)",
+		(int)dormantCount, strerror(status));
 
 	if (status != B_OK || dormantCount == 0) {
 		// Retry with just B_BUFFER_PRODUCER
+		memset(dormantNodes, 0, sizeof(dormant_node_info) * kMaxNodes);
 		dormantCount = kMaxNodes;
 		status = roster->GetDormantNodes(dormantNodes, &dormantCount,
 			NULL, NULL, NULL, B_BUFFER_PRODUCER, 0);
+		LOG_DEBUG("GetDormantNodes (all producers): found %d nodes (status=%s)",
+			(int)dormantCount, strerror(status));
 	}
+
+	// Clamp count to valid range
+	if (dormantCount < 0)
+		dormantCount = 0;
+	if (dormantCount > kMaxNodes)
+		dormantCount = kMaxNodes;
 
 	if (status != B_OK) {
 		delete[] dormantNodes;
@@ -219,16 +236,41 @@ WebcamRoster::_EnumerateDevVideoDevices()
 bool
 WebcamRoster::_IsVideoProducer(const dormant_node_info& info)
 {
+	// Validate the dormant_node_info before passing to Media Kit.
+	// Invalid addon IDs can cause segfaults in GetDormantFlavorInfoFor.
+	if (info.addon <= 0 || info.flavor_id < 0) {
+		LOG_TRACE("Skipping invalid dormant node: addon=%d flavor=%d",
+			(int)info.addon, (int)info.flavor_id);
+		return false;
+	}
+
+	// Sanity check the name field - should be a valid C string
+	bool hasValidName = false;
+	for (int i = 0; i < (int)sizeof(info.name); i++) {
+		if (info.name[i] == '\0') {
+			hasValidName = (i > 0);  // non-empty name
+			break;
+		}
+	}
+	if (!hasValidName)
+		return false;
+
 	BMediaRoster* roster = BMediaRoster::Roster();
 	if (roster == NULL)
 		return false;
 
 	dormant_flavor_info flavorInfo;
 	status_t status = roster->GetDormantFlavorInfoFor(info, &flavorInfo);
-	if (status != B_OK)
+	if (status != B_OK) {
+		LOG_TRACE("GetDormantFlavorInfoFor '%s' failed: %s",
+			info.name, strerror(status));
 		return false;
+	}
 
 	// Check if this node produces raw video
+	if (flavorInfo.out_formats == NULL || flavorInfo.out_format_count <= 0)
+		return false;
+
 	for (int32 i = 0; i < flavorInfo.out_format_count; i++) {
 		if (flavorInfo.out_formats[i].type == B_MEDIA_RAW_VIDEO) {
 			// Exclude known non-webcam nodes (overlays, outputs, etc.)
