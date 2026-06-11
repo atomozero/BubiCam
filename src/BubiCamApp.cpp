@@ -30,13 +30,49 @@ BubiCamApp::BubiCamApp()
 	BApplication(kApplicationSignature),
 	fMainWindow(NULL),
 	fHeadless(false),
-	fHeadlessDuration(0)
+	fHeadlessDuration(0),
+	fLastPing(0),
+	fQuitTriggered(false),
+	fWatchdogThread(-1)
 {
 }
 
 
 BubiCamApp::~BubiCamApp()
 {
+}
+
+
+int32
+BubiCamApp::_EmergencyExitWatchdog(void* data)
+{
+	BubiCamApp* app = static_cast<BubiCamApp*>(data);
+
+	// Allow up to 15 seconds after quit is requested for clean shutdown
+	const bigtime_t kEmergencyExitTimeoutUs = 15000000;
+
+	while (true) {
+		snooze(1000000);  // check every second
+
+		if (!app->fQuitTriggered.load())
+			continue;
+
+		bigtime_t lastPing = app->fLastPing.load();
+		bigtime_t now = system_time();
+
+		// If quit was triggered and no ping arrived in kEmergencyExitTimeoutUs,
+		// assume MainWindow is wedged in a kernel-level deadlock and force exit.
+		if (lastPing > 0 && (now - lastPing) > kEmergencyExitTimeoutUs) {
+			fprintf(stderr, "BubiCamApp: Emergency exit - no progress for %.1fs\n",
+				(now - lastPing) / 1000000.0);
+			_exit(1);
+		}
+
+		// First time we see quit triggered with no ping yet - prime the timer
+		if (lastPing == 0)
+			app->fLastPing.store(now);
+	}
+	return 0;
 }
 
 
@@ -100,6 +136,13 @@ BubiCamApp::ReadyToRun()
 
 	fMainWindow = new MainWindow();
 	fMainWindow->Show();
+
+	// Spawn emergency exit watchdog: independent thread that survives any
+	// looper-level deadlock and forces _exit() if quit can't complete.
+	fWatchdogThread = spawn_thread(_EmergencyExitWatchdog,
+		"bubicam_exit_watchdog", B_LOW_PRIORITY, this);
+	if (fWatchdogThread >= 0)
+		resume_thread(fWatchdogThread);
 }
 
 
@@ -117,6 +160,9 @@ BubiCamApp::MessageReceived(BMessage* message)
 bool
 BubiCamApp::QuitRequested()
 {
+	// Arm the emergency exit watchdog
+	fLastPing.store(system_time());
+	fQuitTriggered.store(true);
 	return true;
 }
 

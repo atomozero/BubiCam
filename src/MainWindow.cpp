@@ -5,6 +5,7 @@
  */
 
 #include "MainWindow.h"
+#include "BubiCamApp.h"
 #include "VideoConsumer.h"
 #include "VideoPreviewView.h"
 #include "DriverInfoView.h"
@@ -3325,6 +3326,14 @@ MainWindow::QuitRequested()
 	_SaveSettings();
 
 	fprintf(stderr, "MainWindow::QuitRequested() - Starting shutdown...\n");
+
+	// Arm the BubiCamApp emergency exit watchdog. This is the outermost
+	// safety net - if MainWindow gets stuck in a kernel deadlock, the
+	// app-level watchdog thread will call _exit() after 15 seconds.
+	BubiCamApp* app = dynamic_cast<BubiCamApp*>(be_app);
+	if (app != NULL) {
+		app->PingAlive();
+	}
 
 	// Spawn watchdog FIRST - guarantees we never hang indefinitely.
 	// Uses _exit() to skip atexit handlers which could also hang.
