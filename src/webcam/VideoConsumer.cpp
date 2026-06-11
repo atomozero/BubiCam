@@ -837,6 +837,23 @@ VideoConsumer::_ConvertBuffer(BBuffer* buffer, BBitmap* destBitmap)
 			break;
 		}
 
+		case B_GRAY8:
+		{
+			// Grayscale: replicate Y into R, G, B channels
+			for (int32 y = 0; y < height && y < fBitmapHeight; y++) {
+				const uint8* srcRow = src + y * srcBytesPerRow;
+				uint8* dstRow = dst + y * dstBytesPerRow;
+				for (int32 x = 0; x < width && x < fBitmapWidth; x++) {
+					uint8 gray = srcRow[x];
+					dstRow[x * 4 + 0] = gray;  // B
+					dstRow[x * 4 + 1] = gray;  // G
+					dstRow[x * 4 + 2] = gray;  // R
+					dstRow[x * 4 + 3] = 255;   // A
+				}
+			}
+			break;
+		}
+
 		case B_YCbCr420:
 		case B_YUV420:
 		case B_YUV9:
