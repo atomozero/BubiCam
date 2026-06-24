@@ -146,8 +146,11 @@ BubiCam/
 ├── objects.x86_64-cc13-release/  # Output build
 ├── Makefile                      # Build system
 ├── README.md                     # Documentazione utente
-├── DEVELOPER.md                  # Questo file
-└── CLAUDE.md                     # Istruzioni per AI assistant
+└── docs/                         # Documentazione tecnica
+    ├── DEVELOPER.md              # Questo file
+    ├── COMPARISON.md             # Comparazione con altri progetti
+    ├── ROADMAP_v2.md             # Roadmap
+    └── TASKS.md                  # Lista task
 ```
 
 ---
@@ -748,8 +751,8 @@ kill media_server media_addon_server
 
 ## Comparazione con Cortex e CodyCam
 
-Vedere `COMPARISON.md` per un'analisi dettagliata delle differenze tra BubiCam,
-Cortex e CodyCam nella gestione della riproduzione video.
+Vedere [COMPARISON.md](COMPARISON.md) per un'analisi dettagliata delle differenze
+tra BubiCam, Cortex e CodyCam nella gestione della riproduzione video.
 
 ### Problema Originale
 

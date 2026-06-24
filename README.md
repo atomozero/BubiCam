@@ -102,6 +102,13 @@ Or copy `objects.x86_64-cc13-release/BubiCam` to `~/config/apps/`.
 
 **Kernel panic on stop/start**: Haiku's USB stack can panic with "USB object did not become idle!" when isochronous pipes are torn down too quickly. BubiCam includes a 1-second settle delay to mitigate this, but the root cause is a kernel bug.
 
+## Documentation
+
+- [Developer Guide](docs/DEVELOPER.md) -- architecture, internals, build details
+- [Roadmap](docs/ROADMAP_v2.md) -- planned features and direction
+- [Tasks](docs/TASKS.md) -- task tracking
+- [Comparison](docs/COMPARISON.md) -- BubiCam vs Cortex vs CodyCam
+
 ## License
 
 MIT
