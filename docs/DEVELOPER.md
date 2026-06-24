@@ -20,61 +20,65 @@ Questo documento fornisce informazioni tecniche dettagliate per gli sviluppatori
 
 ## Panoramica Architetturale
 
-BubiCam segue l'architettura tipica delle applicazioni Haiku con separazione tra:
+BubiCam segue una architettura a layer con separazione tra:
 
-- **Layer Applicazione** (`BubiCamApp`) - Entry point e gestione ciclo di vita
-- **Layer UI** (`MainWindow`, classi `*View`) - Componenti dell'interfaccia utente
-- **Layer Media** (`WebcamDevice`, `VideoConsumer`, etc.) - Integrazione Media Kit
+- **App layer** (`BubiCamApp`) -- entry point, emergency exit watchdog
+- **UI layer** (`MainWindow`, viste `*View`, replicant) -- interfaccia utente
+- **Media layer** (`WebcamDevice`, `VideoConsumer`, `AudioConsumer`) -- Media Kit
+- **Service layer** (`MCPServer`, `StreamServer`, `VideoRecorder`) -- servizi orizzontali
+- **Library layer** (`libwebcam.so`) -- API pubblica riusabile
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         BubiCamApp                               │
-│                       (BApplication)                             │
-│                     Entry point, About dialog                    │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                         MainWindow                               │
-│                         (BWindow)                                │
-│              Coordinatore centrale, gestione messaggi            │
-│  ┌────────────────────────────────────────────────────────────┐ │
-│  │ Menu Bar  │ Webcam │ Format │ Control │ Tools │            │ │
-│  └────────────────────────────────────────────────────────────┘ │
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │                    BSplitView (main)                        ││
-│  │  ┌──────────────────┐   ┌──────────────────────────────┐   ││
-│  │  │ Left Split       │   │ Right Split                  │   ││
-│  │  │ ┌──────────────┐ │   │ ┌──────────────────────────┐ │   ││
-│  │  │ │ Video Box    │ │   │ │ Tab View                 │ │   ││
-│  │  │ │ [Toolbar]    │ │   │ │ ├─ Driver Info          │ │   ││
-│  │  │ │ [Preview]    │ │   │ │ └─ Controls             │ │   ││
-│  │  │ │ [Stats Bar]  │ │   │ └──────────────────────────┘ │   ││
-│  │  │ └──────────────┘ │   │ ┌──────────────────────────┐ │   ││
-│  │  │ ┌──────────────┐ │   │ │ Syslog Box              │ │   ││
-│  │  │ │ VU Meter Box │ │   │ └──────────────────────────┘ │   ││
-│  │  │ └──────────────┘ │   └──────────────────────────────┘   ││
-│  │  └──────────────────┘                                       ││
-│  └─────────────────────────────────────────────────────────────┘│
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │ Status Bar                                                  ││
-│  └─────────────────────────────────────────────────────────────┘│
-└─────────────────────────────────────────────────────────────────┘
-                              │
-         ┌────────────────────┼────────────────────┐
-         ▼                    ▼                    ▼
-┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│  WebcamRoster   │  │  WebcamDevice   │  │  ExportUtils    │
-│  (Enumeration)  │  │  (Capture)      │  │  (File I/O)     │
-└─────────────────┘  └─────────────────┘  └─────────────────┘
-                              │
-         ┌────────────────────┼────────────────────┐
-         ▼                    ▼                    ▼
-┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│  VideoConsumer  │  │  AudioConsumer  │  │ USBVideoParser  │
-│ (BBufferConsumer│  │ (BBufferConsumer│  │  (USB parsing)  │
-│  + EventLooper) │  │  + EventLooper) │  │                 │
-└─────────────────┘  └─────────────────┘  └─────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                         BubiCamApp                                │
+│      Emergency exit watchdog · About · MIME registration          │
+└──────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                         MainWindow                                │
+│              Coordinatore, message handling, watchdog interno     │
+│   Menu Bar │ Webcam │ Format │ Control │ Tools │ Tests │ View    │
+│   ┌───────────────────────────────────────────────────────────┐  │
+│   │ Toolbar  · VideoPreviewView (zoom, histogram, A/B)        │  │
+│   │ Stats bar · VUMeter · LEDView                             │  │
+│   └───────────────────────────────────────────────────────────┘  │
+│   ┌───────────────────────────────────────────────────────────┐  │
+│   │ Tabs: DriverInfo · Controls · DriverTest · USBPacket      │  │
+│   │       SyslogView (regex filter, colors)                   │  │
+│   └───────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────┘
+        │                  │                  │              │
+        ▼                  ▼                  ▼              ▼
+┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+│ WebcamRoster │  │ WebcamDevice │  │  MCPServer   │  │ StreamServer │
+│ Enumeration  │  │   Capture    │  │ JSON-RPC TCP │  │  MJPEG HTTP  │
+└──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘
+                          │
+        ┌─────────────────┼─────────────────┬──────────────┐
+        ▼                 ▼                 ▼              ▼
+┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+│VideoConsumer │  │AudioConsumer │  │  AudioSink   │  │VirtualProducer│
+│ MJPEG/YUV    │  │  WAV mixing  │  │  Playback    │  │  Media addon  │
+│ SSE2 conv.   │  │              │  │              │  │              │
+└──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘
+        │                 │
+        └─────────────────┴───────────────────┐
+                                              ▼
+                                  ┌──────────────────────┐
+                                  │ Cross-cutting utils  │
+                                  │ VideoRecorder · AVI  │
+                                  │ ExportUtils · JSON   │
+                                  │ VideoFilter · FX     │
+                                  │ NotificationUtils    │
+                                  │ IconUtils            │
+                                  └──────────────────────┘
+
+           ┌──────────────────────────────────────┐
+           │           libwebcam.so               │
+           │   WebcamKit · WebcamLog · ErrorUtils │
+           │   API pubblica per altre app         │
+           └──────────────────────────────────────┘
 ```
 
 ---
@@ -111,6 +115,10 @@ Definite nel `Makefile`:
 | `translation` | Salvataggio screenshot (PNG) |
 | `localestub` | Stub per localizzazione |
 | `device` | USB Kit (BUSBRoster) |
+| `shared` | BIconUtils, BPrivate::Shared |
+| `network` | Socket per MCPServer e StreamServer |
+| `jpeg` | libjpeg-turbo per MJPEG decode/encode |
+| `webcam` | `libwebcam.so` (built in `lib/libwebcam/`) |
 
 ---
 
@@ -119,38 +127,65 @@ Definite nel `Makefile`:
 ```
 BubiCam/
 ├── src/
-│   ├── BubiCamApp.cpp/h         # Entry point applicazione
-│   ├── MainWindow.cpp/h          # Finestra principale, menu, coordinamento
+│   ├── BubiCamApp.cpp/h          # Entry point + emergency exit watchdog
+│   ├── MainWindow.cpp/h          # Finestra principale, coordinamento
 │   │
 │   ├── views/                    # Componenti UI
-│   │   ├── VideoPreviewView      # Visualizzazione video con aspect ratio
-│   │   ├── DriverInfoView        # Informazioni driver (BTextView)
-│   │   ├── SyslogView            # Monitor syslog con filtri
-│   │   ├── VUMeterView           # Indicatore livello audio stereo
-│   │   └── WebcamControlsView    # Controlli BParameterWeb
+│   │   ├── VideoPreviewView      # Preview video (zoom, histogram, A/B)
+│   │   ├── DriverInfoView        # Info driver (BTextView)
+│   │   ├── DriverTestView        # Test suite (stress, latency, cycle...)
+│   │   ├── SyslogView            # Monitor syslog (regex filter, colori)
+│   │   ├── USBPacketView         # Tab descriptors + hex dump
+│   │   ├── VUMeterView           # Livello audio stereo
+│   │   ├── WebcamControlsView    # Controlli BParameterWeb + preset
+│   │   ├── LEDView               # Indicatore stato (rec/streaming)
+│   │   ├── DeskbarReplicant      # Replicant Deskbar
+│   │   └── PreviewReplicant      # Floating preview embeddable
 │   │
 │   ├── webcam/                   # Layer Media Kit
 │   │   ├── WebcamRoster          # Enumerazione dispositivi
-│   │   ├── WebcamDevice          # Gestione singola webcam
-│   │   ├── VideoConsumer         # Ricezione frame video
-│   │   ├── AudioConsumer         # Ricezione dati audio
-│   │   └── USBVideoParser        # Parsing descrittori USB UVC
+│   │   ├── WebcamDevice          # Gestione singola webcam + lock
+│   │   ├── VideoConsumer         # MJPEG/YUV decode, SSE2-optimized
+│   │   ├── AudioConsumer         # Audio capture
+│   │   ├── AudioSink             # Playback monitor audio
+│   │   ├── USBVideoParser        # Parsing descrittori UVC
+│   │   └── VirtualProducer       # Media addon "virtual webcam"
+│   │
+│   ├── mcp/
+│   │   └── MCPServer             # JSON-RPC server per Claude Code
 │   │
 │   └── utils/
-│       └── ExportUtils           # Screenshot e export JSON/text
+│       ├── ErrorUtils.h          # Macro logging (LOG_*)
+│       ├── ExportUtils           # Screenshot, JSON/CSV export
+│       ├── IconUtils             # Icone toolbar
+│       ├── NotificationUtils     # BNotification helpers
+│       ├── StreamServer          # MJPEG over HTTP
+│       ├── VideoFilter           # Plugin system effects
+│       └── VideoRecorder         # AVI Motion JPEG con audio
+│
+├── lib/libwebcam/                # Libreria shared `libwebcam.so`
+│   ├── include/                  # API pubblica (WebcamKit, WebcamLog)
+│   └── Makefile
 │
 ├── resources/
-│   └── BubiCam.rdef              # Risorse app (icona HVIF, versione)
+│   ├── BubiCam.rdef              # Risorse app (HVIF, versione, MIME)
+│   └── icons/                    # Icone toolbar HVIF
 │
-├── img/                          # Sorgenti icone SVG
-├── objects.x86_64-cc13-release/  # Output build
-├── Makefile                      # Build system
+├── locales/                      # Traduzioni (EN, IT, DE, ZH, JA)
+├── img/                          # Screenshot per README
+├── tests/                        # Script di test (.sh) per task numerati
+├── dist/                         # README per pacchetto distribuzione
+├── docs/                         # Documentazione tecnica
+│   ├── DEVELOPER.md              # Questo file
+│   ├── COMPARISON.md             # Confronto Cortex/CodyCam/BubiCam
+│   ├── ROADMAP_v2.md             # Roadmap e stato feature
+│   ├── TASKS.md                  # Task storici
+│   └── libbubicapture/           # Doc API libreria capture
+│
+├── Makefile                      # Build system Haiku
+├── bubi.hvif                     # Icona app HVIF
 ├── README.md                     # Documentazione utente
-└── docs/                         # Documentazione tecnica
-    ├── DEVELOPER.md              # Questo file
-    ├── COMPARISON.md             # Comparazione con altri progetti
-    ├── ROADMAP_v2.md             # Roadmap
-    └── TASKS.md                  # Lista task
+└── LICENSE                       # MIT
 ```
 
 ---
@@ -819,9 +854,65 @@ kill media_server media_addon_server
 **Causa:** Conversione formato lenta.
 
 **Soluzione:**
-1. Ottimizza `_ConvertBuffer()` (SIMD, lookup tables)
+1. Le conversioni YUV422/420/UYVY sono già SSE2-optimized (8 pixel/iterazione)
 2. Riduci risoluzione
 3. Usa formato nativo del driver
+
+---
+
+## Threading e Stabilità
+
+BubiCam ha pattern di sicurezza specifici per gestire driver webcam che si
+bloccano in IPC. Tre livelli di protezione in cascata:
+
+### Livello 1: timeout sulle chiamate Media Kit bloccanti
+
+`StopNodeWithTimeout()` in `WebcamDevice.cpp` wrappa `roster->StopNode()` in
+un thread separato con deadline 3s. Se il driver è frozen, ritorna
+`B_TIMED_OUT` invece di bloccare il chiamante per sempre. La struttura dati
+è heap-allocata e l'ownership viene passata al thread su timeout (evita
+stack corruption).
+
+### Livello 2: Force Stop async + shutdown watchdog
+
+`_ForceStop()` in `MainWindow` spawna un thread background per
+`StopCapture()` così l'UI resta reattiva anche se i media nodes sono
+inchiodati. Un watchdog interno spawnato da `QuitRequested()` chiama
+`_exit()` dopo 10s se lo shutdown non completa.
+
+### Livello 3: emergency exit watchdog
+
+`BubiCamApp` spawna all'avvio un thread low-priority indipendente che
+monitora il progresso di `QuitRequested()` via `PingAlive()`. Se non
+riceve ping per 15s dopo quit triggered, chiama `_exit(1)` bypassando
+ogni looper, `BMediaRoster` teardown, e atexit handler. Questo previene
+lo stato "BubiCam unkillable anche con kill -9" causato da semaphore
+deadlock kernel-level.
+
+### Lock ordering
+
+Per evitare deadlock ABBA tra thread media e UI:
+
+| Lock | Protegge | Ordine acquisizione |
+|------|----------|---------------------|
+| `fCaptureLock` (WebcamDevice) | start/stop, consumer pointers | 1 (più esterno) |
+| `fWebcamLock` (MainWindow) | `fCurrentWebcam` | 2 |
+| `fTargetLock` (Consumer) | `fTarget` PostMessage | 3 (più interno) |
+| `fDeviceLock` (MCPServer) | `fWebcamDevice` cross-thread | indipendente |
+
+**Regola d'oro:** mai chiamare `PostMessage()` mentre si tiene un lock di
+livello consumer. `VideoConsumer::_SendFrameToTarget()` e `AudioConsumer::_HandleBuffer()`
+copiano il target locale sotto lock, rilasciano, poi postano fuori dal lock.
+
+### Race conditions risolte
+
+- `StartCapture` e `StopCapture` ora si escludono mutuamente via `fCaptureLock`
+- `_PopulateWebcamMenu` ferma il preview e azzera `fCurrentWebcam` prima di
+  `EnumerateDevices()` (che elimina i `WebcamDevice` esistenti)
+- `_ConvertBuffer()` valida `srcSize` contro le dimensioni attese prima della
+  conversione (previene buffer overrun su frame troncati dal driver)
+- Distruttori `VideoConsumer`/`AudioConsumer` fanno `wait_for_thread(ControlThread())`
+  dopo `Quit()` prima di distruggere risorse condivise
 
 ---
 

@@ -47,8 +47,19 @@ Webcam tester for Haiku OS. Useful for testing and debugging USB webcam drivers.
 - Raw frame export for driver debugging
 
 ### Integration
-- MCP server for Claude Code integration
+- MCP server (port 9847) for Claude Code integration
+- Deskbar replicant with status LED
+- Desktop replicant with live preview
+- MJPEG HTTP streaming server for browser viewing
+- Virtual webcam (BMediaAddOn) as source for other apps
+- System notifications for events
+- `hey` scripting support
+- Localization (EN, IT, DE, ZH, JA)
+- Headless command-line mode (`bubicam --headless`)
 - System theme support (adapts to dark/light themes)
+
+### Library
+- `libwebcam.so` reusable shared library with public API in `lib/libwebcam/include/`
 
 ## Build
 
@@ -101,6 +112,8 @@ Or copy `objects.x86_64-cc13-release/BubiCam` to `~/config/apps/`.
 **No video frames (bandwidth issue)**: The UVC driver may have selected insufficient USB bandwidth. BubiCam will detect this after 4 seconds and offer to switch to a lower resolution. Check syslog for `WaitFrame TIMEOUT` messages.
 
 **Kernel panic on stop/start**: Haiku's USB stack can panic with "USB object did not become idle!" when isochronous pipes are torn down too quickly. BubiCam includes a 1-second settle delay to mitigate this, but the root cause is a kernel bug.
+
+**App appears frozen / unkillable**: BubiCam has three levels of safety nets. If the UI stops responding, wait up to 15 seconds -- the emergency exit watchdog will force-terminate the process. If you don't want to wait, `kill -9` works once the watchdog has done its job.
 
 ## Documentation
 

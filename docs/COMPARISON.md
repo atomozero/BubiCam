@@ -1,40 +1,46 @@
-# Comparazione Video Playback: Cortex vs CodyCam vs BubiCam
+# BubiCam vs Cortex vs CodyCam -- Confronto Architetturale
 
-## Executive Summary
+Confronto tra i tre principali consumer Media Kit di Haiku per webcam: **Cortex**,
+**CodyCam** e **BubiCam**. Documento utile per capire le scelte progettuali e
+l'evoluzione di BubiCam.
 
-Il driver di test funziona con **Cortex** ma non con **CodyCam** e **BubiCam** perché:
-
-1. **Cortex** è più tollerante con driver imperfetti grazie alla sua architettura modulare
-2. **CodyCam** e **BubiCam** hanno requisiti più rigidi sulla negoziazione dei formati
-3. **PROBLEMA CRITICO TROVATO**: BubiCam non implementa il `BBufferGroup` che CodyCam usa
+> **Nota storica:** una versione precedente di questo documento descriveva un bug
+> in BubiCam (mancanza di `BBufferGroup` in `Connected()`), causa di mancata
+> ricezione frame. Il problema è stato risolto: ora BubiCam crea correttamente
+> il buffer group e chiama `SetOutputBuffersFor()`, in linea con CodyCam.
 
 ---
 
-## Differenze Chiave nella Gestione dei Nodi Video
+## Acquisizione del Producer Node
 
-### 1. Acquisizione del Nodo Producer
+| App | Metodo | Note |
+|-----|--------|------|
+| **Cortex** | NodeManager dinamico | Supporta nodi già attivi o dormienti |
+| **CodyCam** | `GetVideoInput()` | Nodo "preferito" scelto dal sistema |
+| **BubiCam** | `InstantiateDormantNode()` | Istanziazione esplicita del nodo dormiente |
 
-| App | Metodo | Implicazioni |
-|-----|--------|--------------|
-| **Cortex** | Gestione dinamica tramite NodeManager | Può gestire nodi già in esecuzione o dormienti |
-| **CodyCam** | `GetVideoInput(&fProducerNode)` | Ottiene il nodo video "preferito" dal sistema |
-| **BubiCam** | `InstantiateDormantNode(fDormantInfo, &fMediaNode)` | Istanzia esplicitamente un nodo dormiente |
+`InstantiateDormantNode()` è più verboso ma dà a BubiCam pieno controllo sul nodo
+istanziato, necessario per il testing driver-specific.
 
-**Osservazione**: `GetVideoInput()` può essere più tollerante perché il sistema sceglie il nodo migliore disponibile.
+---
 
-### 2. Creazione e Gestione dei Buffer - **DIFFERENZA CRITICA**
+## Gestione Buffer
 
-#### CodyCam (FUNZIONA)
+Tutte e tre le app ora seguono lo stesso pattern Media Kit:
+
 ```cpp
 // In Connected():
-if (CreateBuffers(withFormat) == B_OK)
-    BBufferConsumer::SetOutputBuffersFor(producer, fDestination,
-        fBuffers, (void*)&userData, &changeTag, true);
+status = CreateBuffers(withFormat);
+if (status != B_OK)
+    return status;  // BubiCam: era B_OK -- fix stability round 1
 
-// CreateBuffers():
+BBufferConsumer::SetOutputBuffersFor(producer, fDestination,
+    fBuffers, ..., true);
+
+// In CreateBuffers():
 fBuffers = new BBufferGroup();
 for (uint32 j = 0; j < 3; j++) {
-    fBitmap[j] = new BBitmap(bounds, colorspace, false, true); // 'true' = accepts views
+    fBitmap[j] = new BBitmap(bounds, colorspace, false, true);
     buffer_clone_info info;
     info.area = area_for(fBitmap[j]->Bits());
     info.offset = 0;
@@ -43,164 +49,94 @@ for (uint32 j = 0; j < 3; j++) {
 }
 ```
 
-#### BubiCam (NON FUNZIONA)
-```cpp
-// In Connected():
-status_t status = _CreateBufferBitmap(withFormat);
-// MANCA SetOutputBuffersFor()!
+**Differenze**:
+- CodyCam usa **3 buffer fissi** a 320×240 `B_RGB32`.
+- BubiCam usa **3 buffer dinamici** dimensionati sul formato negoziato.
+- Cortex delega la creazione buffer al producer (più flessibile, meno controllo).
 
-// _CreateBufferBitmap():
-fBitmaps[0] = new BBitmap(bounds, fBitmapColorSpace);
-fBitmaps[1] = new BBitmap(bounds, fBitmapColorSpace);
-// MANCA BBufferGroup!
-```
+---
 
-**PROBLEMA**: BubiCam crea solo BBitmap per la visualizzazione ma NON crea un `BBufferGroup` e NON chiama `SetOutputBuffersFor()`. Questo significa che:
-- Il producer (driver webcam) non sa dove scrivere i frame
-- Il driver deve creare i propri buffer (che potrebbe non fare correttamente)
-- Nessun frame arriva mai al consumer
+## Formato Video Iniziale
 
-### 3. Formato Video Richiesto
+| App | Formato Default | Strategia |
+|-----|-----------------|-----------|
+| **Cortex** | Negoziazione automatica | Accetta qualsiasi formato proposto dal producer |
+| **CodyCam** | 320×240 `B_RGB32` hardcoded | Fallisce se il driver non lo supporta |
+| **BubiCam** | Tentativi multipli + wildcard | Itera su 15+ formati prima di rinunciare |
 
-| App | Formato Default | Flessibilità |
-|-----|-----------------|--------------|
-| **Cortex** | Negoziazione automatica | Alta - accetta qualsiasi formato |
-| **CodyCam** | 320x240 B_RGB32 hardcoded | Bassa - formato fisso |
-| **BubiCam** | Tenta multipli formati | Media - fallback a wildcard |
+BubiCam ha la strategia più tollerante perché deve funzionare con driver
+diversi e potenzialmente buggati -- è la sua **ragione d'essere come tester**.
 
-```cpp
-// CodyCam - formato hardcoded
-media_raw_video_format vid_format = {
-    0, 1, 0, 239, B_VIDEO_TOP_LEFT_RIGHT,
-    1, 1, {B_RGB32, VIDEO_SIZE_X, VIDEO_SIZE_Y, VIDEO_SIZE_X * 4, 0, 0}
-};
+---
 
-// BubiCam - tenta CodyCam-style poi fallback
-media_raw_video_format vid_format = {
-    30.0, 1, 0, 239, B_VIDEO_TOP_LEFT_RIGHT,
-    1, 1, {B_RGB32, 320, 240, 320 * 4, 0, 0}
-};
-// Se fallisce, tenta wildcard e altre risoluzioni
-```
+## Time Source
 
-### 4. Gestione del Time Source
-
-| App | Implementazione | Note |
-|-----|-----------------|------|
-| **Cortex** | Time source globale + fallback | Robusto |
-| **CodyCam** | Avvia time source se non running | Include workaround per sistemi senza audio |
-| **BubiCam** | Usa time source di sistema | Meno robusto |
+| App | Implementazione |
+|-----|------------------|
+| **Cortex** | Time source globale + fallback |
+| **CodyCam** | Avvia time source se non running, include workaround |
+| **BubiCam** | Time source di sistema, con null-check (post `c7af7fa`) |
 
 ```cpp
-// CodyCam - workaround critico
+// CodyCam -- workaround per sistemi senza audio
 bool running = timeSource->IsRunning();
 if (!running) {
     fMediaRoster->StartTimeSource(fTimeSourceNode, real);
     fMediaRoster->SeekTimeSource(fTimeSourceNode, 0, real);
 }
+
+// BubiCam -- null-check aggiunto dopo crash report
+if (timeSource == NULL) {
+    LOG_WARNING("BTimeSource is NULL, skipping start");
+    return B_ERROR;
+}
 ```
 
-### 5. Calcolo della Latenza
+---
+
+## Calcolo Latenza
 
 | App | Metodo |
 |-----|--------|
-| **Cortex** | Latenza calcolata per gruppo di nodi |
+| **Cortex** | Per gruppo di nodi |
 | **CodyCam** | `GetLatencyFor()` + `GetInitialLatencyFor()` + `estimate_max_scheduling_latency()` |
-| **BubiCam** | Start time fisso a +100ms |
+| **BubiCam** | Start time fisso `Now() + 100ms` |
 
-```cpp
-// CodyCam - calcolo preciso
-bigtime_t latency = 0;
-fMediaRoster->GetLatencyFor(fProducerNode, &latency);
-fMediaRoster->SetProducerRunModeDelay(fProducerNode, latency);
-
-bigtime_t initLatency = 0;
-fMediaRoster->GetInitialLatencyFor(fProducerNode, &initLatency);
-initLatency += estimate_max_scheduling_latency();
-
-bigtime_t perf = timeSource->PerformanceTimeFor(real + latency + initLatency);
-
-// BubiCam - approccio semplicistico
-bigtime_t startTime = ts->Now() + 100000;  // Start in 100ms
-```
+L'approccio semplicistico di BubiCam funziona perché il consumer è in-process
+e non c'è una catena di nodi da sincronizzare. Per uno scenario di registrazione
+A/V sincronizzata si potrebbe migrare al pattern di CodyCam, ma al momento non
+è necessario.
 
 ---
 
-## Perché Cortex Funziona e gli Altri No
+## Robustezza Shutdown
 
-### Cortex
-1. **NodeManager** gestisce le connessioni in modo più sofisticato
-2. Può usare nodi già connessi ad altri consumer
-3. Non richiede buffer group specifici dal consumer
-4. Il producer può usare i propri buffer interni
+Area dove BubiCam ha sviluppato pattern proprietari più aggressivi:
 
-### CodyCam/BubiCam
-1. Richiedono una connessione diretta producer → consumer
-2. CodyCam fornisce buffer al producer (funziona se il driver li usa)
-3. BubiCam non fornisce buffer (il driver deve crearli da solo)
-4. Se il driver non crea buffer correttamente → nessun frame
+| App | Strategia | Comportamento su driver frozen |
+|-----|-----------|-------------------------------|
+| **Cortex** | Stop sincrono, nessun timeout | Si pianta indefinitamente |
+| **CodyCam** | Stop sincrono | Si pianta indefinitamente |
+| **BubiCam** | StopNode con timeout 3s + Force Stop async + emergency exit watchdog | Mai unkillable |
 
----
-
-## Problemi Specifici Identificati in BubiCam
-
-### Problema 1: Mancanza di BBufferGroup
-**File**: `src/webcam/VideoConsumer.cpp`
-**Funzione**: `Connected()`
-
-BubiCam non crea un `BBufferGroup` e non chiama `SetOutputBuffersFor()`. Questo è probabilmente il motivo principale per cui la riproduzione non funziona.
-
-### Problema 2: BBitmap non per buffer sharing
-**File**: `src/webcam/VideoConsumer.cpp`
-**Funzione**: `_CreateBufferBitmap()`
-
-```cpp
-// BubiCam
-fBitmaps[0] = new BBitmap(bounds, fBitmapColorSpace);
-
-// CodyCam
-fBitmap[j] = new BBitmap(bounds, colorspace, false, true);
-// Il 'true' finale significa "accepts views" che permette la condivisione di memoria
-```
-
-### Problema 3: Nessun Triple-Buffering per il Producer
-CodyCam usa 3 buffer nel gruppo, BubiCam usa solo 2 bitmap per il double-buffering interno ma non li condivide con il producer.
+Tre livelli di sicurezza in cascata:
+1. `StopNodeWithTimeout(roster, node, 3s)` -- thread separato con deadline
+2. `_ForceStop()` -- chiama `StopCapture()` in background thread, UI resta reattiva
+3. `BubiCamApp` emergency exit watchdog -- `_exit(1)` dopo 15s senza progresso
 
 ---
 
-## Soluzione Proposta
+## Sintesi: Quando Usare Quale
 
-### Riscrivere VideoConsumer per:
+| Caso d'uso | Scelta |
+|------------|--------|
+| Connessioni complesse multi-nodo | **Cortex** |
+| Singola webcam, formato fisso, app utente | **CodyCam** |
+| Test driver, debug, formati variabili, robustezza | **BubiCam** |
 
-1. **Creare un BBufferGroup** con 3 buffer
-2. **Chiamare SetOutputBuffersFor()** nel `Connected()`
-3. **Usare BBitmap con memoria condivisibile** (area_for)
-4. **Implementare il mapping buffer → bitmap**
-
-### Schema della Nuova Architettura
-
-```
-                    BBufferGroup (3 buffer)
-                           │
-          ┌────────────────┼────────────────┐
-          │                │                │
-      Buffer[0]        Buffer[1]        Buffer[2]
-          │                │                │
-      BBitmap[0]       BBitmap[1]       BBitmap[2]
-          │                │                │
-          └───────┬────────┴────────┬───────┘
-                  │                 │
-            Producer             Consumer
-         (scrive qui)      (legge da qui)
-```
-
----
-
-## File da Modificare
-
-1. `src/webcam/VideoConsumer.h` - Aggiungere membri per BBufferGroup
-2. `src/webcam/VideoConsumer.cpp` - Implementare CreateBuffers() e modificare Connected()
-3. `src/webcam/WebcamDevice.cpp` - Eventualmente semplificare la negoziazione formati
+BubiCam non è un sostituto di CodyCam per l'uso quotidiano: il suo scopo è
+**testare e debuggare driver webcam** su Haiku, con tutte le strumentazioni
+necessarie (USB packet view, syslog filter, format benchmark, cycle test).
 
 ---
 
