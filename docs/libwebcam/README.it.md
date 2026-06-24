@@ -1,16 +1,15 @@
-# libbubicapture
+# libwebcam
 
 Una piccola libreria di cattura per Haiku: elenca le webcam USB tramite il Media
 Kit e ti consegna i frame video già decodificati (e i livelli audio), senza il
 boilerplate del Media Kit.
 
-È il componente `src/webcam/` di BubiCam, impacchettato perché altre
-applicazioni possano riusarlo. BubiCam ne è un consumatore; la tua app può
-essere un altro.
+È il componente `src/webcam/` di BubiCam, impacchettato come `libwebcam.so`
+perché altre applicazioni possano riusarlo. Il build sta in `lib/libwebcam/` e
+gli header pubblici in `lib/libwebcam/include/`.
 
-> Stato: questo documento descrive il contratto pubblico del componente di
-> cattura. Il codice è in `src/webcam/`. Una volta estratto come libreria a sé,
-> mantiene le stesse classi e lo stesso contratto descritto qui.
+> Questo documento descrive il contratto pubblico del componente di cattura.
+> Per usarla, linka `libwebcam` (`-lwebcam`) e includi `<WebcamKit.h>`.
 
 ---
 
@@ -245,8 +244,8 @@ SRCS  += WebcamRoster.cpp WebcamDevice.cpp VideoConsumer.cpp \
 LIBS  += be media tracker translation device shared jpeg
 ```
 
-(Quando sarà impacchettata come libreria shared/static, linka `libbubicapture` e
-aggiungi i suoi header all'include path. Il contratto qui sopra non cambia.)
+Per linkare contro la libreria condivisa, usa `-lwebcam` e aggiungi
+`lib/libwebcam/include/` all'include path; il contratto qui sopra non cambia.
 
 ---
 

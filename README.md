@@ -119,8 +119,8 @@ Or copy `objects.x86_64-cc13-release/BubiCam` to `~/config/apps/`.
 
 - [Developer Guide](docs/DEVELOPER.md) -- architecture, internals, build details
 - [Roadmap](docs/ROADMAP_v2.md) -- planned features and direction
-- [Tasks](docs/TASKS.md) -- task tracking
 - [Comparison](docs/COMPARISON.md) -- BubiCam vs Cortex vs CodyCam
+- [libwebcam API](docs/libwebcam/README.md) -- reusable capture library
 
 ## License
 

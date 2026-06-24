@@ -28,9 +28,10 @@
 
 INTRODUZIONE
 ------------
-BubiCam e' un'applicazione nativa per Haiku OS progettata per testare i driver
-delle webcam USB. Permette di visualizzare il flusso video, controllare i
-parametri della webcam e monitorare lo stato del driver.
+BubiCam e' un'applicazione nativa per Haiku OS progettata per testare e
+debuggare i driver delle webcam USB. Mostra video live, registra su disco,
+espone la camera via HTTP e MCP, ed esegue una test suite completa contro il
+driver.
 
 
 AVVIO
@@ -39,100 +40,140 @@ Doppio click su BubiCam oppure da terminale:
 
     ./BubiCam
 
+Per modalita' server senza GUI:
+
+    ./BubiCam --headless
+
 
 INTERFACCIA PRINCIPALE
 ----------------------
 
   +------------------------------------------------------------------+
-  | File | Webcam | Controllo | Strumenti | Aiuto                    |
+  | File | Webcam | Formato | Controllo | Tools | Test | Vista       |
   +------------------------------------------------------------------+
-  |  [Refresh]  [Start]  [Stop]  [Screenshot]                        |
+  |  [Refresh] [Start] [Stop] [Screenshot] [Record] [LED]            |
   +------------------------------------------------------------------+
   |                           |                                      |
-  |                           |   [Tab: Info Driver]                 |
-  |    ANTEPRIMA VIDEO        |   - Nome dispositivo                 |
-  |                           |   - Formati supportati               |
-  |    (qui appare il         |   - Stato connessione                |
-  |     flusso video)         |                                      |
-  |                           |   [Tab: Syslog]                      |
-  |                           |   - Messaggi di debug                |
+  |   ANTEPRIMA VIDEO         |   Tabs:                              |
+  |   - zoom 1x..8x           |   - Info Driver                      |
+  |   - histogram overlay     |   - Controlli (luminosita' ecc.)     |
+  |   - A/B compare           |   - Driver Test (stress, latenza)    |
+  |   - griglia overlay       |   - Ispettore pacchetti USB          |
+  |   - fullscreen (Invio)    |   - Syslog (filtri regex)            |
   |                           |                                      |
   +------------------------------------------------------------------+
-  |  Risoluzione: 640x480  |  FPS: 30  |  Frames: 1234  |  Drop: 0   |
+  |  VU Meter L/R                                                    |
+  +------------------------------------------------------------------+
+  |  Risoluzione: 640x480 | FPS: 30 | Frames: 1234 | Drop: 0         |
   +------------------------------------------------------------------+
 
 
-MENU E FUNZIONI
----------------
+FUNZIONI PRINCIPALI
+-------------------
 
-MENU FILE:
-  - Screenshot (Alt+S)     Salva un'immagine del frame corrente in PNG
-  - Esporta Info           Esporta le informazioni del driver in TXT
-  - Esporta Info JSON      Esporta le informazioni in formato JSON
-  - Esci (Alt+Q)           Chiude l'applicazione
+VIDEO
+  - Preview live, statistiche FPS/frame/drop
+  - Decodifica MJPEG (libjpeg-turbo)
+  - Conversioni YUV422/YUV420/NV12/NV21/UYVY/B_GRAY8 (ottimizzate SSE2)
+  - Zoom (1x..8x) con rotellina mouse, pan con drag
+  - Histogram RGB overlay (Cmd+H)
+  - Confronto A/B (Cmd+B / Cmd+Shift+B)
+  - Griglia overlay (regola dei terzi, mirino)
+  - Modalita' fullscreen (Invio)
+  - Anteprima floating sempre in primo piano
 
-MENU WEBCAM:
-  - Lista delle webcam rilevate nel sistema
-  - Seleziona una webcam per attivarla
+REGISTRAZIONE
+  - Video AVI Motion JPEG con traccia audio
+  - Time-lapse (intervallo configurabile)
+  - Buffer circolare "salva ultimi N secondi"
+  - Screenshot PNG (Cmd+P)
 
-MENU CONTROLLO:
-  - Avvia Anteprima        Inizia la cattura video
-  - Ferma Anteprima        Interrompe la cattura
-  - Aggiorna Dispositivi   Riscansiona le webcam disponibili
-  - Formato Video          Seleziona risoluzione e formato
+AUDIO
+  - VU meter per mic webcam
+  - Selezione sorgente audio (webcam / system input / nessuna)
+  - Audio mixato nell'AVI registrato
 
-MENU STRUMENTI:
-  - Riavvia Media Server   Utile se la webcam non risponde
-  - Mostra Controlli       Apre il pannello controlli webcam
+TESTING DRIVER
+  - Stress test (cicli start/stop)
+  - Test latenza (ms cattura-display)
+  - Benchmark formati
+  - Test memory leak
+  - Cycle test (robustezza connect/disconnect)
+  - Export risultati CSV / JSON / report diagnostico
+
+INFO DISPOSITIVO
+  - Nome driver, versione, parsing descrittori USB (UVC)
+  - Monitor syslog con filtro regex
+  - Ispettore pacchetti USB con hex dump
+  - Controlli webcam via BParameterWeb + preset
+
+INTEGRAZIONE
+  - Server MCP su porta 9847 (per Claude Code)
+  - Replicant Deskbar con LED di stato
+  - Replicant Desktop con preview live
+  - Server streaming MJPEG via HTTP
+  - Virtual webcam (BMediaAddOn)
+  - Notifiche di sistema
+  - Scripting hey
+  - Localizzazione: EN, IT, DE, ZH, JA
+  - Tema sistema (chiaro/scuro)
+
+
+SCORCIATOIE TASTIERA
+--------------------
+  Cmd+R         Aggiorna dispositivi
+  Cmd+S         Avvia preview
+  Cmd+T         Ferma preview
+  Cmd+P         Screenshot
+  Cmd+E         Esporta info driver
+  Cmd+H         Toggle histogram
+  Cmd+G         Toggle griglia overlay
+  Cmd+B         Cattura frame di riferimento
+  Cmd+Shift+B   Modalita' A/B compare
+  Cmd+0         Reset zoom
+  Cmd+L         Pulisci syslog
+  Cmd+Shift+M   Riavvia media services
+  Invio         Fullscreen
+  Escape        Esci da fullscreen
 
 
 USO TIPICO
 ----------
-
 1. Avvia BubiCam
-
-2. Dal menu "Webcam", seleziona la tua webcam dalla lista
-
-3. Clicca "Avvia Anteprima" o premi il pulsante Start nella toolbar
-
-4. L'anteprima video appare nel pannello sinistro
-
-5. Usa il tab "Info Driver" per vedere i dettagli tecnici
-
-6. Usa "Screenshot" per salvare un frame
+2. Scegli la tua webcam dal menu Webcam
+3. Clicca Start (oppure Cmd+S)
+4. Usa i tab a destra per ispezionare il comportamento del driver
+5. Esegui i test dal menu Tests se stai indagando problemi del driver
 
 
 RISOLUZIONE PROBLEMI
 --------------------
 
-PROBLEMA: "Name not found" o webcam non rilevata
-SOLUZIONE: Menu Strumenti -> Riavvia Media Server
+PROBLEMA: "Name not found" quando selezioni una webcam
+  -> Menu Tools -> Restart Media Services
 
-PROBLEMA: Video nero o nessun frame
-SOLUZIONE:
-  1. Verifica che la webcam sia collegata
-  2. Controlla il tab Syslog per messaggi di errore
-  3. Prova a riavviare il Media Server
+PROBLEMA: Nessuna webcam trovata
+  -> Verifica output di `listusb` e tab Syslog
 
-PROBLEMA: FPS basso o frame drop alto
-SOLUZIONE:
-  1. Seleziona una risoluzione inferiore dal menu Formato
-  2. Chiudi altre applicazioni che usano la webcam
+PROBLEMA: Video nero / nessun frame
+  -> Controlla il tab Syslog per errori del driver
+  -> Prova Tools -> Restart Media Services
 
+PROBLEMA: FPS basso o drop frame elevato
+  -> Seleziona una risoluzione inferiore dal menu Formato
+  -> Verifica banda USB (usa hub USB 3 per alta risoluzione)
 
-FORMATI VIDEO SUPPORTATI
-------------------------
-- B_RGB32      (32-bit RGB)
-- B_RGB24      (24-bit RGB)
-- B_YCbCr422   (YUYV)
-- B_YCbCr420   (I420/YUV420P)
+PROBLEMA: L'app sembra bloccata
+  -> Aspetta fino a 15 secondi: l'emergency exit watchdog
+     terminera' forzatamente il processo. Poi riavvia.
 
 
 REQUISITI DI SISTEMA
 --------------------
-- Haiku OS (x86_64)
+- Haiku OS R1/beta5 o successivo (x86_64)
 - Webcam USB compatibile UVC
 - Media Kit funzionante
+- libjpeg-turbo (per webcam MJPEG)
 
 
 ================================================================================
@@ -141,9 +182,9 @@ REQUISITI DI SISTEMA
 
 ================================================================================
 
-Versione:      1.0
+Versione:      2.0
 Licenza:       MIT License
-Repository:    https://github.com/user/BubiCam
+Repository:    https://github.com/atomozero/BubiCam
 
 Sviluppato con amore a Venezia, Italia
 Dove l'acqua incontra la tecnologia!
@@ -155,5 +196,5 @@ Dove l'acqua incontra la tecnologia!
                            BubiCam Team
 
 ================================================================================
-                    Copyright (c) 2024 BubiCam Contributors
+                    Copyright (c) 2024-2026 BubiCam Contributors
 ================================================================================
