@@ -171,7 +171,7 @@ BubiCam/
 │
 ├── resources/
 │   ├── BubiCam.rdef              # Risorse app (HVIF, versione, MIME)
-│   └── icons/                    # Icone toolbar HVIF
+│   └── icons/                    # Sorgenti HVIF (app + toolbar)
 │
 ├── locales/                      # Traduzioni (EN, IT, DE, ZH, JA)
 ├── img/                          # Screenshot per README
@@ -181,11 +181,9 @@ BubiCam/
 │   ├── DEVELOPER.md              # Questo file
 │   ├── COMPARISON.md             # Confronto Cortex/CodyCam/BubiCam
 │   ├── ROADMAP_v2.md             # Roadmap e stato feature
-│   ├── TASKS.md                  # Task storici
-│   └── libbubicapture/           # Doc API libreria capture
+│   └── libwebcam/                # Doc API libreria capture
 │
 ├── Makefile                      # Build system Haiku
-├── bubi.hvif                     # Icona app HVIF
 ├── README.md                     # Documentazione utente
 └── LICENSE                       # MIT
 ```
