@@ -154,14 +154,16 @@ BubiCam/
 │   ├── mcp/
 │   │   └── MCPServer             # JSON-RPC server per Claude Code
 │   │
-│   └── utils/
+│   ├── services/                 # Servizi long-running con stato
+│   │   ├── StreamServer          # MJPEG over HTTP
+│   │   └── VideoRecorder         # AVI Motion JPEG con audio
+│   │
+│   └── utils/                    # Utility stateless
 │       ├── ErrorUtils.h          # Macro logging (LOG_*)
 │       ├── ExportUtils           # Screenshot, JSON/CSV export
 │       ├── IconUtils             # Icone toolbar
 │       ├── NotificationUtils     # BNotification helpers
-│       ├── StreamServer          # MJPEG over HTTP
-│       ├── VideoFilter           # Plugin system effects
-│       └── VideoRecorder         # AVI Motion JPEG con audio
+│       └── VideoFilter           # Plugin system effects
 │
 ├── lib/libwebcam/                # Libreria shared `libwebcam.so`
 │   ├── include/                  # API pubblica (WebcamKit, WebcamLog)

@@ -21,10 +21,10 @@ SRCS = \
 	src/mcp/MCPServer.cpp \
 	src/utils/ExportUtils.cpp \
 	src/utils/IconUtils.cpp \
-	src/utils/StreamServer.cpp \
-	src/utils/VideoRecorder.cpp \
 	src/utils/NotificationUtils.cpp \
-	src/utils/VideoFilter.cpp
+	src/utils/VideoFilter.cpp \
+	src/services/StreamServer.cpp \
+	src/services/VideoRecorder.cpp
 
 RDEFS = resources/BubiCam.rdef
 
@@ -34,7 +34,7 @@ LIBPATHS = lib/libwebcam/objects.x86_64-cc13-release
 
 SYSTEM_INCLUDE_PATHS = /boot/system/develop/headers/private/shared
 
-LOCAL_INCLUDE_PATHS = src src/views src/webcam src/mcp src/utils lib/libwebcam/include
+LOCAL_INCLUDE_PATHS = src src/views src/webcam src/mcp src/utils src/services lib/libwebcam/include
 
 OPTIMIZE := FULL
 
