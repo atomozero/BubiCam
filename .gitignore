@@ -1,0 +1,15 @@
+# Build artifacts
+objects.x86_64-*/
+*.o
+*.d
+*.a
+
+# Release packages
+*.zip
+release/
+
+# IDE / tooling
+.claude/
+
+# Haiku Tracker noise
+*.iom
