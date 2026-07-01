@@ -1542,23 +1542,16 @@ WebcamDevice::_SetupAudioConnection()
 			}
 		}
 
-		// Strategy 3: Fall back to system default audio input
-		if (!foundAudioNode) {
-			status = roster->GetAudioInput(&audioNode);
-			if (status == B_OK) {
-				status = roster->GetFreeOutputsFor(audioNode, outputs, 10,
-					&outputCount, B_MEDIA_RAW_AUDIO);
-				if (status == B_OK && outputCount > 0) {
-					foundAudioNode = true;
-					fAudioProducerNode = audioNode;
-					// System default - not instantiated by us
-					fAudioProducerInstantiated = false;
-					LOG_INFO("Using system audio input for VU meter");
-				} else {
-					roster->ReleaseNode(audioNode);
-				}
-			}
-		}
+		// NOTE: "Auto" deliberately does NOT fall back to the system default
+		// audio input (roster->GetAudioInput()). Connecting the system input -
+		// e.g. HD Audio through Haiku's MultiAudioNode - divides by
+		// bytesPerSample * channel_count in the driver's Connect(); with a
+		// wildcard channel_count that is a divide-by-zero that crashes the whole
+		// media_addon_server, and specializing the negotiated format does not
+		// stop it (the driver uses its own internal format). So "Auto" uses only
+		// the webcam's own audio (Strategies 1-2). To capture the system
+		// microphone, pick that input explicitly from the Audio menu, which
+		// warns about the driver-crash risk first.
 
 		if (!foundAudioNode) {
 			LOG_INFO("No audio input available - VU meter disabled");

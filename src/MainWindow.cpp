@@ -694,10 +694,11 @@ MainWindow::_PopulateAudioMenu()
 	noneItem->SetMarked(fSelectedAudioNodeID == 0);
 	fAudioMenu->AddItem(noneItem);
 
-	// "Auto" option - uses system default
+	// "Auto" option - webcam's own microphone only (does NOT auto-connect the
+	// system audio input, which can crash media_addon_server on some drivers).
 	BMessage* autoMsg = new BMessage(MSG_AUDIO_SOURCE);
 	autoMsg->AddInt32("node_id", -1);
-	BMenuItem* autoItem = new BMenuItem("Auto (System Default)" B_UTF8_ELLIPSIS, autoMsg);
+	BMenuItem* autoItem = new BMenuItem("Auto (Webcam Mic)", autoMsg);
 	autoItem->SetMarked(fSelectedAudioNodeID == -1);
 	fAudioMenu->AddItem(autoItem);
 
