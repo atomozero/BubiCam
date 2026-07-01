@@ -620,12 +620,18 @@ VideoConsumer::_HandleBuffer(BBuffer* buffer)
 		if (dest != NULL) {
 			uint8* dst = (uint8*)dest->Bits();
 			int32 bpr = dest->BytesPerRow();
+			// Derive the fill extent from dest's OWN geometry, not from
+			// fBitmapWidth/fBitmapHeight: dest may be fDisplayBitmap, which an
+			// earlier MJPEG frame can have resized to a different size. Using the
+			// cached dimensions here would overrun a shrunk bitmap.
+			int32 destH = (int32)(dest->Bounds().Height() + 1);
+			int32 destW = bpr / 4;
 			// Blue gradient pattern with "H.264" indicator
-			for (int32 y = 0; y < fBitmapHeight; y++) {
+			for (int32 y = 0; y < destH; y++) {
 				uint32* row = reinterpret_cast<uint32*>(dst + y * bpr);
-				for (int32 x = 0; x < fBitmapWidth; x++) {
-					uint8 b = (uint8)(60 + y * 120 / fBitmapHeight);
-					uint8 g = (uint8)(20 + x * 40 / fBitmapWidth);
+				for (int32 x = 0; x < destW; x++) {
+					uint8 b = (uint8)(60 + y * 120 / (destH > 0 ? destH : 1));
+					uint8 g = (uint8)(20 + x * 40 / (destW > 0 ? destW : 1));
 					row[x] = 0xFF000000 | (g << 8) | b;
 				}
 			}
@@ -703,6 +709,22 @@ VideoConsumer::_ConvertBuffer(BBuffer* buffer, BBitmap* destBitmap)
 	if (width <= 0 || height <= 0) {
 		width = fBitmapWidth > 0 ? fBitmapWidth : 320;
 		height = fBitmapHeight > 0 ? fBitmapHeight : 240;
+	}
+
+	// The converters below write fBitmapWidth-wide, up to fBitmapHeight-tall
+	// rows into dst using a fBitmapWidth*4 stride. If the destination bitmap is
+	// smaller than that - e.g. fDisplayBitmap was shrunk by an earlier MJPEG
+	// frame at a different resolution, then a raw frame arrives - those writes
+	// would overrun the heap. Drop the frame instead of corrupting memory.
+	if ((size_t)destBitmap->BitsLength()
+			< (size_t)fBitmapWidth * (size_t)fBitmapHeight * 4) {
+		static int32 sMismatchWarn = 0;
+		if (++sMismatchWarn <= 3)
+			LOG_WARNING("Convert destination too small (%ld bytes < %dx%d), "
+				"dropping frame", (long)destBitmap->BitsLength(),
+				(int)fBitmapWidth, (int)fBitmapHeight);
+		fFramesDropped++;
+		return;
 	}
 
 	// Calculate source bytes per row if not specified

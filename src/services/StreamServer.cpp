@@ -524,6 +524,12 @@ StreamServer::_CompressJPEG(BBitmap* bitmap, uint8** outData,
 	if (bitmap == NULL || !bitmap->IsValid())
 		return B_BAD_VALUE;
 
+	// The scanline loop reads 4 bytes per pixel (BGRA). Refuse anything that
+	// isn't 32-bit, or those row reads would run past a narrower bitmap.
+	color_space cs = bitmap->ColorSpace();
+	if (cs != B_RGB32 && cs != B_RGBA32)
+		return B_BAD_VALUE;
+
 	*outData = NULL;
 	*outSize = 0;
 
