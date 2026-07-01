@@ -1511,14 +1511,36 @@ VideoConsumer::_SendFrameToTarget(BBitmap* bitmap)
 	if (target == NULL)
 		return;
 
+	// Post an owned COPY of the frame, not the shared buffer pointer.
+	// fDisplayBitmap and the fBitmap[] group are reused - and deleted and
+	// recreated on a resolution change - by this control thread on the very
+	// next frame. Handing the raw pointer to another thread (the window)
+	// races with those writes (tearing) and, on the delete/recreate path,
+	// is a use-after-free. The receiver takes ownership of the copy and
+	// deletes it when done.
+	BBitmap* copy = new(std::nothrow) BBitmap(bitmap->Bounds(),
+		bitmap->ColorSpace());
+	if (copy == NULL || !copy->IsValid()) {
+		delete copy;
+		fFramesDropped++;
+		return;
+	}
+
+	ssize_t bytes = bitmap->BitsLength();
+	if (copy->BitsLength() < bytes)
+		bytes = copy->BitsLength();
+	memcpy(copy->Bits(), bitmap->Bits(), bytes);
+
 	BMessage msg(fFrameMessage);
-	msg.AddPointer("bitmap", bitmap);
+	msg.AddPointer("bitmap", copy);
 
 	// Use PostMessage with timeout to avoid blocking indefinitely
 	// if the target's message queue is full or target is busy
 	status_t status = target->PostMessage(&msg);
 	if (status != B_OK) {
-		// Target may have been deleted or queue full - not fatal
+		// Target may have been deleted or queue full - we still own the
+		// copy, so free it here to avoid leaking a frame per failure.
+		delete copy;
 		LOG_TRACE("PostMessage failed: %s", strerror(status));
 	}
 }

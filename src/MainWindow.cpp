@@ -2198,15 +2198,21 @@ MainWindow::_HandleFrameReceived(BMessage* message)
 	if (message->FindPointer("bitmap", (void**)&bitmap) != B_OK)
 		return;
 
-	if (bitmap == NULL || !bitmap->IsValid())
+	// VideoConsumer posts an owned copy of the frame; we must delete it on
+	// every exit path from this method.
+	if (bitmap == NULL || !bitmap->IsValid()) {
+		delete bitmap;
 		return;
+	}
 
 	// Sanity check: reject frames with unreasonable dimensions
 	BRect bounds = bitmap->Bounds();
 	int32 w = (int32)(bounds.Width() + 1);
 	int32 h = (int32)(bounds.Height() + 1);
-	if (w <= 0 || h <= 0 || w > 4096 || h > 4096)
+	if (w <= 0 || h <= 0 || w > 4096 || h > 4096) {
+		delete bitmap;
 		return;
+	}
 
 	// Apply video filters before display
 	fFilterChain->ApplyAll(bitmap);
@@ -2367,6 +2373,11 @@ MainWindow::_HandleFrameReceived(BMessage* message)
 			floatView->SetFrame(bitmap);
 		fFloatingWindow->UnlockLooper();
 	}
+
+	// We own the frame copy posted by VideoConsumer; every consumer above
+	// (preview, recorder, stream server, circular buffer, screenshot) makes
+	// its own copy of the pixels, so it is safe to free it now.
+	delete bitmap;
 }
 
 
