@@ -521,6 +521,14 @@ DriverTestView::MessageReceived(BMessage* message)
 void
 DriverTestView::SetDevice(WebcamDevice* device)
 {
+	// A running test owns the current device on its own thread. If the device
+	// is being changed or cleared (hot-plug, refresh, selection), stop the test
+	// FIRST: MainWindow is about to delete the device object, and the test
+	// thread caches a raw WebcamDevice* it would otherwise keep dereferencing
+	// after the free.
+	if (fTestRunning)
+		StopCurrentTest();
+
 	fDevice = device;
 	_UpdateButtonStates();
 
@@ -576,10 +584,14 @@ DriverTestView::StopCurrentTest()
 	_AppendLog("Stopping test...", fWarningColor);
 	fStopRequested = true;
 
-	// Wait for thread with timeout (5 seconds max)
+	// Wait for the thread to notice fStopRequested and unwind. The blocking work
+	// inside an iteration is device->StopCapture() (bounded by StopNodeWithTimeout
+	// plus USB-settle delays, up to ~14s) and device->StartCapture(). Use a
+	// deadline that comfortably covers a slow-but-alive teardown, so kill_thread
+	// is only ever reached for a driver truly wedged inside StartCapture.
 	if (fTestThread >= 0) {
 		status_t exitValue;
-		bigtime_t deadline = system_time() + 5000000;
+		bigtime_t deadline = system_time() + 20000000;  // 20s
 		bool threadExited = false;
 
 		while (system_time() < deadline) {

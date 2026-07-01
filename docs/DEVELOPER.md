@@ -918,6 +918,11 @@ copiano il target locale sotto lock, rilasciano, poi postano fuori dal lock.
   libera): senza, ogni ciclo start/stop leakava un nodo, il suo control thread,
   il `BBufferGroup` a 3 buffer e fino a 4 `BBitmap` -- perdita illimitata per uno
   strumento pensato per ciclare rapidamente start/stop
+- Un test driver e la preview interattiva non guidano più la cattura sullo stesso
+  device in parallelo: `DriverTestView::SetDevice()` ferma il test in corso prima
+  di cambiare/azzerare `fDevice` (il thread di test cacha un `WebcamDevice*` che
+  MainWindow sta per distruggere -- era use-after-free su refresh/hot-plug), e
+  `_StartPreview()` ferma il test prima di avviare la preview
 - `VideoConsumer::_SendFrameToTarget()` posta una **copia di proprietà** del frame
   invece del puntatore al buffer condiviso `fDisplayBitmap`/`fBitmap[]`: quel
   buffer viene riusato (e cancellato/ricreato al cambio risoluzione) dal control

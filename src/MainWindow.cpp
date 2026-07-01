@@ -943,6 +943,12 @@ MainWindow::_StartPreview()
 	if (fIsPreviewActive)
 		return;
 
+	// A driver test drives capture on the same device from its own thread.
+	// Stop it before starting an interactive preview so two owners don't run
+	// StartCapture/StopCapture on one device concurrently.
+	if (fDriverTestView != NULL && fDriverTestView->IsTestRunning())
+		fDriverTestView->StopCurrentTest();
+
 	status_t status = fCurrentWebcam->StartCapture(this);
 	if (status != B_OK) {
 		// Check if this is a "node already in use" error
