@@ -33,6 +33,77 @@
 #include <string.h>
 
 
+// Helper: call roster->InstantiateDormantNode() in a thread with a timeout.
+// Instantiating a broken media add-on runs the driver's node constructor and
+// NodeRegistered() and can hang forever; without a bound StartCapture would
+// hold fCaptureLock indefinitely and wedge every later StopCapture. On timeout
+// the worker keeps ownership of the heap struct (and writes only into it, never
+// the caller's node), so there is no stack/member corruption if the driver
+// unblocks later; a truly frozen driver leaks one struct + one thread, exactly
+// like StopNodeWithTimeout.
+struct InstantiateNodeData {
+	BMediaRoster*		roster;
+	dormant_node_info	info;
+	uint32				flags;
+	media_node			node;
+	status_t			result;
+	volatile bool		done;
+	bool				callerOwns;
+};
+
+static int32
+_InstantiateNodeThread(void* data)
+{
+	InstantiateNodeData* d = static_cast<InstantiateNodeData*>(data);
+	d->result = d->roster->InstantiateDormantNode(d->info, &d->node, d->flags);
+	d->done = true;
+	if (!d->callerOwns)
+		delete d;
+	return 0;
+}
+
+static status_t
+InstantiateDormantNodeWithTimeout(BMediaRoster* roster,
+	const dormant_node_info& info, media_node* outNode, uint32 flags,
+	bigtime_t timeout = 15000000)
+{
+	InstantiateNodeData* data = new InstantiateNodeData();
+	data->roster = roster;
+	data->info = info;
+	data->flags = flags;
+	data->result = B_ERROR;
+	data->done = false;
+	data->callerOwns = true;
+
+	thread_id tid = spawn_thread(_InstantiateNodeThread, "instantiate_node",
+		B_NORMAL_PRIORITY, data);
+	if (tid < 0) {
+		delete data;
+		return roster->InstantiateDormantNode(info, outNode, flags);  // fallback
+	}
+
+	resume_thread(tid);
+
+	bigtime_t deadline = system_time() + timeout;
+	while (!data->done && system_time() < deadline)
+		snooze(50000);  // 50ms poll
+
+	if (data->done) {
+		*outNode = data->node;
+		status_t result = data->result;
+		wait_for_thread(tid, NULL);
+		delete data;
+		return result;
+	}
+
+	// Timed out - hand ownership to the worker thread so it cleans up itself.
+	data->callerOwns = false;
+	fprintf(stderr, "WebcamDevice: InstantiateDormantNode timed out after %.1f s\n",
+		timeout / 1000000.0);
+	return B_TIMED_OUT;
+}
+
+
 // Helper: call roster->StopNode() in a thread with a 3-second timeout.
 // Returns B_TIMED_OUT if the call doesn't complete in time.
 struct StopNodeData {
@@ -632,10 +703,13 @@ WebcamDevice::StartCapture(BLooper* target, uint32 frameMessage,
 	if (!fNodeInstantiated) {
 		LOG_DEBUG("Instantiating node '%s'", fDormantInfo.name);
 
-		status = roster->InstantiateDormantNode(fDormantInfo, &fMediaNode, 0);
-		if (status != B_OK) {
-			status = roster->InstantiateDormantNode(fDormantInfo, &fMediaNode,
-				B_FLAVOR_IS_GLOBAL);
+		status = InstantiateDormantNodeWithTimeout(roster, fDormantInfo,
+			&fMediaNode, 0);
+		// Only try the (slower) global flavor on a real error. On a timeout the
+		// driver is wedged, so retrying just spawns a second hung instantiate.
+		if (status != B_OK && status != B_TIMED_OUT) {
+			status = InstantiateDormantNodeWithTimeout(roster, fDormantInfo,
+				&fMediaNode, B_FLAVOR_IS_GLOBAL);
 		}
 
 		if (status != B_OK) {
