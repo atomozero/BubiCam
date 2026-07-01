@@ -151,6 +151,21 @@ AudioConsumer::AcceptFormat(const media_destination& dest,
 	if (format->type != B_MEDIA_RAW_AUDIO)
 		return B_MEDIA_BAD_FORMAT;
 
+	// Specialize wildcard fields before the producer finalizes the connection.
+	// Some audio drivers (e.g. Haiku's MultiAudioNode / HD Audio) compute their
+	// frame size as bytesPerSample * channel_count and DIVIDE by it in
+	// Connect(); a wildcard (0) channel_count or sample format then triggers a
+	// divide-by-zero that crashes media_addon_server. The producer's
+	// FormatProposal can re-wildcard what _SetupAudioConnection filled in, so
+	// pin sane values here - the last point before the producer's Connect().
+	media_raw_audio_format& raw = format->u.raw_audio;
+	if (raw.channel_count == 0)
+		raw.channel_count = 2;
+	if (raw.frame_rate == 0)
+		raw.frame_rate = 48000.0f;
+	if (raw.format == 0)
+		raw.format = media_raw_audio_format::B_AUDIO_SHORT;
+
 	return B_OK;
 }
 
