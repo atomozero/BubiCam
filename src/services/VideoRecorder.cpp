@@ -546,6 +546,26 @@ VideoRecorder::_FinalizeAVI()
 	fFile.Seek(140, SEEK_SET);
 	_WriteUInt32(fFrameCount);
 
+	// Fix the declared frame rate to the ACTUAL average capture rate. The
+	// header was written with fFPS - a single CurrentFPS() sample taken when
+	// recording started - but the real rate (driver bandwidth, dropped frames)
+	// is usually different, which plays the clip back sped up or slowed down.
+	// Compute frames / elapsed wall-clock and rewrite dwMicroSecPerFrame (avih)
+	// and dwRate (video strh) so playback matches real time.
+	bigtime_t elapsed = system_time() - fStartTime;
+	float realFps = fFPS;
+	if (elapsed > 0 && fFrameCount > 1)
+		realFps = (float)fFrameCount * 1000000.0f / (float)elapsed;
+	if (realFps < 1.0f)
+		realFps = 1.0f;
+	if (realFps > 120.0f)
+		realFps = 120.0f;
+
+	fFile.Seek(32, SEEK_SET);                        // avih dwMicroSecPerFrame
+	_WriteUInt32((uint32)(1000000.0f / realFps));
+	fFile.Seek(132, SEEK_SET);                       // video strh dwRate (dwScale=1000)
+	_WriteUInt32((uint32)(realFps * 1000.0f));
+
 	// Fix audio stream length in strh if present
 	if (fHasAudio) {
 		uint32 blockAlign = fChannels * (fBitsPerSample / 8);
