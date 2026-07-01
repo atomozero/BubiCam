@@ -859,6 +859,33 @@ kill media_server media_addon_server
 2. Riduci risoluzione
 3. Usa formato nativo del driver
 
+### Registrazione senza audio / crash del media_addon_server sull'audio
+
+**Causa:** Alcuni driver audio Haiku (in particolare HD Audio via
+`MultiAudioNode`) calcolano la dimensione del frame come
+`bytesPerSample * channel_count` e ci **dividono** in `Connect()`. Con un
+`channel_count` wildcard (0) è un divide-by-zero che fa crashare tutto il
+`media_addon_server`. Specializzare il formato negoziato lato consumer
+(`AudioConsumer::AcceptFormat`) non basta: il driver usa il proprio formato
+interno.
+
+**Soluzione:** "Auto" (`fAudioNodeID == -1`) in `_SetupAudioConnection()` usa
+solo l'audio della webcam (Strategy 1-2) e **non** fa più fallback all'input di
+sistema (`roster->GetAudioInput()`), che era la chiamata che crashava. L'input
+di sistema resta selezionabile esplicitamente dal menu Audio, con l'avviso di
+rischio. È un bug del driver Haiku, non di BubiCam — buon candidato per una
+segnalazione upstream.
+
+### Velocità del video registrato errata
+
+**Causa:** L'header AVI dichiarava `fFPS`, un singolo campione di `CurrentFPS()`
+all'avvio; se il rate reale (banda USB, frame persi, clamp del driver) differiva,
+il video andava velocizzato o rallentato.
+
+**Soluzione:** `_FinalizeAVI()` ricalcola l'FPS medio reale da
+`fFrameCount / durata` e riscrive `dwMicroSecPerFrame` (avih) e `dwRate`
+(strh video).
+
 ---
 
 ## Threading e Stabilità

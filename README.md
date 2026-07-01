@@ -74,6 +74,7 @@ Or copy `objects.x86_64-cc13-release/BubiCam` to `~/config/apps/`.
 * **"Name not found" error** — use Tools → Restart Media Services.
 * **No video frames** — the UVC driver may have chosen insufficient USB bandwidth; BubiCam detects this after 4 seconds and offers a lower resolution. Look for `WaitFrame TIMEOUT` in the syslog.
 * **App appears frozen** — wait up to 15 seconds; the emergency-exit watchdog force-terminates the process (a `kill -9` also works afterwards).
+* **Recording has no audio, or the media server crashes when enabling audio** — some Haiku audio drivers (notably HD Audio via `MultiAudioNode`) divide by `channel_count` in `Connect()` and hit a divide-by-zero that crashes `media_addon_server`. To stay safe, **Auto (Webcam Mic)** only uses the webcam's own microphone, so a webcam without a mic records video-only. Selecting the *system* audio input explicitly can still crash such a driver — if it happens, restart media services (Tools → Restart Media Services) or reboot to recover audio. This is a Haiku driver bug, not a BubiCam one.
 
 ## Documentation
 
