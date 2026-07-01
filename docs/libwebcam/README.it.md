@@ -61,9 +61,11 @@ Tre fatti che ne derivano, e che devi rispettare:
 1. **Il tuo handler gira sul thread del looper, non su un thread di cattura.**
    Valgono le regole standard di Haiku: blocca le finestre prima di toccare le
    view, tieni l'handler breve.
-2. **Il `BBitmap` del frame è di proprietà della libreria ed è valido solo dentro
-   quel messaggio.** Se ti servono i pixel dopo il ritorno, **copiali**. Non fare
-   `delete` del bitmap e non conservare il puntatore.
+2. **Il `BBitmap` del frame è una copia fresca di cui sei TU il proprietario.** La
+   libreria alloca un nuovo bitmap per ogni frame e ne cede la proprietà al tuo
+   handler. **Devi farne `delete`** quando hai finito (cancellarlo più tardi —
+   es. dopo averlo passato a un altro thread — va bene); se lo leaki, la memoria
+   cresce un frame alla volta.
 3. **I frame vengono scartati, non accodati, se rimani indietro.** La pipeline usa
    3 buffer; un handler lento significa frame persi (vedi `FramesDropped()`), mai
    crescita illimitata della memoria.
@@ -103,8 +105,9 @@ public:
         if (msg->what == kFrameReceived) {
             BBitmap* frame = NULL;
             if (msg->FindPointer("bitmap", (void**)&frame) == B_OK && frame) {
-                // 'frame' è valido SOLO qui. Copialo se ti serve dopo.
+                // Il 'frame' è tuo: usalo, poi fanne delete.
                 fCount++;
+                delete frame;
             }
             return;
         }
@@ -204,8 +207,9 @@ struct complete.
 `StartCapture` posta, per ogni frame, al tuo looper:
 
 - `what`: `'frcv'` (`MSG_FRAME_RECEIVED`)
-- campo `"bitmap"`: un `BBitmap*` (`FindPointer`), `B_RGB32`, **in prestito** —
-  valido solo durante il messaggio, di proprietà della libreria.
+- campo `"bitmap"`: un `BBitmap*` (`FindPointer`), `B_RGB32`, **di tua
+  proprietà** — una copia fresca per ogni frame di cui il tuo handler deve fare
+  `delete`.
 
 Messaggi di livello audio (quando l'audio è attivo):
 
@@ -221,8 +225,9 @@ Messaggi di livello audio (quando l'audio è attivo):
 
 ## Threading e ownership — le regole che fanno male
 
-- **I bitmap sono in prestito.** Validi solo dentro il messaggio `'frcv'`. Copia
-  per conservarli. Mai `delete`.
+- **I bitmap sono di tua proprietà.** Ogni messaggio `'frcv'` porta una copia
+  fresca; fanne `delete` quando hai finito. Puoi conservarlo oltre l'handler
+  (delete più tardi); basta non leakarlo.
 - **I device sono di proprietà del roster.** Non fare delete di `WebcamDevice*`;
   tieni vivo il `WebcamRoster` finché usi i suoi device.
 - **`StopCapture()` è sincrono e thread-safe.** Dopo il ritorno, nessun altro

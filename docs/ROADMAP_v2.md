@@ -3,7 +3,7 @@
 Documento di pianificazione e stato delle funzionalità di BubiCam.
 
 **Versione attuale:** 2.0
-**Ultimo aggiornamento:** 2026-06-24
+**Ultimo aggiornamento:** 2026-07-01
 **Stato:** In sviluppo attivo
 
 ---
@@ -128,7 +128,7 @@ Documento di pianificazione e stato delle funzionalità di BubiCam.
 | [x] | Log viewer avanzato | `SyslogView` con regex filter, colori, ricerca |
 | [x] | USB packet viewer | `USBPacketView` con tabs (descriptors + hex dump) |
 | [x] | Frame inspector | Pixel inspector con valori RGB e metadata |
-| [x] | Export per debug | Dump completo stato app (`docs/libbubicapture/`) |
+| [x] | Export per debug | Dump completo stato app (`_ExportDebugState`, salva in `~/`) |
 | [x] | Command line mode | `bubicam --headless` per server-only |
 
 ---
@@ -204,6 +204,7 @@ Documento di pianificazione e stato delle funzionalità di BubiCam.
 | 2026-05-23 | 0.4 | Recording AVI, MJPEG, NV12/NV21, zoom/histogram/A-B compare, hotplug, settings, cycle test, tema, click-to-freeze, icona app |
 | 2026-05-23 | 0.5 | Cap. 5 completato (preset, lock AE/AWB, PTZ, reset, controlli rapidi) |
 | 2026-06-24 | 1.0 | Sweep completo: cap. 6 (replicant, scripting, notifiche, localizzazione, MIME), cap. 7 (streaming HTTP, virtual webcam, MCP server), cap. 8 (libwebcam.so, plugin filter, frame inspector, CLI), nuovo cap. 9 (stability hardening) |
+| 2026-07-01 | 1.1 | Refactoring struttura sorgenti (split `utils`/`services`, icone in `resources/icons/`); safety fix frame delivery (copia di proprietà del bitmap, no data race/UAF) e save panel screenshot/export; contratto ownership frame allineato nella doc di libwebcam |
 
 ---
 

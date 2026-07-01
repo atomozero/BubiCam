@@ -501,7 +501,8 @@ enum {
                                     _SendFrameToTarget()
                                               │
                                     BMessage(MSG_FRAME_RECEIVED)
-                                    + pointer to BBitmap
+                                    + owned copy of BBitmap
+                                    (receiver deletes it)
                                               │
                                               ▼
                                       ┌───────────────┐
@@ -913,6 +914,12 @@ copiano il target locale sotto lock, rilasciano, poi postano fuori dal lock.
   conversione (previene buffer overrun su frame troncati dal driver)
 - Distruttori `VideoConsumer`/`AudioConsumer` fanno `wait_for_thread(ControlThread())`
   dopo `Quit()` prima di distruggere risorse condivise
+- `VideoConsumer::_SendFrameToTarget()` posta una **copia di proprietà** del frame
+  invece del puntatore al buffer condiviso `fDisplayBitmap`/`fBitmap[]`: quel
+  buffer viene riusato (e cancellato/ricreato al cambio risoluzione) dal control
+  thread mentre il window thread lo legge e lo muta (`fFilterChain->ApplyAll`),
+  race che causava tearing e use-after-free. Il ricevente ora è proprietario del
+  bitmap e ne fa `delete` (vedi contratto in `docs/libwebcam/README.md`)
 
 ---
 

@@ -61,9 +61,10 @@ Three facts that follow from this, and that you must respect:
 1. **Your handler runs on the looper thread, not a capture thread.** Standard
    Haiku rules apply — lock windows before touching views, keep the handler
    short.
-2. **The frame `BBitmap` is owned by the library and is only valid inside that
-   message.** If you need the pixels after returning, **copy them**. Do not
-   `delete` the bitmap and do not store the pointer.
+2. **The frame `BBitmap` is a fresh copy that YOU own.** The library allocates a
+   new bitmap per frame and hands ownership to your handler. You **must
+   `delete` it** when done (deleting it late — e.g. after offloading to another
+   thread — is fine); leaking it grows memory one frame at a time.
 3. **Frames are dropped, not queued, when you fall behind.** The pipeline uses
    3 buffers; a slow handler means dropped frames (see `FramesDropped()`), never
    unbounded memory growth.
@@ -101,8 +102,9 @@ public:
         if (msg->what == kFrameReceived) {
             BBitmap* frame = NULL;
             if (msg->FindPointer("bitmap", (void**)&frame) == B_OK && frame) {
-                // 'frame' is valid ONLY here. Copy if you need to keep it.
+                // You own 'frame': use it, then delete it.
                 fCount++;
+                delete frame;
             }
             return;
         }
@@ -202,8 +204,8 @@ full structs.
 `StartCapture` posts, for every frame, to your looper:
 
 - `what`: `'frcv'` (`MSG_FRAME_RECEIVED`)
-- field `"bitmap"`: a `BBitmap*` (`FindPointer`), `B_RGB32`, **borrowed** — valid
-  only during the message, owned by the library.
+- field `"bitmap"`: a `BBitmap*` (`FindPointer`), `B_RGB32`, **owned by you** — a
+  fresh per-frame copy that your handler must `delete`.
 
 Audio level messages (when audio is active):
 
@@ -219,8 +221,9 @@ Audio level messages (when audio is active):
 
 ## Threading and ownership — the rules that bite
 
-- **Bitmaps are borrowed.** Valid only inside the `'frcv'` message. Copy to keep.
-  Never `delete`.
+- **Bitmaps are owned by you.** Each `'frcv'` message carries a fresh copy;
+  `delete` it when done. You may keep it past the handler (delete later); just
+  don't leak it.
 - **Devices are owned by the roster.** Do not delete `WebcamDevice*`; keep the
   `WebcamRoster` alive for as long as you use its devices.
 - **`StopCapture()` is synchronous and thread-safe.** After it returns, no more
