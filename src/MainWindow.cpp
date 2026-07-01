@@ -849,6 +849,13 @@ MainWindow::_SelectFormat(int32 index)
 	if (fCurrentWebcam == NULL)
 		return;
 
+	// A preview start may be running on a background thread; changing the format
+	// now would call SetRequestedFormat()/StartCapture() on the same device
+	// concurrently with it. The format menu is disabled while starting, but
+	// guard here too against a stale click.
+	if (fPreviewStarting)
+		return;
+
 	const BObjectList<VideoFormat>& formats = fCurrentWebcam->SupportedFormats();
 	if (index < 0 || index >= formats.CountItems())
 		return;
@@ -906,6 +913,11 @@ MainWindow::_SelectFormat(int32 index)
 				fCatastrophicDropCount = 0;
 				fBandwidthAlertShown = false;
 				fDriverCrashed = false;
+
+				// Capture is active again - reflect it on the LED (this branch
+				// previously left it RED from the _StopPreview above).
+				fCamLED->SetBlinking(false);
+				fCamLED->SetState(LED_GREEN);
 
 				delete fWatchdogRunner;
 				fWatchdogRunner = new BMessageRunner(BMessenger(this),
@@ -1006,6 +1018,14 @@ MainWindow::_StartPreview()
 	fStatusBar->SetText("Starting preview" B_UTF8_ELLIPSIS);
 	fCamLED->SetState(LED_YELLOW);
 	fCamLED->SetBlinking(true);
+	// Disable the Format menu while starting: it may still list the previous
+	// device's formats, and selecting one would race the background StartCapture.
+	// _FinishStartPreview repopulates and re-enables it once the node is up.
+	if (fFormatMenu != NULL) {
+		fFormatMenu->SetEnabled(false);
+		if (fMenuBar != NULL)
+			fMenuBar->Invalidate();
+	}
 	_UpdateToolbarState();
 
 	StartPreviewData* d = new StartPreviewData();
@@ -2885,6 +2905,12 @@ MainWindow::_ForceStop()
 void
 MainWindow::_RestartMediaServices()
 {
+	// Don't tear down media services while a preview start is in flight: the
+	// background thread is inside StartCapture(). Defer; it settles in a moment.
+	if (fPreviewStarting) {
+		fStatusBar->SetText("Busy starting preview, try again in a moment");
+		return;
+	}
 	_DoRestartMediaServices(true);  // With confirmation
 }
 
