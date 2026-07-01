@@ -1187,6 +1187,10 @@ MainWindow::_TakeScreenshot()
 			NULL, 0, false, new BMessage(MSG_SCREENSHOT_SAVED));
 	}
 
+	// The panel is shared with _ExportDriverInfo, which sets its own
+	// invocation message. Reset it here so a screenshot taken after an
+	// export still saves the image instead of re-running the export.
+	fSavePanel->SetMessage(new BMessage(MSG_SCREENSHOT_SAVED));
 	fSavePanel->SetSaveText(path.Leaf());
 	fSavePanel->Show();
 }
