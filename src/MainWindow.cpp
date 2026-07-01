@@ -156,6 +156,7 @@ MainWindow::MainWindow()
 	fDevVideoWatching(false),
 	fSelectedAudioNodeID(-1),
 	fIsPreviewActive(false),
+	fPreviewStarting(false),
 	fChangingResolution(false),
 	fSavePanel(NULL),
 	fLastFrame(NULL),
@@ -585,6 +586,14 @@ MainWindow::_BuildLayout()
 void
 MainWindow::_PopulateWebcamMenu()
 {
+	// Don't re-enumerate while a preview start is in flight: EnumerateDevices()
+	// deletes the device objects, and the background start thread is inside
+	// StartCapture() on one of them. Defer; the user can refresh again.
+	if (fPreviewStarting) {
+		fStatusBar->SetText("Busy starting preview, refresh again in a moment");
+		return;
+	}
+
 	// Stop preview and clear current device before re-enumerating,
 	// since EnumerateDevices() deletes all existing device objects
 	_StopPreview();
@@ -771,6 +780,13 @@ MainWindow::_PopulateAudioMenu()
 void
 MainWindow::_SelectWebcam(int32 index)
 {
+	// Don't swap the device while a preview start is in flight: the background
+	// thread is inside StartCapture() on the current device.
+	if (fPreviewStarting) {
+		fStatusBar->SetText("Busy starting preview, try again in a moment");
+		return;
+	}
+
 	_StopPreview();
 
 	WebcamDevice* device = fWebcamRoster->DeviceAt(index);
@@ -795,16 +811,10 @@ MainWindow::_SelectWebcam(int32 index)
 	// Pass audio selection to device before starting
 	device->SetAudioNodeID(fSelectedAudioNodeID);
 
-	// Start preview FIRST - this instantiates the media node
-	// which is required before we can access parameters
+	// Start preview - this instantiates the media node on a background thread.
+	// The node-dependent UI (driver info, format menu, controls panel) is
+	// refreshed in _FinishStartPreview() once the node is actually up.
 	_StartPreview();
-
-	// Now that the node is instantiated, update UI
-	_UpdateDriverInfo();
-	_PopulateFormatMenu();
-
-	// Update controls panel (requires instantiated node for GetParameterWebFor)
-	fWebcamControls->SetDevice(device);
 
 	// Update test panel
 	if (fDriverTestView != NULL)
@@ -930,6 +940,24 @@ MainWindow::_SelectFormat(int32 index)
 }
 
 
+struct StartPreviewData {
+	MainWindow*		window;
+	WebcamDevice*	device;
+};
+
+static int32
+_StartPreviewThread(void* data)
+{
+	StartPreviewData* d = static_cast<StartPreviewData*>(data);
+	status_t status = d->device->StartCapture(d->window);
+	BMessage msg(MSG_PREVIEW_STARTED);
+	msg.AddInt32("status", status);
+	BMessenger(d->window).SendMessage(&msg);
+	delete d;
+	return 0;
+}
+
+
 void
 MainWindow::_StartPreview()
 {
@@ -940,7 +968,7 @@ MainWindow::_StartPreview()
 		return;
 	}
 
-	if (fIsPreviewActive)
+	if (fIsPreviewActive || fPreviewStarting)
 		return;
 
 	// A driver test drives capture on the same device from its own thread.
@@ -949,8 +977,55 @@ MainWindow::_StartPreview()
 	if (fDriverTestView != NULL && fDriverTestView->IsTestRunning())
 		fDriverTestView->StopCurrentTest();
 
-	status_t status = fCurrentWebcam->StartCapture(this);
+	WebcamDevice* webcam = NULL;
+	{
+		BAutolock lock(fWebcamLock);
+		webcam = fCurrentWebcam;
+	}
+	if (webcam == NULL)
+		return;
+
+	// Run StartCapture on a background thread. On a frozen or incomplete driver
+	// it can block deep inside the Media Kit for a long time (or forever);
+	// keeping it off the window thread means the UI stays responsive and the app
+	// stays quittable even then. Completion arrives as MSG_PREVIEW_STARTED, which
+	// runs _FinishStartPreview() back on the window thread. fPreviewStarting also
+	// gates device changes (see _SelectWebcam/_PopulateWebcamMenu) so the device
+	// can't be freed while the background thread is inside StartCapture().
+	fPreviewStarting = true;
+	fStatusBar->SetText("Starting preview" B_UTF8_ELLIPSIS);
+	fCamLED->SetState(LED_YELLOW);
+	fCamLED->SetBlinking(true);
+	_UpdateToolbarState();
+
+	StartPreviewData* d = new StartPreviewData();
+	d->window = this;
+	d->device = webcam;
+	thread_id tid = spawn_thread(_StartPreviewThread, "start_preview",
+		B_NORMAL_PRIORITY, d);
+	if (tid >= 0) {
+		resume_thread(tid);
+	} else {
+		// Could not spawn - fall back to a synchronous start.
+		delete d;
+		_FinishStartPreview(webcam->StartCapture(this));
+	}
+}
+
+
+void
+MainWindow::_FinishStartPreview(status_t status)
+{
+	// Ignore a completion that arrived after the start was cancelled
+	// (e.g. Force Stop) or superseded.
+	if (!fPreviewStarting)
+		return;
+	fPreviewStarting = false;
+
 	if (status != B_OK) {
+		fCamLED->SetBlinking(false);
+		fCamLED->SetState(LED_RED);
+
 		// Check if this is a "node already in use" error
 		if (status == B_NAME_NOT_FOUND) {
 			BAlert* alert = new BAlert("Webcam Blocked",
@@ -981,6 +1056,7 @@ MainWindow::_StartPreview()
 					}
 				}
 			}
+			_UpdateToolbarState();
 			return;
 		}
 
@@ -990,6 +1066,7 @@ MainWindow::_StartPreview()
 			strerror(status), status);
 		BAlert* alert = new BAlert("Error", error.String(), "OK");
 		alert->Go();
+		_UpdateToolbarState();
 		return;
 	}
 
@@ -1022,12 +1099,13 @@ MainWindow::_StartPreview()
 		}
 	}
 
-	// Refresh Format menu now that ParameterWeb is available
+	// Now that the node is instantiated, refresh the node-dependent UI:
+	// format list, driver info, and the controls panel (GetParameterWebFor).
 	_PopulateFormatMenu();
-
-	// Update toolbar and driver info
 	_UpdateToolbarState();
 	_UpdateDriverInfo();
+	if (fWebcamControls != NULL)
+		fWebcamControls->SetDevice(fCurrentWebcam);
 }
 
 
@@ -1163,7 +1241,8 @@ MainWindow::_UpdateToolbarState()
 
 	bool isRecording = (fRecorder != NULL && fRecorder->IsRecording());
 
-	fToolbar->SetActionEnabled(MSG_WEBCAM_START, hasWebcam && !isActive);
+	fToolbar->SetActionEnabled(MSG_WEBCAM_START,
+		hasWebcam && !isActive && !fPreviewStarting);
 	fToolbar->SetActionEnabled(MSG_WEBCAM_STOP, hasWebcam && isActive);
 	fToolbar->SetActionEnabled(MSG_SCREENSHOT, isActive && fLastFrame != NULL);
 	fToolbar->SetActionEnabled(MSG_RECORD_START, isActive && !isRecording);
@@ -1430,6 +1509,14 @@ MainWindow::MessageReceived(BMessage* message)
 		case MSG_WEBCAM_START:
 			_StartPreview();
 			break;
+
+		case MSG_PREVIEW_STARTED:
+		{
+			status_t status = B_ERROR;
+			message->FindInt32("status", &status);
+			_FinishStartPreview(status);
+			break;
+		}
 
 		case MSG_WEBCAM_STOP:
 			_StopPreview();
@@ -2731,6 +2818,10 @@ MainWindow::_ForceStop()
 
 	fDriverCrashed = true;
 	fIsPreviewActive = false;
+	// Cancel any in-flight preview start: a stuck StartCapture thread is left
+	// to unwind on its own, and its completion (if it ever arrives) is ignored
+	// by _FinishStartPreview because fPreviewStarting is now false.
+	fPreviewStarting = false;
 
 	// LED off
 	fCamLED->SetBlinking(false);
@@ -3393,9 +3484,12 @@ MainWindow::QuitRequested()
 		}
 	}
 
-	if (driverFrozen || fDriverCrashed) {
-		// Driver is frozen/crashed - skip normal cleanup to avoid hanging
-		fprintf(stderr, "  Driver appears frozen/crashed - skipping Media Kit cleanup\n");
+	if (driverFrozen || fDriverCrashed || fPreviewStarting) {
+		// Driver is frozen/crashed, or a StartCapture is still running on the
+		// background thread - skip normal cleanup to avoid hanging or freeing a
+		// device the start thread is still inside. The shutdown and emergency
+		// watchdogs guarantee the process still exits.
+		fprintf(stderr, "  Driver frozen/crashed or start in flight - skipping Media Kit cleanup\n");
 
 		// Just mark as not capturing and let the OS clean up
 		{

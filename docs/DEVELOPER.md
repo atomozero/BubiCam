@@ -881,6 +881,20 @@ stack corruption).
 inchiodati. Un watchdog interno spawnato da `QuitRequested()` chiama
 `_exit()` dopo 10s se lo shutdown non completa.
 
+### Avvio preview asincrono
+
+Anche `StartCapture()` può bloccarsi a lungo (o per sempre) su un driver
+incompleto. `_StartPreview()` la esegue quindi su un thread di background e
+il completamento torna come `MSG_PREVIEW_STARTED` -> `_FinishStartPreview()`,
+così il window thread resta reattivo e l'app resta chiudibile durante un
+avvio bloccato. Il flag `fPreviewStarting` fa da guardia: blocca cambio
+device / refresh / re-avvio mentre l'avvio è in volo (il thread è dentro
+`StartCapture()` su quel device), fa saltare la pulizia in `QuitRequested()`
+per non liberare un device ancora in uso, e viene azzerato da `_ForceStop()`
+per ignorare un completamento tardivo. La UI node-dependent (menu Formato,
+Driver Info, pannello Controlli) viene popolata in `_FinishStartPreview()`,
+non più subito dopo la selezione.
+
 ### Livello 3: emergency exit watchdog
 
 `BubiCamApp` spawna all'avvio un thread low-priority indipendente che

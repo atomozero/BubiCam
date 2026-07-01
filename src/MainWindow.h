@@ -101,7 +101,8 @@ enum {
 	MSG_FULLSCREEN			= 'fscr',
 	MSG_AUDIO_SOURCE		= 'auds',
 	MSG_AUDIO_NONE			= 'audn',
-	MSG_STREAM_TOGGLE		= 'sttg'
+	MSG_STREAM_TOGGLE		= 'sttg',
+	MSG_PREVIEW_STARTED		= 'pvst'
 };
 
 
@@ -127,6 +128,7 @@ private:
 	void				_SelectWebcam(int32 index);
 	void				_SelectFormat(int32 index);
 	void				_StartPreview();
+	void				_FinishStartPreview(status_t status);
 	void				_StopPreview();
 	void				_UpdateDriverInfo();
 	void				_TakeScreenshot();
@@ -215,6 +217,7 @@ private:
 	bool				fDevVideoWatching;
 	int32				fSelectedAudioNodeID;  // -1 = auto, 0 = none, >0 = specific node
 	bool				fIsPreviewActive;
+	bool				fPreviewStarting;	// StartCapture running on bg thread
 	bool				fChangingResolution;
 
 	BFilePanel*			fSavePanel;
