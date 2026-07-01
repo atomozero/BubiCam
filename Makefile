@@ -50,7 +50,12 @@ DEBUGGER :=
 
 COMPILER_FLAGS =
 
-LINKER_FLAGS = -Wl,-rpath,'$$ORIGIN'
+# Runtime library search for libwebcam.so:
+#  1. the real build dir (relative to the binary) - used during development so
+#     the app always loads the freshly built libwebcam.so and can never run a
+#     stale copy sitting next to it (that skew caused a double-free crash);
+#  2. $ORIGIN - used for distribution, where libwebcam.so ships next to BubiCam.
+LINKER_FLAGS = -Wl,-rpath,'$$ORIGIN/../lib/libwebcam/objects.x86_64-cc13-release' -Wl,-rpath,'$$ORIGIN'
 
 DRIVER_PATH =
 
