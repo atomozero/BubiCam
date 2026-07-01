@@ -1,126 +1,93 @@
 # BubiCam
 
-Webcam tester for Haiku OS. Useful for testing and debugging USB webcam drivers.
+Native webcam tester for Haiku OS: preview, record, and stress-test USB webcams to debug drivers, inspect UVC descriptors, and diagnose capture problems without leaving the desktop.
 
-![BubiCam Screenshot](img/screenshot200.png)
+![BubiCam on Haiku](img/screenshot200.png)
+
+If BubiCam saves you time, consider supporting development: [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-atomozero-yellow?logo=buymeacoffee)](https://buymeacoffee.com/atomozero)
+
 
 ## Features
 
-### Video
-- Live video preview with FPS, frame count, and drop stats
-- MJPEG decompression via libjpeg-turbo
-- YUV422, YUV420, NV12, NV21, UYVY format conversions (SSE2-optimized)
-- Zoom (1x-8x) with mouse wheel, pan with click-drag
-- RGB histogram overlay (Cmd+H)
-- A/B format comparison (capture reference, split-view side-by-side)
-- Grid overlay (rule of thirds, center crosshair)
-- Fullscreen mode (Enter)
-- Floating always-on-top preview window
+* Live video preview with FPS, frame count, and drop stats
+* MJPEG decode plus SSE2-optimized YUV422/420, NV12/NV21, and UYVY conversions
+* Zoom (1x-8x), pan, RGB histogram, grid overlay, and A/B format comparison
+* Fullscreen mode and a floating always-on-top preview
+* Video recording to AVI (Motion JPEG) with audio, time-lapse, and circular "save last N seconds" buffer
+* Screenshot (PNG) and raw pre-conversion frame export for driver debugging
+* Audio VU meter and selectable audio source (webcam mic, system input, or none)
+* Driver test suite: stress, latency, format benchmark, memory leak, and hot-plug cycle tests
+* Export test results and diagnostic reports as CSV or JSON
+* Driver/USB device info, UVC descriptor parsing, and a filtered syslog monitor
+* MJPEG HTTP streaming, Deskbar and Desktop replicants, and a virtual webcam for other apps
+* MCP server (port 9847) for Claude Code integration and `hey` scripting support
+* Headless command-line mode, system theme support, and localization (EN, IT, DE, ZH, JA)
+* Reusable `libwebcam.so` shared library with a public API in `lib/libwebcam/include/`
 
-### Recording
-- Video recording to AVI (Motion JPEG) with audio
-- Time-lapse capture with configurable interval
-- Circular buffer for retroactive "save last N seconds"
-- Screenshot capture (PNG)
+## Quick start
 
-### Audio
-- Audio VU meter for built-in microphones
-- Audio source selection (webcam mic, system input, or none)
-- Audio recording integrated into AVI output
+```
+make
+./objects.x86_64-cc13-release/BubiCam
+```
 
-### Driver Testing
-- Stress test (repeated start/stop cycles)
-- Latency test (capture-to-display timing)
-- Format benchmark (compare performance across formats)
-- Memory leak test
-- Cycle test (connect/disconnect hot-plug robustness)
-- Export test results as CSV or JSON with timestamps
-- Diagnostic report generation for bug reports
+Then:
+1. Select a webcam from the **Webcam** menu
+2. Click **Start** to begin the live preview
+3. Check the **Driver Info** tab for device details and **Controls** to adjust settings
+4. Use the **Testing** tab to run the driver test suite
 
-### Device Info
-- Driver and USB device info display
-- UVC descriptor parsing
-- Syslog monitor (filtered for USB/webcam messages)
-- USB packet inspection
-- Webcam controls (brightness, contrast, etc.)
-- Export driver info (text/JSON)
-- Raw frame export for driver debugging
+Run headless (no GUI) with:
 
-### Integration
-- MCP server (port 9847) for Claude Code integration
-- Deskbar replicant with status LED
-- Desktop replicant with live preview
-- MJPEG HTTP streaming server for browser viewing
-- Virtual webcam (BMediaAddOn) as source for other apps
-- System notifications for events
-- `hey` scripting support
-- Localization (EN, IT, DE, ZH, JA)
-- Headless command-line mode (`bubicam --headless`)
-- System theme support (adapts to dark/light themes)
+```
+./objects.x86_64-cc13-release/BubiCam --headless
+```
 
-### Library
-- `libwebcam.so` reusable shared library with public API in `lib/libwebcam/include/`
+### Shortcuts
+
+| Key | Action | Key | Action |
+|-----|--------|-----|--------|
+| Cmd+R | Refresh devices | Cmd+H | Toggle histogram |
+| Cmd+S | Start preview | Cmd+G | Toggle grid overlay |
+| Cmd+T | Stop preview | Cmd+B | Capture reference frame |
+| Cmd+P | Screenshot | Cmd+Shift+B | A/B compare mode |
+| Cmd+E | Export info | Cmd+0 | Reset zoom |
+| Cmd+L | Clear syslog | Enter / Esc | Enter / exit fullscreen |
 
 ## Build
 
-```bash
-make
+Requires Haiku with GCC and standard system libraries (`libbe`, `libmedia`,
+`libdevice`, `libtracker`, `libnetwork`, `libjpeg`). The bundled
+`libwebcam.so` is built automatically.
+
 ```
-
-## Install
-
-```bash
-make install
+make               # build the app and libwebcam.so
+make install       # install to ~/config/apps/
+make clean && make # clean rebuild
 ```
 
 Or copy `objects.x86_64-cc13-release/BubiCam` to `~/config/apps/`.
 
-## Usage
-
-1. Select a webcam from the **Webcam** menu
-2. Click **Start** to begin preview
-3. Check **Driver Info** tab for device details
-4. Use **Controls** tab to adjust settings
-
-### Shortcuts
-
-| Key | Action |
-|-----|--------|
-| Cmd+R | Refresh devices |
-| Cmd+S | Start preview |
-| Cmd+T | Stop preview |
-| Cmd+P | Screenshot |
-| Cmd+E | Export info |
-| Cmd+H | Toggle histogram |
-| Cmd+G | Toggle grid overlay |
-| Cmd+B | Capture reference frame |
-| Cmd+Shift+B | A/B compare mode |
-| Cmd+0 | Reset zoom |
-| Cmd+L | Clear syslog |
-| Cmd+Shift+M | Restart media services |
-| Enter | Fullscreen video |
-| Escape | Exit fullscreen |
-
 ## Troubleshooting
 
-**No webcams found**: Check `listusb` output and syslog for driver messages.
-
-**"Name not found" error**: Use Tools > Restart Media Services.
-
-**Preview not working**: Check syslog for errors. Try restarting media services.
-
-**No video frames (bandwidth issue)**: The UVC driver may have selected insufficient USB bandwidth. BubiCam will detect this after 4 seconds and offer to switch to a lower resolution. Check syslog for `WaitFrame TIMEOUT` messages.
-
-**Kernel panic on stop/start**: Haiku's USB stack can panic with "USB object did not become idle!" when isochronous pipes are torn down too quickly. BubiCam includes a 1-second settle delay to mitigate this, but the root cause is a kernel bug.
-
-**App appears frozen / unkillable**: BubiCam has three levels of safety nets. If the UI stops responding, wait up to 15 seconds -- the emergency exit watchdog will force-terminate the process. If you don't want to wait, `kill -9` works once the watchdog has done its job.
+* **No webcams found** — check `listusb` output and the syslog for driver messages.
+* **"Name not found" error** — use Tools → Restart Media Services.
+* **No video frames** — the UVC driver may have chosen insufficient USB bandwidth; BubiCam detects this after 4 seconds and offers a lower resolution. Look for `WaitFrame TIMEOUT` in the syslog.
+* **App appears frozen** — wait up to 15 seconds; the emergency-exit watchdog force-terminates the process (a `kill -9` also works afterwards).
 
 ## Documentation
 
-- [Developer Guide](docs/DEVELOPER.md) -- architecture, internals, build details
-- [Roadmap](docs/ROADMAP_v2.md) -- planned features and direction
-- [Comparison](docs/COMPARISON.md) -- BubiCam vs Cortex vs CodyCam
-- [libwebcam API](docs/libwebcam/README.md) -- reusable capture library
+* [Developer Guide](docs/DEVELOPER.md) — architecture, internals, build details
+* [Roadmap](docs/ROADMAP_v2.md) — planned features and direction
+* [Comparison](docs/COMPARISON.md) — BubiCam vs Cortex vs CodyCam
+* [libwebcam API](docs/libwebcam/README.md) — reusable capture library
+
+## Be careful
+> **Developer's Note**: This software may contain traces of peanuts and LLM. It has been developed with passion for the Haiku platform.
+
+## Support
+
+If you find this project useful, you can buy me a coffee: [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-atomozero-yellow?logo=buymeacoffee)](https://buymeacoffee.com/atomozero)
 
 ## License
 
