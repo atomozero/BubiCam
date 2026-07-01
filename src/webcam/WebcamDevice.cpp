@@ -865,11 +865,22 @@ WebcamDevice::StopCapture()
 		roster->Disconnect(audioOutput.node.node, audioOutput.source,
 			audioInput.node.node, audioInput.destination);
 
-	// Unregister consumers
-	if (videoConsumer != NULL && videoConsumerNode.node > 0)
-		roster->UnregisterNode(videoConsumer);
-	if (audioConsumer != NULL && audioConsumerNode.node > 0)
-		roster->UnregisterNode(audioConsumer);
+	// Unregister AND delete consumers. UnregisterNode does not free the node;
+	// deleting it stops the BMediaEventLooper control thread and releases the
+	// BBufferGroup and bitmaps (see ~VideoConsumer/~AudioConsumer). Without the
+	// delete, every start/stop cycle leaked a node, its control thread, the
+	// 3-buffer group and up to 4 BBitmaps - unbounded for a tool built around
+	// rapid start/stop cycling. The error paths already delete; this matches them.
+	if (videoConsumer != NULL) {
+		if (videoConsumerNode.node > 0)
+			roster->UnregisterNode(videoConsumer);
+		delete videoConsumer;
+	}
+	if (audioConsumer != NULL) {
+		if (audioConsumerNode.node > 0)
+			roster->UnregisterNode(audioConsumer);
+		delete audioConsumer;
+	}
 
 	// Release the audio producer node (separately instantiated)
 	if (hadAudioProducer) {

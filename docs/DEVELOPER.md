@@ -914,6 +914,10 @@ copiano il target locale sotto lock, rilasciano, poi postano fuori dal lock.
   conversione (previene buffer overrun su frame troncati dal driver)
 - Distruttori `VideoConsumer`/`AudioConsumer` fanno `wait_for_thread(ControlThread())`
   dopo `Quit()` prima di distruggere risorse condivise
+- `StopCapture()` fa `delete` dei consumer dopo `UnregisterNode()` (che non li
+  libera): senza, ogni ciclo start/stop leakava un nodo, il suo control thread,
+  il `BBufferGroup` a 3 buffer e fino a 4 `BBitmap` -- perdita illimitata per uno
+  strumento pensato per ciclare rapidamente start/stop
 - `VideoConsumer::_SendFrameToTarget()` posta una **copia di proprietà** del frame
   invece del puntatore al buffer condiviso `fDisplayBitmap`/`fBitmap[]`: quel
   buffer viene riusato (e cancellato/ricreato al cambio risoluzione) dal control
