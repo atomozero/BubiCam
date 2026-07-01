@@ -320,8 +320,11 @@ MainWindow::_BuildMenu()
 
 	// Format menu
 	fFormatMenu = new BMenu(B_TRANSLATE("Format"));
-	fFormatMenu->SetEnabled(false);
 	fMenuBar->AddItem(fFormatMenu);
+	// Disable AFTER adding to the bar so the superitem (the label painted in the
+	// menu bar) picks up the state. Calling SetEnabled before AddItem left the
+	// superitem out of sync, so the label rendered greyed until first clicked.
+	fFormatMenu->SetEnabled(false);
 
 	// Control menu
 	fControlMenu = new BMenu(B_TRANSLATE("Control"));
@@ -643,6 +646,8 @@ MainWindow::_PopulateFormatMenu()
 
 	if (fCurrentWebcam == NULL) {
 		fFormatMenu->SetEnabled(false);
+		if (fMenuBar != NULL)
+			fMenuBar->Invalidate();
 		return;
 	}
 
@@ -678,6 +683,10 @@ MainWindow::_PopulateFormatMenu()
 	}
 
 	fFormatMenu->SetEnabled(true);
+	// Force the menu bar to repaint the "Format" label with its new enabled
+	// state; SetEnabled alone can leave it visually stale until first clicked.
+	if (fMenuBar != NULL)
+		fMenuBar->Invalidate();
 }
 
 
