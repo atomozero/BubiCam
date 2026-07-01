@@ -104,6 +104,9 @@ private:
 	BString				_ExtractJsonObject(const BString& json,
 							const char* key);
 
+	// Close the in-flight client socket (thread-safe, single close)
+	void				_CloseClientSocket();
+
 	// Logging
 	void				_Log(const char* format, ...);
 
@@ -121,6 +124,7 @@ private:
 	uint16				fPort;
 	thread_id			fListenerThread;
 	int					fServerSocket;
+	std::atomic<int>	fClientSocket;	// in-flight client, -1 when idle
 
 	std::atomic<int32>	fConnectedClients;	// Thread-safe counters
 	std::atomic<int32>	fTotalRequests;

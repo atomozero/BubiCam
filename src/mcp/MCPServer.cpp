@@ -26,6 +26,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 // Base64 encoding table
@@ -72,6 +73,7 @@ MCPServer::MCPServer(BMessenger target)
 	fPort(9847),
 	fListenerThread(-1),
 	fServerSocket(-1),
+	fClientSocket(-1),
 	fConnectedClients(0),
 	fTotalRequests(0),
 	fTotalErrors(0)
@@ -202,6 +204,10 @@ MCPServer::Stop()
 		fServerSocket = -1;
 	}
 
+	// Force-close any in-flight client to unblock a recv()/send() the listener
+	// may be stuck in, so wait_for_thread() below returns promptly.
+	_CloseClientSocket();
+
 	// Wait for listener thread
 	if (fListenerThread >= 0) {
 		status_t status;
@@ -261,6 +267,17 @@ MCPServer::_UnlockDevice()
 
 
 void
+MCPServer::_CloseClientSocket()
+{
+	// Atomically claim the fd so only one caller (listener or Stop) closes it,
+	// avoiding a double-close that could hit an unrelated recycled descriptor.
+	int fd = fClientSocket.exchange(-1);
+	if (fd >= 0)
+		close(fd);
+}
+
+
+void
 MCPServer::MessageReceived(BMessage* message)
 {
 	switch (message->what) {
@@ -300,6 +317,18 @@ MCPServer::_ListenerThread(void* data)
 			continue;
 		}
 
+		// Bound every recv()/send() on this client so a stalled or silent
+		// client can't wedge the (single) listener thread forever - which would
+		// also hang Stop()'s wait_for_thread and make the app unkillable.
+		struct timeval tv;
+		tv.tv_sec = 10;
+		tv.tv_usec = 0;
+		setsockopt(clientSocket, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+		setsockopt(clientSocket, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+
+		// Publish the fd so Stop() can force-close it and unblock us at once.
+		server->fClientSocket.store(clientSocket);
+
 		++server->fConnectedClients;
 		server->_Log("Client connected from %s",
 			inet_ntoa(clientAddr.sin_addr));
@@ -308,7 +337,7 @@ MCPServer::_ListenerThread(void* data)
 		server->_HandleConnection(clientSocket);
 
 		--server->fConnectedClients;
-		close(clientSocket);
+		server->_CloseClientSocket();
 	}
 
 	return 0;
