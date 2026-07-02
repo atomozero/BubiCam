@@ -951,15 +951,24 @@ WebcamDevice::StopCapture()
 	// delete, every start/stop cycle leaked a node, its control thread, the
 	// 3-buffer group and up to 4 BBitmaps - unbounded for a tool built around
 	// rapid start/stop cycling. The error paths already delete; this matches them.
+	// Delete only once the consumer's control thread has really exited; if it is
+	// stuck (frozen driver in a slow decode), leak the whole consumer rather
+	// than free its buffers/bitmaps out from under the running thread (UAF).
 	if (videoConsumer != NULL) {
 		if (videoConsumerNode.node > 0)
 			roster->UnregisterNode(videoConsumer);
-		delete videoConsumer;
+		if (videoConsumer->StopAndJoin())
+			delete videoConsumer;
+		else
+			LOG_WARNING("Leaking VideoConsumer: control thread did not exit");
 	}
 	if (audioConsumer != NULL) {
 		if (audioConsumerNode.node > 0)
 			roster->UnregisterNode(audioConsumer);
-		delete audioConsumer;
+		if (audioConsumer->StopAndJoin())
+			delete audioConsumer;
+		else
+			LOG_WARNING("Leaking AudioConsumer: control thread did not exit");
 	}
 
 	// Release the audio producer node (separately instantiated), unless its stop

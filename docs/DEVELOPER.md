@@ -955,6 +955,11 @@ copiano il target locale sotto lock, rilasciano, poi postano fuori dal lock.
   conversione (previene buffer overrun su frame troncati dal driver)
 - Distruttori `VideoConsumer`/`AudioConsumer` fanno `wait_for_thread(ControlThread())`
   dopo `Quit()` prima di distruggere risorse condivise
+- `StopCapture()` chiama `consumer->StopAndJoin()` e **cancella il consumer solo
+  se il control thread è davvero uscito**; se è bloccato (driver frozen in un
+  decode lento) leaka l'intero consumer invece di liberare i suoi buffer/bitmap
+  sotto un thread ancora attivo -- prima il distruttore, sul timeout di 2s,
+  liberava comunque (use-after-free)
 - `StopCapture()` fa `delete` dei consumer dopo `UnregisterNode()` (che non li
   libera): senza, ogni ciclo start/stop leakava un nodo, il suo control thread,
   il `BBufferGroup` a 3 buffer e fino a 4 `BBitmap` -- perdita illimitata per uno

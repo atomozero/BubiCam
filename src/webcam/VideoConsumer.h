@@ -102,6 +102,13 @@ public:
 	status_t			CreateBuffers(const media_format& format);
 	void				DeleteBuffers();
 
+	// Quit the event looper and wait (bounded) for its control thread to exit.
+	// Returns true if it exited (safe to delete this consumer), false if it is
+	// still stuck - in which case the caller must LEAK the consumer rather than
+	// delete it, or the still-running thread would touch freed buffers/bitmaps.
+	// Idempotent.
+	bool				StopAndJoin(bigtime_t timeout = 2000000);
+
 private:
 	void				_HandleBuffer(BBuffer* buffer);
 	void				_ConvertBuffer(BBuffer* buffer, BBitmap* destBitmap);
@@ -155,6 +162,9 @@ private:
 	uint32				fFramesDropped;
 	float				fCurrentFPS;
 	bigtime_t			fLastFrameTime;
+
+	// True once StopAndJoin() has quit the looper (makes it idempotent).
+	bool				fJoined;
 
 	// Latency
 	bigtime_t			fInternalLatency;

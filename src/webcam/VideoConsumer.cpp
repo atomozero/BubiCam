@@ -71,6 +71,7 @@ VideoConsumer::VideoConsumer(const char* name, BLooper* target,
 	fFramesDropped(0),
 	fCurrentFPS(0.0f),
 	fLastFrameTime(0),
+	fJoined(false),
 	fInternalLatency(kMaxLatency)
 {
 	// Initialize all bitmap and buffer pointers to NULL
@@ -88,35 +89,43 @@ VideoConsumer::VideoConsumer(const char* name, BLooper* target,
 }
 
 
+bool
+VideoConsumer::StopAndJoin(bigtime_t timeout)
+{
+	if (fJoined)
+		return true;
+	fJoined = true;
+
+	thread_id looperThread = ControlThread();
+	Quit();
+	if (looperThread < 0)
+		return true;
+
+	bigtime_t deadline = system_time() + timeout;
+	while (system_time() < deadline) {
+		thread_info info;
+		if (get_thread_info(looperThread, &info) != B_OK) {
+			status_t exitValue;
+			wait_for_thread(looperThread, &exitValue);
+			return true;
+		}
+		snooze(50000);  // 50ms
+	}
+	return false;  // control thread still running
+}
+
+
 VideoConsumer::~VideoConsumer()
 {
 	LOG_DEBUG("~VideoConsumer cleanup");
 
-	// Stop the event looper and wait for its thread to exit
-	// before deleting any shared resources
-	{
-		thread_id looperThread = ControlThread();
-		Quit();
-		if (looperThread >= 0) {
-			// Wait with timeout to prevent hang on exit
-			bigtime_t deadline = system_time() + 2000000;  // 2 seconds
-			bool exited = false;
-			while (system_time() < deadline) {
-				thread_info info;
-				if (get_thread_info(looperThread, &info) != B_OK) {
-					exited = true;
-					break;
-				}
-				snooze(50000);  // 50ms
-			}
-			if (exited) {
-				status_t exitValue;
-				wait_for_thread(looperThread, &exitValue);
-			} else {
-				LOG_WARNING("VideoConsumer looper thread did not exit in time");
-			}
-		}
-	}
+	// The control thread must be gone before we free the shared buffers/bitmap
+	// it touches. StopCapture calls StopAndJoin() first and only deletes us when
+	// it returned true, so reaching here normally means the thread exited. If it
+	// didn't (a direct delete on an error path), warn - freeing below would race
+	// a live thread.
+	if (!StopAndJoin())
+		LOG_WARNING("~VideoConsumer: control thread still live at delete");
 
 	DeleteBuffers();
 

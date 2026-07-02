@@ -63,6 +63,12 @@ public:
 	void				SetAudioSink(AudioSink* sink);
 	void				ClearAudioSink();
 
+	// Quit the event looper and wait (bounded) for its control thread to exit.
+	// Returns true if it exited (safe to delete), false if still stuck - the
+	// caller must then LEAK this consumer rather than free it under a live
+	// thread. Idempotent.
+	bool				StopAndJoin(bigtime_t timeout = 2000000);
+
 private:
 	void				_HandleBuffer(BBuffer* buffer);
 	void				_CalculateLevels(const void* data, size_t size,
@@ -100,6 +106,9 @@ private:
 	// Reusable byte-swap scratch (big-endian sources only)
 	uint8*				fSwapScratch;
 	size_t				fSwapScratchSize;
+
+	// True once StopAndJoin() has quit the looper (makes it idempotent).
+	bool				fJoined;
 };
 
 #endif // AUDIO_CONSUMER_H

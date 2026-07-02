@@ -40,38 +40,47 @@ AudioConsumer::AudioConsumer(const char* name, BLooper* target,
 	fLevelLogCount(0),
 	fSink(NULL),
 	fSwapScratch(NULL),
-	fSwapScratchSize(0)
+	fSwapScratchSize(0),
+	fJoined(false)
 {
 	fInput = media_input();
 	fFormat = media_format();
 }
 
 
-AudioConsumer::~AudioConsumer()
+bool
+AudioConsumer::StopAndJoin(bigtime_t timeout)
 {
-	// Stop the event looper and wait for its thread to exit
-	// before destroying member locks/state
+	if (fJoined)
+		return true;
+	fJoined = true;
+
 	thread_id looperThread = ControlThread();
 	Quit();
-	if (looperThread >= 0) {
-		// Wait with timeout to prevent hang on exit
-		bigtime_t deadline = system_time() + 2000000;  // 2 seconds
-		bool exited = false;
-		while (system_time() < deadline) {
-			thread_info info;
-			if (get_thread_info(looperThread, &info) != B_OK) {
-				exited = true;
-				break;
-			}
-			snooze(50000);  // 50ms
-		}
-		if (exited) {
+	if (looperThread < 0)
+		return true;
+
+	bigtime_t deadline = system_time() + timeout;
+	while (system_time() < deadline) {
+		thread_info info;
+		if (get_thread_info(looperThread, &info) != B_OK) {
 			status_t exitValue;
 			wait_for_thread(looperThread, &exitValue);
-		} else {
-			fprintf(stderr, "AudioConsumer: looper thread did not exit in time\n");
+			return true;
 		}
+		snooze(50000);  // 50ms
 	}
+	return false;  // control thread still running
+}
+
+
+AudioConsumer::~AudioConsumer()
+{
+	// The control thread must be gone before we free the swap scratch it uses.
+	// StopCapture calls StopAndJoin() first and only deletes us on success, so
+	// reaching here normally means the thread exited.
+	if (!StopAndJoin())
+		fprintf(stderr, "~AudioConsumer: control thread still live at delete\n");
 
 	delete[] fSwapScratch;
 }
