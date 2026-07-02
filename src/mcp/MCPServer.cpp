@@ -636,6 +636,9 @@ MCPServer::_ToolCaptureFrame(const BString& arguments)
 
 	// Convert to PNG
 	BTranslatorRoster* roster = BTranslatorRoster::Default();
+	if (roster == NULL)
+		return "{\"error\":\"Translation kit unavailable\"}";
+
 	BBitmapStream stream(bitmap);
 	BMallocIO output;
 
