@@ -191,13 +191,37 @@ VideoRecorder::AddFrame(BBitmap* bitmap)
 		frameSize = (uint32)jpegSize;
 	}
 
+	// AVI stores movi offsets and the RIFF size as 32-bit, so the file can't
+	// exceed 4 GB. Stop accepting frames a little before that instead of writing
+	// wrapped/garbage offsets; the next Stop() finalizes a valid file with what
+	// was written so far.
+	const off_t kMaxAVISize = 0xF0000000LL;  // ~3.75 GB, margin under 4 GB
+	if (fFile.Position() + (off_t)frameSize + 16 > kMaxAVISize) {
+		LOG_WARNING("Recording reached the ~4GB AVI limit; stopping");
+		fRecording = false;
+		free(jpegData);
+		return B_DEVICE_FULL;
+	}
+
 	// Write AVI chunk: '00dc' (compressed) or '00db' (raw) + size + data
 	off_t chunkStart = fFile.Position();
 	off_t frameOffset = chunkStart - fMoviDataStart;
 
 	_WriteFourCC(fCodec == VIDEO_CODEC_RAW ? "00db" : "00dc");
 	_WriteUInt32(frameSize);
-	fFile.Write(frameData, frameSize);
+	ssize_t wrote = fFile.Write(frameData, frameSize);
+	free(jpegData);
+	jpegData = NULL;
+
+	// A short write means the disk filled up (or an I/O error). Stop recording
+	// and do NOT index this partial chunk, so the file stays playable up to the
+	// last complete frame.
+	if (wrote != (ssize_t)frameSize) {
+		LOG_ERROR("Recording write failed (%zd/%u bytes, disk full?); stopping",
+			(ssize_t)wrote, (unsigned)frameSize);
+		fRecording = false;
+		return B_IO_ERROR;
+	}
 
 	// Pad to 2-byte boundary
 	if (frameSize & 1) {
@@ -212,7 +236,6 @@ VideoRecorder::AddFrame(BBitmap* bitmap)
 	fVideoIndex.AddItem(entry);
 
 	fFrameCount++;
-	free(jpegData);
 
 	return B_OK;
 }
@@ -226,13 +249,26 @@ VideoRecorder::AddAudioBuffer(const void* data, size_t size)
 	if (!fRecording || !fHasAudio || data == NULL || size == 0)
 		return B_NOT_ALLOWED;
 
+	// Same 4 GB AVI ceiling as video (see AddFrame).
+	const off_t kMaxAVISize = 0xF0000000LL;
+	if (fFile.Position() + (off_t)size + 16 > kMaxAVISize) {
+		LOG_WARNING("Recording reached the ~4GB AVI limit; stopping");
+		fRecording = false;
+		return B_DEVICE_FULL;
+	}
+
 	off_t chunkStart = fFile.Position();
 	off_t chunkOffset = chunkStart - fMoviDataStart;
 
 	// Write AVI audio chunk: '01wb' + size + data
 	_WriteFourCC("01wb");
 	_WriteUInt32((uint32)size);
-	fFile.Write(data, size);
+	ssize_t wrote = fFile.Write(data, size);
+	if (wrote != (ssize_t)size) {
+		LOG_ERROR("Recording audio write failed (disk full?); stopping");
+		fRecording = false;
+		return B_IO_ERROR;
+	}
 
 	// Pad to 2-byte boundary
 	if (size & 1) {
