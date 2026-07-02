@@ -31,6 +31,20 @@
 #include "ErrorUtils.h"
 
 
+// Post a test-completion message tagged with the posting thread's id, so a
+// stale completion from an already-stopped test can be ignored (a queued
+// MSG_TEST_COMPLETE from test A must not reset the state of a newly started
+// test B - it would orphan B's thread).
+static void
+_SendTestComplete(DriverTestView* view, TestResult* result)
+{
+	BMessage msg(MSG_TEST_COMPLETE);
+	msg.AddPointer("result", result);
+	msg.AddInt32("thread", find_thread(NULL));
+	BMessenger(view).SendMessage(&msg);
+}
+
+
 // ============================================================================
 // DropFrameGraphView - Visual graph of frame drops over time
 // ============================================================================
@@ -484,6 +498,15 @@ DriverTestView::MessageReceived(BMessage* message)
 		{
 			TestResult* result = NULL;
 			if (message->FindPointer("result", (void**)&result) == B_OK && result != NULL) {
+				// Ignore a completion from a thread that is no longer the current
+				// test (a stale message queued by an already-stopped test); it
+				// would otherwise reset a freshly started test's state.
+				int32 thread = -1;
+				message->FindInt32("thread", &thread);
+				if (thread != fTestThread) {
+					delete result;
+					break;
+				}
 				_TestComplete(result);
 			}
 			break;
@@ -833,9 +856,7 @@ DriverTestView::_StressTestThread(void* data)
 	}
 
 	// Send completion message
-	BMessage msg(MSG_TEST_COMPLETE);
-	msg.AddPointer("result", result);
-	BMessenger(view).SendMessage(&msg);
+	_SendTestComplete(view, result);
 
 	return 0;
 }
@@ -903,9 +924,7 @@ DriverTestView::_LatencyTestThread(void* data)
 		result->passed = false;
 		result->details.SetToFormat("Failed to start capture: %s", strerror(err));
 
-		BMessage msg(MSG_TEST_COMPLETE);
-		msg.AddPointer("result", result);
-		BMessenger(view).SendMessage(&msg);
+		_SendTestComplete(view, result);
 		return -1;
 	}
 
@@ -956,9 +975,7 @@ DriverTestView::_LatencyTestThread(void* data)
 		result->details = "No timing data collected - driver may not provide timestamps";
 	}
 
-	BMessage msg(MSG_TEST_COMPLETE);
-	msg.AddPointer("result", result);
-	BMessenger(view).SendMessage(&msg);
+	_SendTestComplete(view, result);
 
 	return 0;
 }
@@ -1014,9 +1031,7 @@ DriverTestView::_FormatTestThread(void* data)
 		result->passed = false;
 		result->details = "No formats available to test";
 
-		BMessage msg(MSG_TEST_COMPLETE);
-		msg.AddPointer("result", result);
-		BMessenger(view).SendMessage(&msg);
+		_SendTestComplete(view, result);
 		return -1;
 	}
 
@@ -1080,9 +1095,7 @@ DriverTestView::_FormatTestThread(void* data)
 	// Clear requested format
 	device->ClearRequestedFormat();
 
-	BMessage msg(MSG_TEST_COMPLETE);
-	msg.AddPointer("result", result);
-	BMessenger(view).SendMessage(&msg);
+	_SendTestComplete(view, result);
 
 	return 0;
 }
@@ -1146,9 +1159,7 @@ DriverTestView::_MemoryTestThread(void* data)
 		result->passed = false;
 		result->details.SetToFormat("Failed to start capture: %s", strerror(err));
 
-		BMessage msg(MSG_TEST_COMPLETE);
-		msg.AddPointer("result", result);
-		BMessenger(view).SendMessage(&msg);
+		_SendTestComplete(view, result);
 		return -1;
 	}
 
@@ -1221,9 +1232,7 @@ DriverTestView::_MemoryTestThread(void* data)
 		result->passed ? "No significant memory leak detected" :
 			"WARNING: Possible memory leak detected!");
 
-	BMessage msg(MSG_TEST_COMPLETE);
-	msg.AddPointer("result", result);
-	BMessenger(view).SendMessage(&msg);
+	_SendTestComplete(view, result);
 
 	return 0;
 }
@@ -1508,9 +1517,7 @@ DriverTestView::_CycleTestThread(void* data)
 		100.0f * (cycles - failures) / cycles);
 	result->details = details;
 
-	BMessage msg(MSG_TEST_COMPLETE);
-	msg.AddPointer("result", result);
-	BMessenger(view).SendMessage(&msg);
+	_SendTestComplete(view, result);
 
 	return 0;
 }
