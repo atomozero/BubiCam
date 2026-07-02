@@ -921,21 +921,27 @@ WebcamDevice::StopCapture()
 	// EHCI::FinishIsochronousTransfers (use-after-free of iTD).
 	snooze(kIsochronousDrainDelay);
 
-	// Stop nodes with timeout to prevent hanging on frozen drivers
+	// Stop nodes with timeout to prevent hanging on frozen drivers. Capture
+	// whether the PRODUCER stops timed out: if a StopNode worker is still stuck
+	// inside a frozen driver on that node, running Disconnect/ReleaseNode on the
+	// same node concurrently risks a use-after-free in media_addon_server, so we
+	// skip those and leak the wedged node instead.
+	status_t producerStop = B_OK;
+	status_t audioProducerStop = B_OK;
 	if (nodeWasInstantiated)
-		StopNodeWithTimeout(roster, producerNode);
+		producerStop = StopNodeWithTimeout(roster, producerNode);
 	if (hadAudioProducer)
-		StopNodeWithTimeout(roster, audioProducerNode);
+		audioProducerStop = StopNodeWithTimeout(roster, audioProducerNode);
 	if (videoConsumerNode.node > 0)
 		StopNodeWithTimeout(roster, videoConsumerNode);
 	if (audioConsumerNode.node > 0)
 		StopNodeWithTimeout(roster, audioConsumerNode);
 
-	// Disconnect
-	if (wasVideoConnected)
+	// Disconnect (skip the producer side if its stop timed out)
+	if (wasVideoConnected && producerStop != B_TIMED_OUT)
 		roster->Disconnect(videoOutput.node.node, videoOutput.source,
 			videoInput.node.node, videoInput.destination);
-	if (wasAudioConnected)
+	if (wasAudioConnected && audioProducerStop != B_TIMED_OUT)
 		roster->Disconnect(audioOutput.node.node, audioOutput.source,
 			audioInput.node.node, audioInput.destination);
 
@@ -956,14 +962,17 @@ WebcamDevice::StopCapture()
 		delete audioConsumer;
 	}
 
-	// Release the audio producer node (separately instantiated)
-	if (hadAudioProducer) {
+	// Release the audio producer node (separately instantiated), unless its stop
+	// timed out and a worker is still holding it.
+	if (hadAudioProducer && audioProducerStop != B_TIMED_OUT) {
 		roster->ReleaseNode(audioProducerNode);
 	}
 
-	// Release the video producer node
+	// Release the video producer node. On a timed-out stop we leak the wedged
+	// node rather than release it under a stuck StopNode; we still clear
+	// fNodeInstantiated so the next StartCapture instantiates a fresh one.
 	if (nodeWasInstantiated) {
-		if (!usedLiveNode)
+		if (!usedLiveNode && producerStop != B_TIMED_OUT)
 			roster->ReleaseNode(producerNode);
 		fNodeInstantiated = false;
 		fUsedLiveNode = false;
