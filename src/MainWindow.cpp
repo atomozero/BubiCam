@@ -2595,12 +2595,30 @@ MainWindow::_HandleFrameReceived(BMessage* message)
 }
 
 
-static int32
-_USBEmergencyExitThread(void* data)
+int32
+MainWindow::_USBEmergencyExitThread(void* data)
 {
-	// Wait 5 seconds then force-exit. _exit() bypasses all cleanup
-	// including stuck USB kernel calls that would hang forever.
+	MainWindow* self = static_cast<MainWindow*>(data);
+
+	// Wait 5 seconds, then force-exit. _exit() bypasses all cleanup including
+	// stuck USB kernel calls that would hang forever.
+	bigtime_t framesAtArm = self->fLastFrameReceived;
 	snooze(5000000);
+
+	// If frames resumed while we waited, the USB bus recovered - stand down
+	// instead of killing a working session.
+	if (self->fLastFrameReceived != framesAtArm) {
+		fprintf(stderr, "BubiCam: USB recovered, emergency exit cancelled\n");
+		return 0;
+	}
+
+	// Last-ditch: finalize an in-progress recording so it isn't lost. No frames
+	// have arrived for 20s, so nothing is writing to the recorder concurrently.
+	if (self->fRecorder != NULL && self->fRecorder->IsRecording()) {
+		fprintf(stderr, "BubiCam: finalizing recording before emergency exit\n");
+		self->fRecorder->Stop();
+	}
+
 	fprintf(stderr, "BubiCam: USB bus failure - emergency _exit()\n");
 	_exit(2);
 	return 0;
@@ -2783,7 +2801,7 @@ MainWindow::_CheckWatchdog()
 				"The application will exit to prevent a system hang.");
 
 			thread_id tid = spawn_thread(_USBEmergencyExitThread,
-				"usb_emergency_exit", B_LOW_PRIORITY, NULL);
+				"usb_emergency_exit", B_LOW_PRIORITY, this);
 			if (tid >= 0)
 				resume_thread(tid);
 

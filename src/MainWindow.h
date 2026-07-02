@@ -144,6 +144,7 @@ private:
 	void				_UpdateToolbarState();
 	void				_HandleFrameReceived(BMessage* message);
 	void				_CheckWatchdog();
+	static int32		_USBEmergencyExitThread(void* data);
 	void				_ForceStop();
 	void				_FactoryResetControls();
 	void				_RestartMediaServices();
