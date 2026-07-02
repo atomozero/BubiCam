@@ -2514,7 +2514,12 @@ MainWindow::_HandleFrameReceived(BMessage* message)
 	}
 
 	// Add to circular buffer if active
-	if (fCircularBufferActive && fLastFrame != NULL) {
+	// The JPEG packing below reads 4 bytes per pixel (BGRA); only run it on a
+	// 32-bit frame, or a driver-negotiated YUV/other buffer would overrun.
+	color_space bufCS = fLastFrame != NULL ? fLastFrame->ColorSpace()
+		: B_NO_COLOR_SPACE;
+	if (fCircularBufferActive && fLastFrame != NULL
+		&& (bufCS == B_RGB32 || bufCS == B_RGBA32)) {
 		BAutolock bufLock(fBufferLock);
 
 		// Compress to JPEG for memory efficiency

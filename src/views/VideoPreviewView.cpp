@@ -161,13 +161,22 @@ VideoPreviewView::Draw(BRect updateRect)
 			int32 bh = (int32)(fCurrentFrame->Bounds().Height() + 1);
 
 			if (px >= 0 && px < bw && py >= 0 && py < bh) {
-				int32 bpr = fCurrentFrame->BytesPerRow();
-				const uint8* bits = (const uint8*)fCurrentFrame->Bits();
-				const uint8* pixel = bits + py * bpr + px * 4;
-				uint8 b = pixel[0], g = pixel[1], r = pixel[2], a = pixel[3];
+				uint8 r = 0, g = 0, b = 0;
+				color_space cs = fCurrentFrame->ColorSpace();
+				if (cs == B_RGB32 || cs == B_RGBA32) {
+					int32 bpr = fCurrentFrame->BytesPerRow();
+					const uint8* bits = (const uint8*)fCurrentFrame->Bits();
+					const uint8* pixel = bits + py * bpr + px * 4;
+					b = pixel[0]; g = pixel[1]; r = pixel[2];
+					uint8 a = pixel[3];
 
-				fInspectorInfo.SetToFormat("(%d, %d)  R:%d G:%d B:%d A:%d  #%02X%02X%02X",
-					px, py, r, g, b, a, r, g, b);
+					fInspectorInfo.SetToFormat("(%d, %d)  R:%d G:%d B:%d A:%d  #%02X%02X%02X",
+						px, py, r, g, b, a, r, g, b);
+				} else {
+					// Non-32-bit frame: reading px*4 would overrun the row.
+					fInspectorInfo.SetToFormat("(%d, %d)  [non-RGB32 frame]",
+						px, py);
+				}
 
 				// Draw crosshair
 				SetHighColor(255, 255, 0);
@@ -655,6 +664,12 @@ void
 VideoPreviewView::_ComputeHistogram()
 {
 	if (fCurrentFrame == NULL || !fCurrentFrame->IsValid())
+		return;
+
+	// The sampling loop reads 4 bytes per pixel; skip anything that isn't
+	// 32-bit so a driver-negotiated YUV/other frame can't overrun each row.
+	color_space cs = fCurrentFrame->ColorSpace();
+	if (cs != B_RGB32 && cs != B_RGBA32)
 		return;
 
 	memset(fHistR, 0, sizeof(fHistR));
