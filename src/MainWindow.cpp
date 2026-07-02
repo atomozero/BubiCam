@@ -144,6 +144,7 @@ MainWindow::MainWindow()
 	fVUMeter(NULL),
 	fWebcamControls(NULL),
 	fStatusBar(NULL),
+	fStreamStatus(NULL),
 	fRightTabView(NULL),
 	fToolbar(NULL),
 	fStatsResolution(NULL),
@@ -519,6 +520,11 @@ MainWindow::_BuildLayout()
 	fStatusBar = new BStringView("statusBar", "No webcam selected");
 	fStatusBar->SetExplicitMinSize(BSize(B_SIZE_UNSET, 20));
 
+	// Footer indicator: shown (green) only while the network MJPEG stream is up.
+	fStreamStatus = new BStringView("streamStatus", "");
+	fStreamStatus->SetAlignment(B_ALIGN_RIGHT);
+	fStreamStatus->SetExplicitMinSize(BSize(B_SIZE_UNSET, 20));
+
 	BView* statsBar = _BuildStatsBar();
 
 	// Create video box with toolbar, video and stats bar inside
@@ -581,7 +587,12 @@ MainWindow::_BuildLayout()
 		.Add(fMenuBar)
 		.AddStrut(8)
 		.Add(mainSplit)
-		.Add(fStatusBar)
+		.AddGroup(B_HORIZONTAL, B_USE_SMALL_SPACING)
+			.Add(fStatusBar)
+			.AddGlue()
+			.Add(fStreamStatus)
+			.SetInsets(B_USE_SMALL_INSETS, 0, B_USE_SMALL_INSETS, 0)
+		.End()
 		.SetInsets(0, 0, 0, 0);
 }
 
@@ -1128,6 +1139,7 @@ MainWindow::_FinishStartPreview(status_t status)
 			}
 		}
 	}
+	_UpdateStreamStatus();
 
 	// Now that the node is instantiated, refresh the node-dependent UI:
 	// format list, driver info, and the controls panel (GetParameterWebFor).
@@ -1260,6 +1272,32 @@ MainWindow::_UpdateStatsBar()
 		fStatsDropped->SetHighColor(200, 80, 80);  // Red
 	else
 		fStatsDropped->SetHighUIColor(B_PANEL_TEXT_COLOR);
+}
+
+
+void
+MainWindow::_UpdateStreamStatus()
+{
+	if (fStreamStatus == NULL)
+		return;
+
+	if (fStreamServer != NULL && fStreamServer->IsRunning()) {
+		int32 clients = fStreamServer->ClientCount();
+		BString text;
+		if (clients > 0) {
+			text.SetToFormat("\xE2\x97\x89 Network stream :%d \xC2\xB7 %d viewer%s",
+				(int)fStreamServer->Port(), (int)clients,
+				clients == 1 ? "" : "s");
+		} else {
+			text.SetToFormat("\xE2\x97\x89 Network stream :%d",
+				(int)fStreamServer->Port());
+		}
+		fStreamStatus->SetText(text.String());
+		fStreamStatus->SetHighColor(0, 160, 0);  // green = live
+	} else {
+		fStreamStatus->SetText("");
+	}
+	fStreamStatus->Invalidate();
 }
 
 
@@ -1708,6 +1746,7 @@ MainWindow::MessageReceived(BMessage* message)
 					fStatusBar->SetText("Failed to start stream server");
 				}
 			}
+			_UpdateStreamStatus();
 			break;
 		}
 
@@ -1715,6 +1754,7 @@ MainWindow::MessageReceived(BMessage* message)
 		{
 			fStreamMenuItem->SetLabel("Stop MJPEG Stream (Port 8080)");
 			fStreamMenuItem->SetMarked(true);
+			_UpdateStreamStatus();
 			break;
 		}
 
@@ -1722,6 +1762,7 @@ MainWindow::MessageReceived(BMessage* message)
 		{
 			fStreamMenuItem->SetLabel("Start MJPEG Stream (Port 8080)");
 			fStreamMenuItem->SetMarked(false);
+			_UpdateStreamStatus();
 			break;
 		}
 
@@ -1734,6 +1775,7 @@ MainWindow::MessageReceived(BMessage* message)
 					(int)count, count == 1 ? "" : "s");
 				fStatusBar->SetText(status.String());
 			}
+			_UpdateStreamStatus();
 			break;
 		}
 
@@ -1841,6 +1883,7 @@ MainWindow::MessageReceived(BMessage* message)
 			if (fStreamServer != NULL && !fStreamServer->IsRunning()) {
 				fStreamServer->Start(8080);
 				fStreamMenuItem->SetMarked(true);
+				_UpdateStreamStatus();
 			}
 
 			// Open a window with the replicant and its dragger.

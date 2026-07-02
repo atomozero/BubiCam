@@ -139,6 +139,7 @@ private:
 	BView*				_BuildStatsBar();
 	BTabView*			_BuildTabView();
 	void				_UpdateStatsBar();
+	void				_UpdateStreamStatus();
 	void				_UpdateToolbarState();
 	void				_HandleFrameReceived(BMessage* message);
 	void				_CheckWatchdog();
@@ -191,6 +192,7 @@ private:
 	VUMeterView*		fVUMeter;
 	WebcamControlsView*	fWebcamControls;
 	BStringView*		fStatusBar;
+	BStringView*		fStreamStatus;	// footer indicator: network stream active
 	BTabView*			fRightTabView;
 
 	// Split views (for layout persistence)
