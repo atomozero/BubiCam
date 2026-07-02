@@ -259,6 +259,14 @@ VideoRecorder::WriteAudio(const void* data, size_t size,
 	if (data == NULL || size == 0)
 		return;
 
+	// Called from the real-time audio thread. Hold fLock for the whole body so
+	// the fAudioScratch realloc/fill can't race Stop() or the destructor's
+	// delete[] (fLock is recursive, so the nested AddAudioBuffer lock is fine),
+	// and bail if recording already stopped so we never touch a freed scratch.
+	BAutolock lock(fLock);
+	if (!fRecording)
+		return;
+
 	if (format.format == media_raw_audio_format::B_AUDIO_FLOAT) {
 		// Convert 32-bit float to 16-bit PCM for AVI compatibility, reusing a
 		// scratch buffer to avoid allocating on the real-time audio thread.
