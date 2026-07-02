@@ -1595,7 +1595,7 @@ MainWindow::MessageReceived(BMessage* message)
 		}
 
 		case MSG_WEBCAM_STOP:
-			_StopPreview();
+			_StopPreviewAsync();
 			break;
 
 		case MSG_FRAME_RECEIVED:
@@ -3008,6 +3008,68 @@ MainWindow::_ForceStop()
 			"The webcam driver stopped responding. Preview was force-stopped.");
 	}
 	fStatusBar->SetHighUIColor(B_PANEL_TEXT_COLOR);
+}
+
+
+void
+MainWindow::_StopPreviewAsync()
+{
+	// Like _StopPreview, but runs the (bounded but multi-second) StopCapture on
+	// a background thread so the Stop button doesn't freeze the UI while the USB
+	// pipes settle. Used only for the user-initiated stop; the internal callers
+	// of _StopPreview need the synchronous teardown for start/stop ordering.
+	if (fIsFullscreen)
+		_ExitVideoFullscreen();
+
+	delete fWatchdogRunner;
+	fWatchdogRunner = NULL;
+	fWatchdogAlertShown = false;
+	fBandwidthAlertShown = false;
+
+	if (fRecorder != NULL && fRecorder->IsRecording())
+		_StopRecording();
+
+	if (fCurrentWebcam == NULL || !fIsPreviewActive) {
+		// Nothing capturing; a plain synchronous pass is instant here.
+		_StopPreview();
+		return;
+	}
+
+	WebcamDevice* deviceToStop = NULL;
+	{
+		BAutolock lock(fWebcamLock);
+		deviceToStop = fCurrentWebcam;
+	}
+	fIsPreviewActive = false;
+
+	if (deviceToStop != NULL) {
+		ForceStopData* fsd = new ForceStopData();
+		fsd->device = deviceToStop;
+		thread_id tid = spawn_thread(_ForceStopThread, "stop_capture",
+			B_LOW_PRIORITY, fsd);
+		if (tid >= 0) {
+			resume_thread(tid);
+		} else {
+			delete fsd;
+			deviceToStop->StopCapture();  // fallback: synchronous
+		}
+	}
+
+	fVideoPreview->ClearFrame();
+	fVUMeter->SetLevel(0.0f, 0.0f);
+	fCamLED->SetBlinking(false);
+	fCamLED->SetState(LED_RED);
+	fStatsResolution->SetText("---");
+	fStatsFPS->SetText("--- fps");
+	fStatsFrames->SetText("0 frames");
+	fStatsDropped->SetText("0 dropped");
+	fStatsDropped->SetHighUIColor(B_PANEL_TEXT_COLOR);
+	_UpdateToolbarState();
+
+	BString status;
+	status.SetToFormat("Stopped: %s",
+		deviceToStop != NULL ? deviceToStop->Name() : "");
+	fStatusBar->SetText(status.String());
 }
 
 

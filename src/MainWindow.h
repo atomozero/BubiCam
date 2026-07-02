@@ -131,6 +131,7 @@ private:
 	void				_StartPreview();
 	void				_FinishStartPreview(status_t status);
 	void				_StopPreview();
+	void				_StopPreviewAsync();
 	void				_UpdateDriverInfo();
 	void				_TakeScreenshot();
 	void				_ExportDriverInfo(bool asJson);
