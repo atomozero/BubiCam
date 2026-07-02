@@ -189,14 +189,14 @@ StreamServer::Stop()
 		fListenerThread = -1;
 	}
 
-	// Close all client connections
+	// Close all client connections (single-close guarded; the client threads
+	// close via the same helper, so there is no double-close race).
 	{
 		BAutolock lock(fClientLock);
 		for (int32 i = 0; i < fClients.CountItems(); i++) {
 			ClientInfo* client = fClients.ItemAt(i);
 			client->active = false;
-			if (client->socket >= 0)
-				close(client->socket);
+			_CloseClient(client);
 		}
 	}
 
@@ -280,6 +280,20 @@ StreamServer::SetMaxClients(int32 max)
 }
 
 
+// Close a client's socket exactly once. Both the client thread and Stop() may
+// try to close it; guarding with fClientLock and setting the fd to -1 ensures a
+// single close so a recycled descriptor can't be hit by a stale double-close.
+void
+StreamServer::_CloseClient(ClientInfo* client)
+{
+	BAutolock lock(fClientLock);
+	if (client->socket >= 0) {
+		close(client->socket);
+		client->socket = -1;
+	}
+}
+
+
 // ============================================================================
 // Listener thread - accepts incoming connections
 // ============================================================================
@@ -297,9 +311,15 @@ StreamServer::_ListenerThread(void* data)
 			(struct sockaddr*)&clientAddr, &clientLen);
 
 		if (clientSocket < 0) {
-			if (server->fRunning)
-				LOG_ERROR("Accept failed: %s", strerror(errno));
-			break;
+			// Stop() closing the listen socket is the only reason to exit.
+			if (!server->fRunning)
+				break;
+			// A transient accept() failure (EINTR, ECONNABORTED, a temporary
+			// resource shortage) must not kill the whole server; log, back off
+			// briefly to avoid a tight spin, and keep accepting.
+			LOG_ERROR("Accept failed: %s", strerror(errno));
+			snooze(50000);
+			continue;
 		}
 
 		// Set send timeout to prevent blocking on slow clients
@@ -437,7 +457,7 @@ StreamServer::_ClientThread(void* data)
 	snprintf(header, sizeof(header), kHTTPStreamResponse, kBoundary);
 	if (send(sock, header, strlen(header), 0) < 0) {
 		client->active = false;
-		close(sock);
+		server->_CloseClient(client);
 		server->fClientCount--;
 		return -1;
 	}
@@ -499,8 +519,7 @@ StreamServer::_ClientThread(void* data)
 	}
 
 	client->active = false;
-	close(sock);
-	client->socket = -1;
+	server->_CloseClient(client);
 	server->fClientCount--;
 
 	LOG_INFO("Stream client disconnected (%d remaining)",

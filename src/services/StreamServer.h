@@ -69,6 +69,7 @@ private:
 	status_t			_CompressJPEG(BBitmap* bitmap, uint8** outData,
 							unsigned long* outSize);
 	void				_RemoveDeadClients();
+	void				_CloseClient(ClientInfo* client);
 
 	BMessenger			fTarget;
 	std::atomic<bool>	fRunning;
