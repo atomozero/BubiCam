@@ -85,7 +85,10 @@ public:
 	float				CurrentFPS() const { return fCurrentFPS; }
 
 	// Frame access (for MCP server)
-	BBitmap*			GetCurrentFrame() const { return fDisplayBitmap; }
+	// Returns an OWNED deep copy of the current frame (caller must delete), or
+	// NULL. The copy is made under fDisplayLock so it can't tear across the
+	// control thread deleting/recreating fDisplayBitmap on a resolution change.
+	BBitmap*			GetCurrentFrame() const;
 
 	// Raw frame capture for debug/export
 	status_t			CaptureRawFrame(void** outData, size_t* outSize,
@@ -133,8 +136,11 @@ private:
 	BBitmap*			fBitmap[NUM_BUFFERS];
 	BBuffer*			fBufferMap[NUM_BUFFERS];
 
-	// Display bitmap (for format conversion if needed)
+	// Display bitmap (for format conversion if needed). fDisplayLock guards the
+	// POINTER against the control thread's delete/recreate on a resolution
+	// change vs. a concurrent GetCurrentFrame() copy (used by MCP/snapshot).
 	BBitmap*			fDisplayBitmap;
+	mutable BLocker		fDisplayLock;
 	int32				fBitmapWidth;
 	int32				fBitmapHeight;
 	color_space			fBitmapColorSpace;

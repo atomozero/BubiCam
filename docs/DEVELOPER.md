@@ -964,6 +964,12 @@ copiano il target locale sotto lock, rilasciano, poi postano fuori dal lock.
   di cambiare/azzerare `fDevice` (il thread di test cacha un `WebcamDevice*` che
   MainWindow sta per distruggere -- era use-after-free su refresh/hot-plug), e
   `_StartPreview()` ferma il test prima di avviare la preview
+- `VideoConsumer::GetCurrentFrame()` (usato da MCP `capture_frame` e `/snapshot`)
+  restituisce una **copia di proprietà** fatta sotto `fDisplayLock`, non più il
+  puntatore live `fDisplayBitmap`: prima MCP leggeva/traduceva quel bitmap dopo
+  aver rilasciato il device lock, mentre il control thread lo mutava e lo
+  ricreava al cambio risoluzione (use-after-free). `fDisplayLock` protegge lo
+  swap del puntatore (delete/recreate) contro la copia concorrente
 - `VideoConsumer::_SendFrameToTarget()` posta una **copia di proprietà** del frame
   invece del puntatore al buffer condiviso `fDisplayBitmap`/`fBitmap[]`: quel
   buffer viene riusato (e cancellato/ricreato al cambio risoluzione) dal control

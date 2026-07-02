@@ -423,6 +423,9 @@ MCPServer::_HandleConnection(int socket)
 			return;
 		}
 
+		// Owned deep copy taken under the consumer's display lock (see
+		// _ToolCaptureFrame); safe to use after unlock, and the stream below
+		// frees it on destruction (no DetachBitmap).
 		BBitmap* bitmap = device->GetCurrentFrame();
 		_UnlockDevice();
 
@@ -439,7 +442,6 @@ MCPServer::_HandleConnection(int socket)
 		status_t status = B_ERROR;
 		if (transRoster != NULL)
 			status = transRoster->Translate(&stream, NULL, NULL, &output, 'JPEG');
-		stream.DetachBitmap(&bitmap);
 
 		if (status == B_OK && output.BufferLength() > 0) {
 			BString header;
@@ -628,7 +630,10 @@ MCPServer::_ToolCaptureFrame(const BString& arguments)
 	if (device == NULL)
 		return "{\"error\":\"No webcam device available\"}";
 
-	// Get current frame from video consumer
+	// GetCurrentFrame() returns an OWNED deep copy taken under the consumer's
+	// display lock, so it is safe to use after unlocking the device and we must
+	// free it. (Previously it returned the live fDisplayBitmap and was read
+	// after unlock while the control thread mutated/recreated it - a UAF.)
 	BBitmap* bitmap = device->GetCurrentFrame();
 	_UnlockDevice();
 	if (bitmap == NULL)
@@ -636,9 +641,16 @@ MCPServer::_ToolCaptureFrame(const BString& arguments)
 
 	// Convert to PNG
 	BTranslatorRoster* roster = BTranslatorRoster::Default();
-	if (roster == NULL)
+	if (roster == NULL) {
+		delete bitmap;
 		return "{\"error\":\"Translation kit unavailable\"}";
+	}
 
+	int32 width = bitmap->Bounds().IntegerWidth() + 1;
+	int32 height = bitmap->Bounds().IntegerHeight() + 1;
+
+	// The stream takes ownership of our copy and frees it on destruction; we do
+	// NOT detach, so 'bitmap' is deleted on every return below.
 	BBitmapStream stream(bitmap);
 	BMallocIO output;
 
@@ -663,14 +675,10 @@ MCPServer::_ToolCaptureFrame(const BString& arguments)
 	}
 	delete[] translators;
 
-	if (pngTranslator == 0) {
-		stream.DetachBitmap(&bitmap);
+	if (pngTranslator == 0)
 		return "{\"error\":\"PNG translator not found\"}";
-	}
 
 	status_t status = roster->Translate(&stream, NULL, NULL, &output, 'PNG ');
-	stream.DetachBitmap(&bitmap);  // Don't let stream delete the bitmap
-
 	if (status != B_OK)
 		return "{\"error\":\"Failed to encode PNG\"}";
 
@@ -678,8 +686,8 @@ MCPServer::_ToolCaptureFrame(const BString& arguments)
 	BString base64 = Base64Encode((const uint8*)output.Buffer(), output.BufferLength());
 
 	BString result;
-	result << "{\"format\":\"png\",\"width\":" << bitmap->Bounds().IntegerWidth() + 1;
-	result << ",\"height\":" << bitmap->Bounds().IntegerHeight() + 1;
+	result << "{\"format\":\"png\",\"width\":" << width;
+	result << ",\"height\":" << height;
 	result << ",\"data\":\"" << base64 << "\"}";
 
 	return result;

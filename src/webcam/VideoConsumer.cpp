@@ -60,6 +60,7 @@ VideoConsumer::VideoConsumer(const char* name, BLooper* target,
 	fConnected(false),
 	fBuffers(NULL),
 	fDisplayBitmap(NULL),
+	fDisplayLock("display bitmap lock"),
 	fBitmapWidth(0),
 	fBitmapHeight(0),
 	fBitmapColorSpace(B_RGB32),
@@ -119,11 +120,36 @@ VideoConsumer::~VideoConsumer()
 
 	DeleteBuffers();
 
-	delete fDisplayBitmap;
-	fDisplayBitmap = NULL;
+	{
+		BAutolock lock(fDisplayLock);
+		delete fDisplayBitmap;
+		fDisplayBitmap = NULL;
+	}
 
 	delete[] fLastRawData;
 	fLastRawData = NULL;
+}
+
+
+BBitmap*
+VideoConsumer::GetCurrentFrame() const
+{
+	BAutolock lock(fDisplayLock);
+	if (fDisplayBitmap == NULL || !fDisplayBitmap->IsValid())
+		return NULL;
+
+	BBitmap* copy = new(std::nothrow) BBitmap(fDisplayBitmap->Bounds(),
+		fDisplayBitmap->ColorSpace());
+	if (copy == NULL || !copy->IsValid()) {
+		delete copy;
+		return NULL;
+	}
+
+	ssize_t bytes = fDisplayBitmap->BitsLength();
+	if (copy->BitsLength() < bytes)
+		bytes = copy->BitsLength();
+	memcpy(copy->Bits(), fDisplayBitmap->Bits(), bytes);
+	return copy;
 }
 
 
@@ -258,12 +284,15 @@ VideoConsumer::CreateBuffers(const media_format& format)
 
 	// Create a separate display bitmap for format conversion if needed
 	// This is used when the producer's format differs from what we can display
-	delete fDisplayBitmap;
-	fDisplayBitmap = new BBitmap(bounds, B_RGB32, false, false);
-	if (!fDisplayBitmap->IsValid()) {
-		LOG_WARNING("CreateBuffers: display bitmap failed (not fatal)");
+	{
+		BAutolock lock(fDisplayLock);
 		delete fDisplayBitmap;
-		fDisplayBitmap = NULL;
+		fDisplayBitmap = new BBitmap(bounds, B_RGB32, false, false);
+		if (!fDisplayBitmap->IsValid()) {
+			LOG_WARNING("CreateBuffers: display bitmap failed (not fatal)");
+			delete fDisplayBitmap;
+			fDisplayBitmap = NULL;
+		}
 	}
 
 	return B_OK;
@@ -1428,6 +1457,10 @@ VideoConsumer::_DecompressMJPEG(const uint8* src, size_t srcSize,
 	// If the JPEG dimensions differ from the display bitmap, recreate it
 	if (destBitmap == fDisplayBitmap
 		&& (jpegWidth != destWidth || jpegHeight != destHeight)) {
+		// Guard the pointer swap so a concurrent GetCurrentFrame() copy can't
+		// read a freed fDisplayBitmap. (The subsequent decode into it is not
+		// locked - a snapshot may tear, but never use-after-free.)
+		BAutolock lock(fDisplayLock);
 		delete fDisplayBitmap;
 		BRect newBounds(0, 0, jpegWidth - 1, jpegHeight - 1);
 		fDisplayBitmap = new BBitmap(newBounds, B_RGB32, false, false);
