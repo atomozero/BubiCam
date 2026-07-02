@@ -33,6 +33,7 @@ public:
 	void				SetResolution(int32 width, int32 height);
 	void				SetShowStats(bool show);
 	void				SetShowHistogram(bool show);
+	bool				ShowHistogram() const { return fShowHistogram; }
 	void				SetShowGrid(bool show);
 	bool				ShowGrid() const { return fShowGrid; }
 	void				SetGridMode(int32 mode);

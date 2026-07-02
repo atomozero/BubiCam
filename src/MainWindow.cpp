@@ -1854,13 +1854,13 @@ MainWindow::MessageReceived(BMessage* message)
 
 		case MSG_TOGGLE_HISTOGRAM:
 		{
-			// Toggle histogram overlay on the preview
-			static bool histogramShown = false;
-			histogramShown = !histogramShown;
-			fVideoPreview->SetShowHistogram(histogramShown);
+			// Toggle histogram overlay, reading the view's real state (a
+			// function-static bool would desync from it).
+			bool show = !fVideoPreview->ShowHistogram();
+			fVideoPreview->SetShowHistogram(show);
 			BMenuItem* item = fToolsMenu->FindItem(MSG_TOGGLE_HISTOGRAM);
 			if (item != NULL)
-				item->SetMarked(histogramShown);
+				item->SetMarked(show);
 			break;
 		}
 
@@ -2153,19 +2153,16 @@ MainWindow::MessageReceived(BMessage* message)
 					if (item != NULL)
 						item->SetMarked(false);
 				}
-				BMenuItem* srcItem = fAudioMenu->FindItem(message->what);
-				if (srcItem != NULL) {
-					// Find the item that sent this message
-					for (int32 i = 0; i < fAudioMenu->CountItems(); i++) {
-						BMenuItem* item = fAudioMenu->ItemAt(i);
-						if (item != NULL && item->Message() != NULL
-							&& item->Message()->what == MSG_AUDIO_SOURCE) {
-							int32 itemNodeID;
-							if (item->Message()->FindInt32("node_id", &itemNodeID) == B_OK
-								&& itemNodeID == nodeID) {
-								item->SetMarked(true);
-								break;
-							}
+				// Mark the audio item whose node_id matches the selection.
+				for (int32 i = 0; i < fAudioMenu->CountItems(); i++) {
+					BMenuItem* item = fAudioMenu->ItemAt(i);
+					if (item != NULL && item->Message() != NULL
+						&& item->Message()->what == MSG_AUDIO_SOURCE) {
+						int32 itemNodeID;
+						if (item->Message()->FindInt32("node_id", &itemNodeID) == B_OK
+							&& itemNodeID == nodeID) {
+							item->SetMarked(true);
+							break;
 						}
 					}
 				}

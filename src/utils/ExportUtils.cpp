@@ -273,7 +273,10 @@ BString
 ExportUtils::GetTimestamp()
 {
 	time_t now = time(NULL);
-	struct tm* tm = localtime(&now);
+	struct tm tmbuf;
+	struct tm* tm = localtime_r(&now, &tmbuf);
+	if (tm == NULL)
+		return BString("00000000-000000");
 
 	BString timestamp;
 	timestamp.SetToFormat("%04d-%02d-%02d_%02d-%02d-%02d",
