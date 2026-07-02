@@ -102,6 +102,7 @@ enum {
 	MSG_AUDIO_SOURCE		= 'auds',
 	MSG_AUDIO_NONE			= 'audn',
 	MSG_STREAM_TOGGLE		= 'sttg',
+	MSG_STREAM_LAN_TOGGLE	= 'slan',
 	MSG_PREVIEW_STARTED		= 'pvst'
 };
 

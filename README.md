@@ -19,8 +19,8 @@ If BubiCam saves you time, consider supporting development: [![Buy Me A Coffee](
 * Driver test suite: stress, latency, format benchmark, memory leak, and hot-plug cycle tests
 * Export test results and diagnostic reports as CSV or JSON
 * Driver/USB device info, UVC descriptor parsing, and a filtered syslog monitor
-* MJPEG HTTP streaming, Deskbar and Desktop replicants, and a virtual webcam for other apps
-* MCP server (port 9847) for Claude Code integration and `hey` scripting support
+* MJPEG HTTP streaming (localhost by default; opt-in "Allow LAN Access" in Tools), Deskbar and Desktop replicants, and a virtual webcam for other apps
+* MCP server (port 9847, localhost only) for Claude Code integration and `hey` scripting support
 * Headless command-line mode, system theme support, and localization (EN, IT, DE, ZH, JA)
 * Reusable `libwebcam.so` shared library with a public API in `lib/libwebcam/include/`
 
@@ -74,6 +74,7 @@ Or copy `objects.x86_64-cc13-release/BubiCam` to `~/config/apps/`.
 * **"Name not found" error** — use Tools → Restart Media Services.
 * **No video frames** — the UVC driver may have chosen insufficient USB bandwidth; BubiCam detects this after 4 seconds and offers a lower resolution. Look for `WaitFrame TIMEOUT` in the syslog.
 * **App appears frozen** — wait up to 15 seconds; the emergency-exit watchdog force-terminates the process (a `kill -9` also works afterwards).
+* **Can't reach the MJPEG stream from another device** — by default the stream (and the MCP server) bind to localhost only, so the webcam isn't exposed to the network. To watch from a phone or another PC, enable Tools → "Allow LAN Access to Stream" (it warns that anyone on the LAN can then view the camera, unauthenticated).
 * **Recording has no audio, or the media server crashes when enabling audio** — some Haiku audio drivers (notably HD Audio via `MultiAudioNode`) divide by `channel_count` in `Connect()` and hit a divide-by-zero that crashes `media_addon_server`. To stay safe, **Auto (Webcam Mic)** only uses the webcam's own microphone, so a webcam without a mic records video-only. Selecting the *system* audio input explicitly can still crash such a driver — if it happens, restart media services (Tools → Restart Media Services) or reboot to recover audio. This is a Haiku driver bug, not a BubiCam one.
 
 ## Documentation

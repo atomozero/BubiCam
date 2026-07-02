@@ -45,6 +45,11 @@ public:
 	void				SetMaxFPS(float fps);
 	void				SetMaxClients(int32 max);
 
+	// LAN exposure: false (default) binds to loopback only; true binds to all
+	// interfaces. Takes effect on the next Start() - restart to apply.
+	void				SetAllowLAN(bool allow) { fAllowLAN = allow; }
+	bool				AllowLAN() const { return fAllowLAN; }
+
 	// Statistics
 	int32				ClientCount() const { return fClientCount; }
 	uint32				FramesServed() const { return fFramesServed; }
@@ -89,6 +94,7 @@ private:
 
 	// Configuration
 	int					fJPEGQuality;
+	bool				fAllowLAN;	// bind all interfaces vs loopback only
 	std::atomic<uint32>	fFramesServed;
 };
 

@@ -145,7 +145,10 @@ MCPServer::Start(uint16 port)
 	struct sockaddr_in addr;
 	memset(&addr, 0, sizeof(addr));
 	addr.sin_family = AF_INET;
-	addr.sin_addr.s_addr = INADDR_ANY;
+	// Bind to loopback only. The MCP server exists for the local Claude Code
+	// integration; INADDR_ANY would let any host on the network - or a web page
+	// via DNS rebinding - drive webcam capture/reconfiguration unauthenticated.
+	addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 	addr.sin_port = htons(port);
 
 	if (bind(fServerSocket, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
@@ -374,9 +377,8 @@ MCPServer::_HandleConnection(int socket)
 	if (method == "OPTIONS") {
 		BString response;
 		response << "HTTP/1.1 200 OK\r\n";
-		response << "Access-Control-Allow-Origin: *\r\n";
-		response << "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n";
-		response << "Access-Control-Allow-Headers: Content-Type\r\n";
+		// No wildcard CORS: the server is loopback-only and its clients are not
+		// browsers, so cross-origin access is neither needed nor desirable.
 		response << "Content-Length: 0\r\n";
 		response << "\r\n";
 		send(socket, response.String(), response.Length(), 0);
@@ -428,7 +430,6 @@ MCPServer::_HandleConnection(int socket)
 			header << "HTTP/1.1 200 OK\r\n";
 			header << "Content-Type: image/jpeg\r\n";
 			header << "Content-Length: " << output.BufferLength() << "\r\n";
-			header << "Access-Control-Allow-Origin: *\r\n";
 			header << "Connection: close\r\n";
 			header << "\r\n";
 			send(socket, header.String(), header.Length(), 0);
@@ -472,7 +473,6 @@ MCPServer::_SendHTTPResponse(int socket, int statusCode, const char* statusText,
 	response << "HTTP/1.1 " << statusCode << " " << statusText << "\r\n";
 	response << "Content-Type: " << contentType << "\r\n";
 	response << "Content-Length: " << body.Length() << "\r\n";
-	response << "Access-Control-Allow-Origin: *\r\n";
 	response << "Connection: close\r\n";
 	response << "\r\n";
 	response << body;

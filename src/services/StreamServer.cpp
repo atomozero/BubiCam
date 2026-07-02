@@ -33,7 +33,6 @@ static const char* kHTTPStreamResponse =
 	"Content-Type: multipart/x-mixed-replace; boundary=%s\r\n"
 	"Cache-Control: no-cache, no-store\r\n"
 	"Pragma: no-cache\r\n"
-	"Access-Control-Allow-Origin: *\r\n"
 	"Connection: close\r\n"
 	"\r\n";
 
@@ -42,7 +41,6 @@ static const char* kHTTPSnapshotResponse =
 	"Content-Type: image/jpeg\r\n"
 	"Content-Length: %lu\r\n"
 	"Cache-Control: no-cache\r\n"
-	"Access-Control-Allow-Origin: *\r\n"
 	"Connection: close\r\n"
 	"\r\n";
 
@@ -94,6 +92,7 @@ StreamServer::StreamServer(BMessenger target)
 	fClientCount(0),
 	fMaxClients(4),
 	fJPEGQuality(70),
+	fAllowLAN(false),
 	fFramesServed(0)
 {
 }
@@ -124,7 +123,9 @@ StreamServer::Start(uint16 port)
 	struct sockaddr_in addr;
 	memset(&addr, 0, sizeof(addr));
 	addr.sin_family = AF_INET;
-	addr.sin_addr.s_addr = INADDR_ANY;
+	// Loopback-only by default so the webcam isn't exposed to the network
+	// unauthenticated; SetAllowLAN(true) opts in to all interfaces.
+	addr.sin_addr.s_addr = fAllowLAN ? INADDR_ANY : htonl(INADDR_LOOPBACK);
 	addr.sin_port = htons(port);
 
 	if (bind(fServerSocket, (struct sockaddr*)&addr, sizeof(addr)) < 0) {

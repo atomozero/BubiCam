@@ -437,6 +437,8 @@ MainWindow::_BuildMenu()
 	fStreamMenuItem = new BMenuItem("Start MJPEG Stream (Port 8080)",
 		new BMessage(MSG_STREAM_TOGGLE));
 	fToolsMenu->AddItem(fStreamMenuItem);
+	fToolsMenu->AddItem(new BMenuItem("Allow LAN Access to Stream (Insecure)",
+		new BMessage(MSG_STREAM_LAN_TOGGLE)));
 	fToolsMenu->AddSeparatorItem();
 	fToolsMenu->AddItem(new BMenuItem("Show in Deskbar",
 		new BMessage(MSG_TOGGLE_DESKBAR)));
@@ -1282,18 +1284,24 @@ MainWindow::_UpdateStreamStatus()
 		return;
 
 	if (fStreamServer != NULL && fStreamServer->IsRunning()) {
+		bool lan = fStreamServer->AllowLAN();
+		const char* scope = lan ? "LAN" : "local";
 		int32 clients = fStreamServer->ClientCount();
 		BString text;
 		if (clients > 0) {
-			text.SetToFormat("\xE2\x97\x89 Network stream :%d \xC2\xB7 %d viewer%s",
-				(int)fStreamServer->Port(), (int)clients,
+			text.SetToFormat("\xE2\x97\x89 Stream :%d (%s) \xC2\xB7 %d viewer%s",
+				(int)fStreamServer->Port(), scope, (int)clients,
 				clients == 1 ? "" : "s");
 		} else {
-			text.SetToFormat("\xE2\x97\x89 Network stream :%d",
-				(int)fStreamServer->Port());
+			text.SetToFormat("\xE2\x97\x89 Stream :%d (%s)",
+				(int)fStreamServer->Port(), scope);
 		}
 		fStreamStatus->SetText(text.String());
-		fStreamStatus->SetHighColor(0, 160, 0);  // green = live
+		// Orange when exposed to the LAN (a heads-up), green when loopback-only.
+		if (lan)
+			fStreamStatus->SetHighColor(200, 120, 0);
+		else
+			fStreamStatus->SetHighColor(0, 160, 0);
 	} else {
 		fStreamStatus->SetText("");
 	}
@@ -1746,6 +1754,44 @@ MainWindow::MessageReceived(BMessage* message)
 					fStatusBar->SetText("Failed to start stream server");
 				}
 			}
+			_UpdateStreamStatus();
+			break;
+		}
+
+		case MSG_STREAM_LAN_TOGGLE:
+		{
+			if (fStreamServer == NULL)
+				break;
+
+			bool enabling = !fStreamServer->AllowLAN();
+			if (enabling) {
+				BAlert* alert = new BAlert("Expose Stream to LAN",
+					"This binds the MJPEG stream to ALL network interfaces, so "
+					"anyone on your local network can watch the webcam at "
+					"http://<this-computer>:8080/ with no password.\n\n"
+					"Only enable this on a network you trust.",
+					"Cancel", "Allow LAN Access", NULL,
+					B_WIDTH_AS_USUAL, B_WARNING_ALERT);
+				alert->SetShortcut(0, B_ESCAPE);
+				if (alert->Go() != 1)
+					break;
+			}
+
+			fStreamServer->SetAllowLAN(enabling);
+
+			// The bind address is chosen in Start(); restart to apply it.
+			if (fStreamServer->IsRunning()) {
+				fStreamServer->Stop();
+				fStreamServer->Start(8080);
+			}
+
+			BMenuItem* item = fToolsMenu->FindItem(MSG_STREAM_LAN_TOGGLE);
+			if (item != NULL)
+				item->SetMarked(enabling);
+
+			fStatusBar->SetText(enabling
+				? "Stream now reachable on the LAN (no password - be careful)"
+				: "Stream restricted to this computer");
 			_UpdateStreamStatus();
 			break;
 		}
