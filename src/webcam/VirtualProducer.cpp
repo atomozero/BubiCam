@@ -51,6 +51,12 @@ void
 VirtualProducer::SetFormat(int32 width, int32 height, float fps)
 {
 	BAutolock lock(fLock);
+	// Clamp to a sane range so fWidth*fHeight*4 can't overflow int32 or request
+	// an absurd buffer.
+	if (width < 1) width = 1;
+	if (width > 4096) width = 4096;
+	if (height < 1) height = 1;
+	if (height > 4096) height = 4096;
 	fWidth = width;
 	fHeight = height;
 	fFPS = fps;
@@ -69,16 +75,20 @@ VirtualProducer::PushFrame(BBitmap* bitmap)
 		return B_NO_INIT;
 
 	BBuffer* buffer = fBufferGroup->RequestBuffer(
-		fWidth * fHeight * 4, 10000);
+		(size_t)fWidth * (size_t)fHeight * 4, 10000);
 	if (buffer == NULL)
 		return B_WOULD_BLOCK;
 
-	memcpy(buffer->Data(), bitmap->Bits(),
-		min_c((size_t)buffer->SizeAvailable(), (size_t)bitmap->BitsLength()));
+	// Copy only what fits, and report exactly that many bytes: claiming the full
+	// fWidth*fHeight*4 when fewer were copied makes the consumer read past the
+	// valid data.
+	size_t copied = min_c((size_t)buffer->SizeAvailable(),
+		(size_t)bitmap->BitsLength());
+	memcpy(buffer->Data(), bitmap->Bits(), copied);
 
 	media_header* header = buffer->Header();
 	header->type = B_MEDIA_RAW_VIDEO;
-	header->size_used = fWidth * fHeight * 4;
+	header->size_used = copied;
 	header->time_source = TimeSource()->ID();
 	header->start_time = TimeSource()->Now();
 
