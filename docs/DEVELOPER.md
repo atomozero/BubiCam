@@ -973,6 +973,27 @@ copiano il target locale sotto lock, rilasciano, poi postano fuori dal lock.
 
 ---
 
+## Sicurezza di rete
+
+BubiCam espone due server TCP, entrambi **bindati su `127.0.0.1` di default**
+(`htonl(INADDR_LOOPBACK)` in `MCPServer::Start`/`StreamServer::Start`) e senza
+header CORS wildcard: la webcam non è raggiungibile dalla rete senza un passo
+esplicito.
+
+- **`MCPServer` (:9847)** — solo loopback, sempre. È l'integrazione locale con
+  Claude Code; i suoi client non sono browser, quindi nessun
+  `Access-Control-Allow-Origin`.
+- **`StreamServer` (:8080)** — loopback di default. `SetAllowLAN(true)` (voce
+  Tools "Allow LAN Access to Stream", con avviso) ri-binda su `INADDR_ANY` e
+  richiede un riavvio del server per applicare il nuovo indirizzo. Il footer
+  mostra `(local)` in verde o `(LAN)` in arancione come promemoria.
+
+Il `PreviewReplicant` sul Desktop si connette a `127.0.0.1:8080`, quindi resta
+compatibile col bind loopback. Senza autenticazione, l'accesso LAN è insicuro
+per definizione: usarlo solo su reti fidate.
+
+---
+
 ## Code Style
 
 BubiCam segue lo stile Haiku:

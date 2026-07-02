@@ -108,10 +108,10 @@ INFO DISPOSITIVO
   - Controlli webcam via BParameterWeb + preset
 
 INTEGRAZIONE
-  - Server MCP su porta 9847 (per Claude Code)
+  - Server MCP su porta 9847 (per Claude Code, solo localhost)
   - Replicant Deskbar con LED di stato
   - Replicant Desktop con preview live
-  - Server streaming MJPEG via HTTP
+  - Server streaming MJPEG via HTTP (solo localhost; LAN opt-in da Tools)
   - Virtual webcam (BMediaAddOn)
   - Notifiche di sistema
   - Scripting hey

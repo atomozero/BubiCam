@@ -110,10 +110,10 @@ Documento di pianificazione e stato delle funzionalità di BubiCam.
 
 | Stato | Feature | Note |
 |:-----:|---------|------|
-| [x] | HTTP streaming | `StreamServer`: MJPEG over HTTP per browser |
+| [x] | HTTP streaming | `StreamServer`: MJPEG over HTTP, loopback di default, LAN opt-in |
 | [x] | Virtual webcam | `VirtualProducer` esposto come `BMediaAddOn` |
 | [x] | Snapshot HTTP | Endpoint `/snapshot.jpg` |
-| [x] | MCP server | Server JSON-RPC su porta 9847 per Claude Code |
+| [x] | MCP server | Server JSON-RPC su porta 9847 per Claude Code (solo loopback) |
 | [ ] | Remote control via REST | Estensione futura del MCP server |
 | [ ] | RTSP server | Fuori scope (troppo complesso) |
 
@@ -205,6 +205,7 @@ Documento di pianificazione e stato delle funzionalità di BubiCam.
 | 2026-05-23 | 0.5 | Cap. 5 completato (preset, lock AE/AWB, PTZ, reset, controlli rapidi) |
 | 2026-06-24 | 1.0 | Sweep completo: cap. 6 (replicant, scripting, notifiche, localizzazione, MIME), cap. 7 (streaming HTTP, virtual webcam, MCP server), cap. 8 (libwebcam.so, plugin filter, frame inspector, CLI), nuovo cap. 9 (stability hardening) |
 | 2026-07-01 | 1.1 | Refactoring struttura sorgenti (split `utils`/`services`, icone in `resources/icons/`); safety fix frame delivery (copia di proprietà del bitmap, no data race/UAF) e save panel screenshot/export; contratto ownership frame allineato nella doc di libwebcam |
+| 2026-07-01 | 1.2 | Hardening stabilità (leak consumer, UAF test/device, avvio preview async, frame ostili, timeout socket MCP, FPS AVI reale, audio "Auto" senza crash del media_addon_server, bound instantiate); indicatore stream nel footer; sicurezza rete: MCP/stream su loopback di default, LAN opt-in per lo stream, niente CORS wildcard |
 
 ---
 
