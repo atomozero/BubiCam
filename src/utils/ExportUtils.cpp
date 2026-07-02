@@ -23,6 +23,10 @@
 #include <stdio.h>
 #include <time.h>
 
+// Defined below; forward-declared so the JSON exporters above the definition
+// can escape device-provided strings.
+static BString _EscapeJSON(const BString& input);
+
 
 status_t
 ExportUtils::SaveScreenshot(BBitmap* bitmap, const char* path, uint32 format)
@@ -120,18 +124,18 @@ ExportUtils::ExportDriverInfoAsJSON(WebcamDevice* device, const char* path)
 
 	// Device info
 	json << "  \"device\": {\n";
-	json << "    \"name\": \"" << device->Name() << "\",\n";
-	json << "    \"path\": \"" << device->DevicePath() << "\"\n";
+	json << "    \"name\": \"" << _EscapeJSON(device->Name()) << "\",\n";
+	json << "    \"path\": \"" << _EscapeJSON(device->DevicePath()) << "\"\n";
 	json << "  },\n";
 
 	// USB info
 	json << "  \"usb\": {\n";
 	json << "    \"vendor_id\": \"0x" << BString().SetToFormat("%04X", device->VendorID()) << "\",\n";
 	json << "    \"product_id\": \"0x" << BString().SetToFormat("%04X", device->ProductID()) << "\",\n";
-	json << "    \"vendor_name\": \"" << device->VendorName() << "\",\n";
-	json << "    \"product_name\": \"" << device->ProductName() << "\",\n";
-	json << "    \"serial_number\": \"" << device->SerialNumber() << "\",\n";
-	json << "    \"usb_version\": \"" << device->USBVersion() << "\",\n";
+	json << "    \"vendor_name\": \"" << _EscapeJSON(device->VendorName()) << "\",\n";
+	json << "    \"product_name\": \"" << _EscapeJSON(device->ProductName()) << "\",\n";
+	json << "    \"serial_number\": \"" << _EscapeJSON(device->SerialNumber()) << "\",\n";
+	json << "    \"usb_version\": \"" << _EscapeJSON(device->USBVersion()) << "\",\n";
 	json << "    \"device_class\": " << (int)device->DeviceClass() << ",\n";
 	json << "    \"device_subclass\": " << (int)device->DeviceSubclass() << ",\n";
 	json << "    \"device_protocol\": " << (int)device->DeviceProtocol() << "\n";
@@ -139,9 +143,9 @@ ExportUtils::ExportDriverInfoAsJSON(WebcamDevice* device, const char* path)
 
 	// Driver info
 	json << "  \"driver\": {\n";
-	json << "    \"name\": \"" << device->DriverName() << "\",\n";
-	json << "    \"path\": \"" << device->DriverPath() << "\",\n";
-	json << "    \"version\": \"" << device->DriverVersion() << "\"\n";
+	json << "    \"name\": \"" << _EscapeJSON(device->DriverName()) << "\",\n";
+	json << "    \"path\": \"" << _EscapeJSON(device->DriverPath()) << "\",\n";
+	json << "    \"version\": \"" << _EscapeJSON(device->DriverVersion()) << "\"\n";
 	json << "  },\n";
 
 	// Video capabilities
@@ -157,7 +161,7 @@ ExportUtils::ExportDriverInfoAsJSON(WebcamDevice* device, const char* path)
 			json << "        \"width\": " << fmt->width << ",\n";
 			json << "        \"height\": " << fmt->height << ",\n";
 			json << "        \"frame_rate\": " << fmt->frameRate << ",\n";
-			json << "        \"color_space\": \"" << fmt->colorSpace << "\"\n";
+			json << "        \"color_space\": \"" << _EscapeJSON(fmt->colorSpace) << "\"\n";
 			json << "      }";
 			if (i < formats.CountItems() - 1)
 				json << ",";
@@ -321,6 +325,7 @@ _EscapeJSON(const BString& input)
 	escaped.ReplaceAll("\\", "\\\\");
 	escaped.ReplaceAll("\"", "\\\"");
 	escaped.ReplaceAll("\n", "\\n");
+	escaped.ReplaceAll("\r", "\\r");
 	escaped.ReplaceAll("\t", "\\t");
 	return escaped;
 }

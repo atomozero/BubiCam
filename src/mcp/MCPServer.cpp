@@ -63,6 +63,22 @@ Base64Encode(const uint8* data, size_t length)
 }
 
 
+// Escape a string for embedding inside a JSON string literal. Device-provided
+// strings (driver/vendor/product names) can contain quotes or backslashes that
+// would otherwise break the JSON we build - or inject fields into the reply.
+static BString
+_JsonEscape(const BString& in)
+{
+	BString out(in);
+	out.ReplaceAll("\\", "\\\\");
+	out.ReplaceAll("\"", "\\\"");
+	out.ReplaceAll("\n", "\\n");
+	out.ReplaceAll("\r", "\\r");
+	out.ReplaceAll("\t", "\\t");
+	return out;
+}
+
+
 MCPServer::MCPServer(BMessenger target)
 	:
 	BLooper("MCP Server"),
@@ -676,9 +692,9 @@ MCPServer::_ToolGetDriverInfo(const BString& arguments)
 
 	BString result;
 	result << "{";
-	result << "\"name\":\"" << device->Name() << "\",";
-	result << "\"driver\":\"" << device->DriverName() << "\",";
-	result << "\"version\":\"" << device->DriverVersion() << "\"";
+	result << "\"name\":\"" << _JsonEscape(device->Name()) << "\",";
+	result << "\"driver\":\"" << _JsonEscape(device->DriverName()) << "\",";
+	result << "\"version\":\"" << _JsonEscape(device->DriverVersion()) << "\"";
 	result << "}";
 
 	_UnlockDevice();
@@ -762,7 +778,7 @@ MCPServer::_ToolGetStatus(const BString& arguments)
 	result << "\"frames_received\":" << framesReceived << ",";
 	result << "\"frames_dropped\":" << framesDropped << ",";
 	result << "\"frames_flowing\":" << (actualFPS > 0.5 ? "true" : "false") << ",";
-	result << "\"colorSpace\":\"" << currentFormat.colorSpace << "\"";
+	result << "\"colorSpace\":\"" << _JsonEscape(currentFormat.colorSpace) << "\"";
 	result << "}";
 
 	return result;
@@ -789,7 +805,7 @@ MCPServer::_ToolGetSupportedFormats(const BString& arguments)
 		result << "\"width\":" << fmt->width << ",";
 		result << "\"height\":" << fmt->height << ",";
 		result << "\"fps\":" << fmt->frameRate << ",";
-		result << "\"colorSpace\":\"" << fmt->colorSpace << "\"";
+		result << "\"colorSpace\":\"" << _JsonEscape(fmt->colorSpace) << "\"";
 		result << "}";
 	}
 

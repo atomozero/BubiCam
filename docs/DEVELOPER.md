@@ -992,6 +992,12 @@ Il `PreviewReplicant` sul Desktop si connette a `127.0.0.1:8080`, quindi resta
 compatibile col bind loopback. Senza autenticazione, l'accesso LAN è insicuro
 per definizione: usarlo solo su reti fidate.
 
+Le stringhe fornite dal driver (nome device/driver/vendor/prodotto, colorSpace)
+vengono **escapizzate** prima di finire nel JSON di risposta MCP
+(`_JsonEscape` in `MCPServer`) e negli export (`_EscapeJSON` in `ExportUtils`):
+un nome driver ostile con virgolette o backslash non può più rompere il JSON o
+iniettare campi nella risposta.
+
 ---
 
 ## Code Style
