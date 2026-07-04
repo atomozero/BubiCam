@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -304,10 +305,40 @@ StreamServer::_ListenerThread(void* data)
 	StreamServer* server = static_cast<StreamServer*>(data);
 
 	while (server->fRunning) {
+		// Poll the listen socket with a short timeout instead of parking in a
+		// blocking accept() forever. On Haiku, close()ing the socket from Stop()
+		// on another thread does not reliably wake a thread stuck in accept(), so
+		// Stop()'s wait_for_thread() would hang until the shutdown watchdog
+		// force-exits (~10s). Polling lets the loop re-check fRunning ~4x/second
+		// and unwind cleanly when Stop() clears it.
+		int listenFd = server->fServerSocket;
+		if (listenFd < 0)
+			break;
+
+		fd_set readSet;
+		FD_ZERO(&readSet);
+		FD_SET(listenFd, &readSet);
+		struct timeval timeout;
+		timeout.tv_sec = 0;
+		timeout.tv_usec = 250000;  // 250ms
+
+		int ready = select(listenFd + 1, &readSet, NULL, NULL, &timeout);
+		if (!server->fRunning)
+			break;
+		if (ready <= 0) {
+			// 0 = timeout (loop and re-check fRunning). <0 = error: ignore EINTR,
+			// back off briefly on anything else to avoid a tight spin.
+			if (ready < 0 && errno != EINTR) {
+				LOG_ERROR("select failed: %s", strerror(errno));
+				snooze(50000);
+			}
+			continue;
+		}
+
 		struct sockaddr_in clientAddr;
 		socklen_t clientLen = sizeof(clientAddr);
 
-		int clientSocket = accept(server->fServerSocket,
+		int clientSocket = accept(listenFd,
 			(struct sockaddr*)&clientAddr, &clientLen);
 
 		if (clientSocket < 0) {

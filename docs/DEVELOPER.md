@@ -932,6 +932,15 @@ video-only, senza stallare l'intero device.)
 inchiodati. Un watchdog interno spawnato da `QuitRequested()` chiama
 `_exit()` dopo 10s se lo shutdown non completa.
 
+Il watchdog deve restare l'ultima risorsa, non il normale percorso di
+uscita. `StreamServer::_ListenerThread` fa `select()` con timeout 250ms sul
+listen socket invece di parcheggiarsi in un `accept()` bloccante: su Haiku la
+`close()` del socket da `Stop()` (altro thread) non risveglia in modo
+affidabile un `accept()` bloccato, quindi il `wait_for_thread()` in `Stop()`
+resterebbe appeso e la chiusura si affiderebbe sempre al force-exit a 10s.
+Col polling il listener ri-controlla `fRunning` ~4 volte al secondo e `Stop()`
+(chiamato da `~MainWindow`) ritorna in ~250ms.
+
 ### Avvio preview asincrono
 
 Anche `StartCapture()` può bloccarsi a lungo (o per sempre) su un driver
