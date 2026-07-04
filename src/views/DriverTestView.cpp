@@ -760,6 +760,19 @@ DriverTestView::_RunStressTest()
 	if (fDevice == NULL || fTestRunning)
 		return;
 
+	// The stress test drives StartCapture/StopCapture directly. If the live
+	// preview already holds the device, every StartCapture returns B_BUSY and the
+	// test measures nothing (a misleading "0% success"). Require the preview to be
+	// stopped so the test actually exercises the start/stop path.
+	if (fDevice->IsCapturing()) {
+		_ClearLog();
+		_AppendLog("Stress Test needs exclusive access to the device.",
+			fErrorColor);
+		_AppendLog("Stop the live preview first (Webcam > Stop, or the Stop "
+			"button), then run the test again.");
+		return;
+	}
+
 	_ClearLog();
 	_AppendLog("Starting Stress Test...", fInfoColor);
 	_AppendLog("This test repeatedly starts and stops capture to check driver stability.");
