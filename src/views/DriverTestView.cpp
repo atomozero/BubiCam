@@ -607,11 +607,19 @@ DriverTestView::StopCurrentTest()
 	_AppendLog("Stopping test...", fWarningColor);
 	fStopRequested = true;
 
-	// Wait for the thread to notice fStopRequested and unwind. The blocking work
-	// inside an iteration is device->StopCapture() (bounded by StopNodeWithTimeout
-	// plus USB-settle delays, up to ~14s) and device->StartCapture(). Use a
-	// deadline that comfortably covers a slow-but-alive teardown, so kill_thread
-	// is only ever reached for a driver truly wedged inside StartCapture.
+	// Wait for the thread to notice fStopRequested and unwind. Every blocking
+	// call in an iteration is now bounded - device->StartCapture() (Instantiate/
+	// Connect/Preroll/StartNode all have timeouts) and device->StopCapture()
+	// (StopNodeWithTimeout + USB settle) - so the thread reliably exits within a
+	// bounded time even on a frozen driver, and this wait normally joins it.
+	//
+	// kill_thread below is retained only as a last resort. It used to be
+	// dangerous (killing a thread holding a driver/USB lock deadlocked every
+	// later capture call), but now that all capture calls are bounded, a leaked
+	// lock makes them return B_TIMED_OUT instead of hanging - so the kill can no
+	// longer wedge the app. We keep it rather than leaking the thread because
+	// ~DriverTestView calls this, and a still-running thread would use-after-free
+	// the destroyed view.
 	if (fTestThread >= 0) {
 		status_t exitValue;
 		bigtime_t deadline = system_time() + 20000000;  // 20s

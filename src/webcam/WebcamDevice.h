@@ -186,6 +186,16 @@ private:
 	status_t			_SetupAudioConnection();
 	void				_TeardownConnections();
 
+	// roster->Connect() wrapped in a timeout thread so a frozen producer can't
+	// hang StartCapture (holding fCaptureLock) forever. Results land in a heap
+	// struct on timeout, never the caller's output/input, so a wedged Connect
+	// can't corrupt them.
+	status_t			_ConnectWithTimeout(BMediaRoster* roster,
+							const media_source& source,
+							const media_destination& destination,
+							media_format* format, media_output* output,
+							media_input* input, bigtime_t timeout = 8000000);
+
 	// Device identification
 	BString				fName;
 	BString				fDevicePath;
@@ -236,6 +246,13 @@ private:
 	uint32				fFrameMessage;		// posted per video frame
 	uint32				fAudioLevelMessage;	// posted per audio level update
 	bool				fUsedLiveNode;	// True if we used an existing live node
+	bool				fConnectAborting;	// a Connect timed out; skip the rest
+	bool				fDeviceStalled;		// a StartCapture timed out with a
+											// worker still wedged in the driver;
+											// refuse further starts (which would
+											// re-instantiate a node concurrently
+											// on the same USB device -> kernel
+											// race) until re-enumeration
 	int32				fAudioNodeID;	// -1=auto, 0=none, >0=specific node
 	mutable BLocker		fCaptureLock;	// Protects consumer pointers during capture/stop
 

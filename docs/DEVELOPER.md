@@ -901,6 +901,30 @@ un thread separato con deadline 3s. Se il driver è frozen, ritorna
 è heap-allocata e l'ownership viene passata al thread su timeout (evita
 stack corruption).
 
+Lo **stesso pattern** copre ora tutte le chiamate Media Kit bloccanti di
+`StartCapture`: `InstantiateDormantNodeWithTimeout`, `_ConnectWithTimeout`
+(usato su tutti i tentativi del retry loop; `fConnectAborting` cortocircuita
+i successivi dopo il primo timeout, e i risultati vanno su heap così i membri
+`fVideoOutput/Input` non vengono corrotti da un Connect abbandonato), e
+`_NodeStartWithTimeout` per Preroll/StartNode del producer. Su timeout di un
+Connect la connessione mezza-costruita (consumer + nodo) viene **leakata**
+invece di distrutta, perché il worker bloccato potrebbe chiamare `Connected()`
+più tardi (use-after-free). Con `StartCapture` e `StopCapture` entrambi
+bounded, un eventuale `kill_thread` di un test non può più deadlockare l'app:
+le chiamate successive ritornano `B_TIMED_OUT` invece di bloccarsi.
+
+**Stall-on-timeout.** Il leak-on-timeout lascia però un worker vivo *dentro il
+driver USB*. Se una `StartCapture` successiva re-istanziasse subito un nodo,
+aprirebbe un secondo contesto sulla **stessa webcam** in concorrenza con quel
+worker — cosa che lo stack USB di Haiku non tollera (race nel kernel, page fault
+tipicamente durante uno stress test start/stop). Perciò al primo timeout di
+`StartCapture` il device viene marcato `fDeviceStalled`: le start successive
+falliscono subito con `B_TIMED_OUT` **senza re-istanziare**, finché il device
+non viene ri-enumerato (un Refresh costruisce un nuovo `WebcamDevice` pulito).
+Il worker abbandonato così finisce da solo, senza nessuno che gli corra
+accanto. (L'audio resta best-effort: un timeout audio fa proseguire in
+video-only, senza stallare l'intero device.)
+
 ### Livello 2: Force Stop async + shutdown watchdog
 
 `_ForceStop()` in `MainWindow` spawna un thread background per

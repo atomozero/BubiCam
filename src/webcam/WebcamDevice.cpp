@@ -104,6 +104,152 @@ InstantiateDormantNodeWithTimeout(BMediaRoster* roster,
 }
 
 
+// Helper: run roster->PrerollNode()/StartNode() in a thread with a timeout, so a
+// frozen producer can't hang StartCapture (holding fCaptureLock) forever. Same
+// heap-safe abandon-on-timeout ownership handoff as StopNodeWithTimeout.
+struct StartNodeData {
+	BMediaRoster*	roster;
+	media_node		node;
+	bigtime_t		startTime;
+	bool			preroll;	// true = PrerollNode, false = StartNode
+	status_t		result;
+	volatile bool	done;
+	bool			callerOwns;
+};
+
+static int32
+_StartNodeThread(void* data)
+{
+	StartNodeData* d = static_cast<StartNodeData*>(data);
+	d->result = d->preroll ? d->roster->PrerollNode(d->node)
+		: d->roster->StartNode(d->node, d->startTime);
+	d->done = true;
+	if (!d->callerOwns)
+		delete d;
+	return 0;
+}
+
+static status_t
+_NodeStartWithTimeout(BMediaRoster* roster, const media_node& node,
+	bigtime_t startTime, bool preroll, bigtime_t timeout = 5000000)
+{
+	StartNodeData* data = new StartNodeData();
+	data->roster = roster;
+	data->node = node;
+	data->startTime = startTime;
+	data->preroll = preroll;
+	data->result = B_ERROR;
+	data->done = false;
+	data->callerOwns = true;
+
+	thread_id tid = spawn_thread(_StartNodeThread,
+		preroll ? "preroll_node" : "start_node", B_NORMAL_PRIORITY, data);
+	if (tid < 0) {
+		delete data;
+		return preroll ? roster->PrerollNode(node)
+			: roster->StartNode(node, startTime);
+	}
+	resume_thread(tid);
+
+	bigtime_t deadline = system_time() + timeout;
+	while (!data->done && system_time() < deadline)
+		snooze(50000);
+
+	if (data->done) {
+		status_t result = data->result;
+		wait_for_thread(tid, NULL);
+		delete data;
+		return result;
+	}
+
+	data->callerOwns = false;
+	fprintf(stderr, "WebcamDevice: %s timed out after %.1f s\n",
+		preroll ? "PrerollNode" : "StartNode", timeout / 1000000.0);
+	return B_TIMED_OUT;
+}
+
+
+// Worker for _ConnectWithTimeout: results land in the heap struct, never the
+// caller's media_output/media_input, so an abandoned (timed-out) Connect can't
+// corrupt the caller's members after it has returned.
+struct ConnectData {
+	BMediaRoster*		roster;
+	media_source		source;
+	media_destination	destination;
+	media_format		format;
+	media_output		output;
+	media_input			input;
+	status_t			result;
+	volatile bool		done;
+	bool				callerOwns;
+};
+
+static int32
+_ConnectThread(void* data)
+{
+	ConnectData* d = static_cast<ConnectData*>(data);
+	d->result = d->roster->Connect(d->source, d->destination, &d->format,
+		&d->output, &d->input);
+	d->done = true;
+	if (!d->callerOwns)
+		delete d;
+	return 0;
+}
+
+
+status_t
+WebcamDevice::_ConnectWithTimeout(BMediaRoster* roster,
+	const media_source& source, const media_destination& destination,
+	media_format* format, media_output* output, media_input* input,
+	bigtime_t timeout)
+{
+	// Once one Connect wedged, short-circuit the rest of the retry loop instead
+	// of spawning another worker onto the same frozen producer.
+	if (fConnectAborting)
+		return B_TIMED_OUT;
+
+	ConnectData* data = new ConnectData();
+	data->roster = roster;
+	data->source = source;
+	data->destination = destination;
+	data->format = *format;
+	data->result = B_ERROR;
+	data->done = false;
+	data->callerOwns = true;
+
+	thread_id tid = spawn_thread(_ConnectThread, "media_connect",
+		B_NORMAL_PRIORITY, data);
+	if (tid < 0) {
+		delete data;
+		return roster->Connect(source, destination, format, output, input);
+	}
+	resume_thread(tid);
+
+	bigtime_t deadline = system_time() + timeout;
+	while (!data->done && system_time() < deadline)
+		snooze(50000);
+
+	if (data->done) {
+		*format = data->format;
+		*output = data->output;
+		*input = data->input;
+		status_t result = data->result;
+		wait_for_thread(tid, NULL);
+		delete data;
+		return result;
+	}
+
+	// Timed out: hand the heap struct to the worker (which is stuck in the
+	// driver). We do NOT touch *output/*input, so the caller's members are
+	// untouched, and we set fConnectAborting so later attempts don't spawn more.
+	data->callerOwns = false;
+	fConnectAborting = true;
+	fprintf(stderr, "WebcamDevice: Connect timed out after %.1f s\n",
+		timeout / 1000000.0);
+	return B_TIMED_OUT;
+}
+
+
 // Helper: call roster->StopNode() in a thread with a 3-second timeout.
 // Returns B_TIMED_OUT if the call doesn't complete in time.
 struct StopNodeData {
@@ -251,6 +397,8 @@ WebcamDevice::WebcamDevice(const media_node& node, const dormant_node_info& info
 	fFrameMessage(MSG_WEBCAM_FRAME),
 	fAudioLevelMessage(MSG_WEBCAM_AUDIO_LEVEL),
 	fUsedLiveNode(false),
+	fConnectAborting(false),
+	fDeviceStalled(false),
 	fAudioNodeID(-1)
 {
 	fName = info.name;
@@ -286,6 +434,8 @@ WebcamDevice::WebcamDevice(const dormant_node_info& info, status_t instantiateEr
 	fFrameMessage(MSG_WEBCAM_FRAME),
 	fAudioLevelMessage(MSG_WEBCAM_AUDIO_LEVEL),
 	fUsedLiveNode(false),
+	fConnectAborting(false),
+	fDeviceStalled(false),
 	fAudioNodeID(-1)
 {
 	fName = info.name;
@@ -686,6 +836,16 @@ WebcamDevice::StartCapture(BLooper* target, uint32 frameMessage,
 		return B_BUSY;
 	}
 
+	// A previous start timed out with a worker still wedged inside the driver
+	// (Instantiate/Connect/StartNode). Re-instantiating a node now would open a
+	// second context on the same USB hardware concurrently with that worker,
+	// which the Haiku USB stack does not tolerate (kernel race). Refuse until the
+	// device is re-enumerated (which builds a fresh, un-stalled WebcamDevice).
+	if (fDeviceStalled) {
+		LOG_WARNING("Device stalled by a prior start timeout; refresh to retry");
+		return B_TIMED_OUT;
+	}
+
 	fTarget = target;
 	fFrameMessage = frameMessage;
 	fAudioLevelMessage = audioLevelMessage;
@@ -714,6 +874,10 @@ WebcamDevice::StartCapture(BLooper* target, uint32 frameMessage,
 
 		if (status != B_OK) {
 			LOG_ERROR("Failed to instantiate node: %s", strerror(status));
+			// A timed-out instantiate leaves a worker wedged in the driver; stall
+			// the device so the next start can't spawn a concurrent instantiate.
+			if (status == B_TIMED_OUT)
+				fDeviceStalled = true;
 			return status;
 		}
 		fNodeInstantiated = true;
@@ -723,7 +887,21 @@ WebcamDevice::StartCapture(BLooper* target, uint32 frameMessage,
 	}
 
 	// Set up video connection
+	fConnectAborting = false;
 	status = _SetupVideoConnection();
+	if (status == B_TIMED_OUT) {
+		// A Connect wedged in a frozen driver; its worker may still call our
+		// consumer's Connected() later. Leak the half-built connection (consumer
+		// + node) rather than tear it down under a live worker (use-after-free).
+		// Clear fNodeInstantiated so the next StartCapture starts fresh.
+		LOG_ERROR("Video connect timed out; leaking connection state");
+		fDeviceStalled = true;
+		fVideoConsumer = NULL;
+		fVideoConnected = false;
+		fNodeInstantiated = false;
+		fUsedLiveNode = false;
+		return status;
+	}
 	if (status != B_OK) {
 		LOG_ERROR("Video connection failed: %s", strerror(status));
 		_TeardownConnections();
@@ -787,11 +965,25 @@ WebcamDevice::StartCapture(BLooper* target, uint32 frameMessage,
 		startTime = performanceNow + kMediaStartDelay;
 	}
 
-	// Preroll and start nodes
-	roster->PrerollNode(fMediaNode);
+	// Preroll and start the producer with timeouts so a frozen driver can't hang
+	// here holding fCaptureLock.
+	status_t prerollStatus = _NodeStartWithTimeout(roster, fMediaNode, 0, true);
 	snooze(kPostSeekDelay);
 
-	status = roster->StartNode(fMediaNode, startTime);
+	status = _NodeStartWithTimeout(roster, fMediaNode, startTime, false);
+	if (prerollStatus == B_TIMED_OUT || status == B_TIMED_OUT) {
+		// A worker is wedged prerolling/starting the producer. We cannot tear the
+		// connection down (StopNode/Disconnect would race that live worker on the
+		// same node), so leak it and stall the device - the next start must not
+		// re-instantiate a concurrent context on this USB hardware.
+		LOG_ERROR("Producer start timed out; leaking connection and stalling device");
+		fDeviceStalled = true;
+		fVideoConsumer = NULL;
+		fVideoConnected = false;
+		fNodeInstantiated = false;
+		fUsedLiveNode = false;
+		return B_TIMED_OUT;
+	}
 	if (status != B_OK) {
 		LOG_WARNING("StartNode returned: %s (continuing anyway)", strerror(status));
 	}
@@ -803,7 +995,7 @@ WebcamDevice::StartCapture(BLooper* target, uint32 frameMessage,
 	}
 
 	if (fAudioProducerInstantiated) {
-		status = roster->StartNode(fAudioProducerNode, startTime);
+		status = _NodeStartWithTimeout(roster, fAudioProducerNode, startTime, false);
 		if (status != B_OK)
 			LOG_WARNING("Audio producer start failed: %s", strerror(status));
 		else
@@ -1192,7 +1384,7 @@ WebcamDevice::_SetupVideoConnection()
 		format.u.raw_video.display.pixel_offset = 0;
 		format.u.raw_video.display.line_offset = 0;
 
-		status = roster->Connect(fVideoOutput.source, fVideoInput.destination,
+		status = _ConnectWithTimeout(roster, fVideoOutput.source, fVideoInput.destination,
 			&format, &fVideoOutput, &fVideoInput);
 
 		if (status == B_OK) {
@@ -1240,7 +1432,7 @@ WebcamDevice::_SetupVideoConnection()
 	};
 	format.u.raw_video = vid_format;
 
-	status = roster->Connect(fVideoOutput.source, fVideoInput.destination,
+	status = _ConnectWithTimeout(roster, fVideoOutput.source, fVideoInput.destination,
 		&format, &fVideoOutput, &fVideoInput);
 
 	if (status == B_OK) {
@@ -1270,7 +1462,7 @@ WebcamDevice::_SetupVideoConnection()
 	format.type = B_MEDIA_RAW_VIDEO;
 	format.u.raw_video = media_raw_video_format::wildcard;
 
-	status = roster->Connect(fVideoOutput.source, fVideoInput.destination,
+	status = _ConnectWithTimeout(roster, fVideoOutput.source, fVideoInput.destination,
 		&format, &fVideoOutput, &fVideoInput);
 
 	if (status == B_OK) {
@@ -1300,7 +1492,7 @@ WebcamDevice::_SetupVideoConnection()
 	format.type = B_MEDIA_ENCODED_VIDEO;
 	format.u.encoded_video = media_encoded_video_format::wildcard;
 
-	status = roster->Connect(fVideoOutput.source, fVideoInput.destination,
+	status = _ConnectWithTimeout(roster, fVideoOutput.source, fVideoInput.destination,
 		&format, &fVideoOutput, &fVideoInput);
 
 	if (status == B_OK) {
@@ -1317,7 +1509,7 @@ WebcamDevice::_SetupVideoConnection()
 	format = media_format();
 	format.type = B_MEDIA_UNKNOWN_TYPE;
 
-	status = roster->Connect(fVideoOutput.source, fVideoInput.destination,
+	status = _ConnectWithTimeout(roster, fVideoOutput.source, fVideoInput.destination,
 		&format, &fVideoOutput, &fVideoInput);
 
 	if (status == B_OK) {
@@ -1431,7 +1623,7 @@ WebcamDevice::_SetupVideoConnection()
 		format.u.raw_video.display.pixel_offset = 0;
 		format.u.raw_video.display.line_offset = 0;
 
-		status = roster->Connect(fVideoOutput.source, fVideoInput.destination,
+		status = _ConnectWithTimeout(roster, fVideoOutput.source, fVideoInput.destination,
 			&format, &fVideoOutput, &fVideoInput);
 
 		if (status != B_OK) {
@@ -1441,7 +1633,7 @@ WebcamDevice::_SetupVideoConnection()
 				format.u.raw_video.display.format = B_RGB32;
 				format.u.raw_video.display.bytes_per_row = attempt->width * 4;
 
-				status = roster->Connect(fVideoOutput.source, fVideoInput.destination,
+				status = _ConnectWithTimeout(roster, fVideoOutput.source, fVideoInput.destination,
 					&format, &fVideoOutput, &fVideoInput);
 			}
 		}
@@ -1455,7 +1647,7 @@ WebcamDevice::_SetupVideoConnection()
 		format.type = B_MEDIA_RAW_VIDEO;
 		format.u.raw_video = media_raw_video_format::wildcard;
 
-		status = roster->Connect(fVideoOutput.source, fVideoInput.destination,
+		status = _ConnectWithTimeout(roster, fVideoOutput.source, fVideoInput.destination,
 			&format, &fVideoOutput, &fVideoInput);
 	}
 
@@ -1688,14 +1880,20 @@ WebcamDevice::_SetupAudioConnection()
 	if (format.u.raw_audio.format == 0)
 		format.u.raw_audio.format = media_raw_audio_format::B_AUDIO_SHORT;
 
-	status = roster->Connect(fAudioOutput.source, fAudioInput.destination,
+	status = _ConnectWithTimeout(roster, fAudioOutput.source, fAudioInput.destination,
 		&format, &fAudioOutput, &fAudioInput);
 
 	if (status != B_OK) {
 		LOG_DEBUG("Failed to connect audio: %s", strerror(status));
-		roster->UnregisterNode(fAudioConsumer);
-		delete fAudioConsumer;
-		fAudioConsumer = NULL;
+		if (status == B_TIMED_OUT) {
+			// A wedged Connect worker may still call our consumer's Connected()
+			// later; leak the consumer instead of deleting it under that worker.
+			fAudioConsumer = NULL;
+		} else {
+			roster->UnregisterNode(fAudioConsumer);
+			delete fAudioConsumer;
+			fAudioConsumer = NULL;
+		}
 		return status;
 	}
 
