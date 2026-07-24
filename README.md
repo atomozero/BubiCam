@@ -2,7 +2,7 @@
 
 Native webcam tester for Haiku OS: preview, record, and stress-test USB webcams to debug drivers, inspect UVC descriptors, and diagnose capture problems without leaving the desktop.
 
-![BubiCam on Haiku](img/screenshot200.png)
+![BubiCam on Haiku](img/screenshot61.png)
 
 If BubiCam saves you time, consider supporting development: [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-atomozero-yellow?logo=buymeacoffee)](https://buymeacoffee.com/atomozero)
 
