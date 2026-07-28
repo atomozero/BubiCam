@@ -17,6 +17,7 @@ If BubiCam saves you time, consider supporting development: [![Buy Me A Coffee](
 * Screenshot (PNG) and raw pre-conversion frame export for driver debugging
 * Audio VU meter and selectable audio source (webcam mic, system input, or none)
 * Driver test suite: stress, latency, format benchmark, memory leak, and hot-plug cycle tests
+* Face-tracking autofocus toggle that enables the driver's UVC face detection to steer autofocus and exposure onto the detected face
 * Export test results and diagnostic reports as CSV or JSON
 * Driver/USB device info, UVC descriptor parsing, and a filtered syslog monitor
 * MJPEG HTTP streaming (localhost by default; opt-in "Allow LAN Access" in Tools), Deskbar and Desktop replicants, and a virtual webcam for other apps

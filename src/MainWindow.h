@@ -103,7 +103,8 @@ enum {
 	MSG_AUDIO_NONE			= 'audn',
 	MSG_STREAM_TOGGLE		= 'sttg',
 	MSG_STREAM_LAN_TOGGLE	= 'slan',
-	MSG_PREVIEW_STARTED		= 'pvst'
+	MSG_PREVIEW_STARTED		= 'pvst',
+	MSG_FACE_AUTOFOCUS		= 'fcaf'
 };
 
 
@@ -150,6 +151,12 @@ private:
 	void				_FactoryResetControls();
 	void				_RestartMediaServices();
 	void				_DoRestartMediaServices(bool askConfirmation);
+	// Face-tracking autofocus is a driver feature (steers UVC ROI onto the
+	// detected face). BubiCam only toggles it by writing/removing the driver's
+	// opt-in settings file; the driver reads it when its media node starts.
+	void				_ToggleFaceAutofocus();
+	bool				_FaceAutofocusEnabled() const;
+	status_t			_FaceSettingsPath(BPath& path) const;
 	void				_StartRecording();
 	void				_StopRecording();
 	void				_StartTimelapse();
@@ -232,6 +239,7 @@ private:
 	// MCP Server
 	MCPServer*			fMCPServer;
 	BMenuItem*			fMCPMenuItem;
+	BMenuItem*			fFaceAutofocusItem;
 
 	// Stream Server
 	StreamServer*		fStreamServer;

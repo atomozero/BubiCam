@@ -164,6 +164,7 @@ MainWindow::MainWindow()
 	fSavingJson(false),
 	fMCPServer(NULL),
 	fMCPMenuItem(NULL),
+	fFaceAutofocusItem(NULL),
 	fStreamServer(NULL),
 	fStreamMenuItem(NULL),
 	fRecorder(NULL),
@@ -430,6 +431,10 @@ MainWindow::_BuildMenu()
 	fToolsMenu->AddSeparatorItem();
 	fToolsMenu->AddItem(new BMenuItem("Restart Media Services" B_UTF8_ELLIPSIS,
 		new BMessage(MSG_RESTART_MEDIA), 'M', B_SHIFT_KEY));
+	fFaceAutofocusItem = new BMenuItem("Face-Tracking Autofocus (driver)",
+		new BMessage(MSG_FACE_AUTOFOCUS));
+	fFaceAutofocusItem->SetMarked(_FaceAutofocusEnabled());
+	fToolsMenu->AddItem(fFaceAutofocusItem);
 	fToolsMenu->AddSeparatorItem();
 	fMCPMenuItem = new BMenuItem("Enable MCP Server (Port 9847)",
 		new BMessage(MSG_MCP_TOGGLE));
@@ -1716,6 +1721,10 @@ MainWindow::MessageReceived(BMessage* message)
 
 		case MSG_RESTART_MEDIA:
 			_RestartMediaServices();
+			break;
+
+		case MSG_FACE_AUTOFOCUS:
+			_ToggleFaceAutofocus();
 			break;
 
 		case MSG_MCP_TOGGLE:
@@ -3138,6 +3147,86 @@ MainWindow::_DoRestartMediaServices(bool askConfirmation)
 	_PopulateWebcamMenu();
 
 	fStatusBar->SetText("Media services restarted - select a webcam");
+}
+
+
+status_t
+MainWindow::_FaceSettingsPath(BPath& path) const
+{
+	// Same location the webcam driver reads: <user settings>/webcam_face_detect.
+	status_t status = find_directory(B_USER_SETTINGS_DIRECTORY, &path);
+	if (status != B_OK)
+		return status;
+	return path.Append("webcam_face_detect");
+}
+
+
+bool
+MainWindow::_FaceAutofocusEnabled() const
+{
+	// The driver treats the mere existence of the file as "enabled".
+	BPath path;
+	if (_FaceSettingsPath(path) != B_OK)
+		return false;
+	return BEntry(path.Path()).Exists();
+}
+
+
+void
+MainWindow::_ToggleFaceAutofocus()
+{
+	BPath path;
+	if (_FaceSettingsPath(path) != B_OK) {
+		(new BAlert("Face-Tracking Autofocus",
+			"Could not locate the user settings directory.", "OK",
+			NULL, NULL, B_WIDTH_AS_USUAL, B_WARNING_ALERT))->Go();
+		return;
+	}
+
+	bool enabling = !_FaceAutofocusEnabled();
+	if (enabling) {
+		// Write the driver's opt-in file: steer autofocus + auto-exposure onto
+		// the detected face (roi 1), freeze exposure on it (ae_lock 1), and draw
+		// the tracking box so the effect is visible (overlay 1).
+		BFile file(path.Path(), B_WRITE_ONLY | B_CREATE_FILE | B_ERASE_FILE);
+		if (file.InitCheck() != B_OK) {
+			(new BAlert("Face-Tracking Autofocus",
+				"Could not write the driver settings file.", "OK",
+				NULL, NULL, B_WIDTH_AS_USUAL, B_WARNING_ALERT))->Go();
+			return;
+		}
+		const char* kSettings =
+			"# Written by BubiCam - face-tracking autofocus.\n"
+			"# The webcam driver steers its autofocus/auto-exposure onto the\n"
+			"# detected face via UVC Region of Interest. Delete this file (or\n"
+			"# toggle it off in BubiCam) to disable.\n"
+			"interval 3\n"
+			"overlay 1\n"
+			"ae_lock 1\n"
+			"roi 1\n";
+		file.Write(kSettings, strlen(kSettings));
+	} else {
+		// "Disabled" means the file is gone - the driver has no off-switch key.
+		BEntry(path.Path()).Remove();
+	}
+
+	if (fFaceAutofocusItem != NULL)
+		fFaceAutofocusItem->SetMarked(enabling);
+
+	// The driver reads this file only when its media node is constructed, so the
+	// change takes effect after the media server restarts.
+	BString message;
+	message << "Face-tracking autofocus "
+		<< (enabling ? "enabled" : "disabled") << ".\n\n"
+		<< "The webcam driver reads this setting only when its media node "
+		   "starts, so it takes effect after the media server restarts. "
+		   "Restart now?";
+	BAlert* alert = new BAlert("Face-Tracking Autofocus", message.String(),
+		"Later", "Restart Media Services", NULL,
+		B_WIDTH_AS_USUAL, B_INFO_ALERT);
+	alert->SetShortcut(0, B_ESCAPE);
+	if (alert->Go() == 1)
+		_DoRestartMediaServices(false);  // user just confirmed via this dialog
 }
 
 
