@@ -684,6 +684,11 @@ MainWindow::_PopulateFormatMenu()
 				label.SetToFormat("%dx%d @ %.1f fps (%s)",
 					format->width, format->height,
 					format->frameRate, cs);
+				// Flag resolutions that need a high-bandwidth endpoint:
+				// without WEBCAM_FORCE_HIGH_BANDWIDTH=1 the driver can't
+				// provision them and the preview starves.
+				if (WebcamDevice::FormatNeedsHighBandwidth(*format))
+					label << " [high-bandwidth]";
 
 				BMessage* msg = new BMessage(MSG_FORMAT_SELECTED);
 				msg->AddInt32("index", i);
@@ -2664,46 +2669,72 @@ MainWindow::_CheckWatchdog()
 				"Try a lower resolution.");
 			fStatusBar->SetHighColor(200, 100, 0);
 
-			BAlert* alert = new BAlert("No Video Signal",
-				"No video frames have been received from the webcam.\n\n"
+			// Pick the largest resolution that fits a standard USB 2.0
+			// single-transaction endpoint instead of blindly dropping to
+			// the smallest (which may be unnecessarily tiny, e.g. 160x120
+			// when 352x288 would stream fine).
+			VideoFormat bestFit;
+			bool hasBestFit = false;
+			VideoFormat current;
+			bool hasCurrent = false;
+			{
+				BAutolock lock(fWebcamLock);
+				if (fCurrentWebcam != NULL) {
+					const VideoFormat* fit =
+						fCurrentWebcam->BestFittingFormat();
+					if (fit != NULL) {
+						bestFit = *fit;
+						hasBestFit = true;
+					}
+					current = fCurrentWebcam->CurrentFormat();
+					hasCurrent = current.width > 0 && current.height > 0;
+				}
+			}
+			bool currentNeedsHB = hasCurrent && WebcamDevice::FormatNeedsHighBandwidth(current);
+
+			BString retryLabel("Try Lower Resolution");
+			if (hasBestFit) {
+				retryLabel.SetToFormat("Try %dx%d",
+					(int)bestFit.width, (int)bestFit.height);
+			}
+			BString details;
+			details << "No video frames have been received from the webcam.\n\n"
 				"This is likely caused by insufficient USB bandwidth.\n"
 				"The driver may have selected a transfer mode that is\n"
 				"too slow for the current resolution.\n\n"
-				"Check the syslog for 'WaitFrame TIMEOUT' messages.\n\n"
-				"Suggested fixes:\n"
-				"  \xe2\x80\xa2 Try a lower resolution (320x240 or 640x480)\n"
+				"Check the syslog for 'WaitFrame TIMEOUT' messages.\n\n";
+			if (currentNeedsHB && hasCurrent) {
+				BString hbNote;
+				hbNote.SetToFormat("Note: the current format %dx%d "
+					"needs a high-bandwidth USB endpoint, which the\n"
+					"driver only uses with WEBCAM_FORCE_HIGH_BANDWIDTH=1\n"
+					"set before (re)starting the media server.\n\n",
+					(int)current.width, (int)current.height);
+				details << hbNote;
+			}
+			details << "Suggested fixes:\n"
+				"  \xe2\x80\xa2 Try a lower resolution (fits USB bandwidth)\n"
 				"  \xe2\x80\xa2 Disconnect other USB devices\n"
-				"  \xe2\x80\xa2 Use a different USB port",
-				"OK", "Try Lower Resolution", NULL,
+				"  \xe2\x80\xa2 Use a different USB port";
+			BAlert* alert = new BAlert("No Video Signal", details.String(),
+				"OK", retryLabel.String(), NULL,
 				B_WIDTH_AS_USUAL, B_WARNING_ALERT);
 			int32 choice = alert->Go();
 			if (choice == 1) {
-				// Try to switch to lowest available resolution
+				// Switch to the best-fitting resolution and retry
 				BAutolock lock(fWebcamLock);
-				if (fCurrentWebcam != NULL) {
-					const BObjectList<VideoFormat>& formats =
-						fCurrentWebcam->SupportedFormats();
-					if (formats.CountItems() > 0) {
-						// Find smallest resolution
-						VideoFormat* smallest = formats.ItemAt(0);
-						for (int32 i = 1; i < formats.CountItems(); i++) {
-							VideoFormat* f = formats.ItemAt(i);
-							if (f->width * f->height
-								< smallest->width * smallest->height)
-								smallest = f;
-						}
-						fCurrentWebcam->SetRequestedFormat(*smallest);
-						lock.Unlock();
+				if (fCurrentWebcam != NULL && hasBestFit) {
+					fCurrentWebcam->SetRequestedFormat(bestFit);
+					lock.Unlock();
 
-						// Restart preview with new format
-						_StopPreview();
-						_StartPreview();
+					// Restart preview with new format
+					_StopPreview();
+					_StartPreview();
 
-						BString msg;
-						msg.SetToFormat("Switched to %dx%d - retrying...",
-							(int)smallest->width, (int)smallest->height);
-						fStatusBar->SetText(msg.String());
-					}
+					BString msg;
+					msg.SetToFormat("Switched to %dx%d - retrying...",
+						(int)bestFit.width, (int)bestFit.height);
+					fStatusBar->SetText(msg.String());
 				}
 			}
 			return;

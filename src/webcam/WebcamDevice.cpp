@@ -31,6 +31,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
+#include <stdint.h>
 
 
 // Helper: call roster->InstantiateDormantNode() in a thread with a timeout.
@@ -1692,6 +1694,59 @@ WebcamDevice::UpdateActualResolution(int32 width, int32 height)
 		fCurrentFormat.width = width;
 		fCurrentFormat.height = height;
 	}
+}
+
+
+/*static*/ float
+WebcamDevice::RequiredMicroframeBytes(int32 width, int32 height,
+	float fps, bool isMjpeg)
+{
+	if (width <= 0 || height <= 0 || fps <= 0.0f)
+		return 0.0f;
+	// Uncompressed YUY2-class payloads: 2 bytes/pixel. MJPEG typically
+	// compresses ~8x (same conservative ratio the UVC driver uses).
+	float frameBytes = (float)width * (float)height * 2.0f;
+	if (isMjpeg)
+		frameBytes /= 8.0f;
+	// USB 2.0 high-speed: 8000 microframes/second.
+	return frameBytes * fps / 8000.0f;
+}
+
+
+/*static*/ bool
+WebcamDevice::FormatNeedsHighBandwidth(const VideoFormat& format)
+{
+	float fps = format.frameRate > 0.0f ? format.frameRate : 30.0f;
+	bool isMjpeg = strcasecmp(format.colorSpace, "MJPEG") == 0;
+	return RequiredMicroframeBytes(format.width, format.height,
+		fps, isMjpeg) > (float)kMaxSingleTransactionBytes;
+}
+
+
+const VideoFormat*
+WebcamDevice::BestFittingFormat() const
+{
+	const VideoFormat* best = NULL;
+	int64 bestArea = -1;
+	const VideoFormat* smallest = NULL;
+	int64 smallestArea = INT64_MAX;
+	for (int32 i = 0; i < fSupportedFormats.CountItems(); i++) {
+		const VideoFormat* format = fSupportedFormats.ItemAt(i);
+		if (format == NULL || format->width <= 0 || format->height <= 0)
+			continue;
+		int64 area = (int64)format->width * (int64)format->height;
+		if (area < smallestArea) {
+			smallestArea = area;
+			smallest = format;
+		}
+		if (!FormatNeedsHighBandwidth(*format) && area > bestArea) {
+			bestArea = area;
+			best = format;
+		}
+	}
+	// No format fits a single-transaction endpoint: fall back to the
+	// smallest overall (least bandwidth) rather than nothing.
+	return best != NULL ? best : smallest;
 }
 
 

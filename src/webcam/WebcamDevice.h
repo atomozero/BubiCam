@@ -118,6 +118,19 @@ public:
 							{ fRequestedFormat = format; fHasRequestedFormat = true; }
 	void				ClearRequestedFormat() { fHasRequestedFormat = false; }
 
+	// USB bandwidth model (USB 2.0 high-speed isochronous).
+	// A single-transaction endpoint carries at most 1024 bytes per
+	// 125us microframe (~7.8 MB/s). Anything above needs a
+	// high-bandwidth (mult 2/3) endpoint, which the UVC driver only
+	// uses with WEBCAM_FORCE_HIGH_BANDWIDTH=1.
+	static const uint32	kMaxSingleTransactionBytes = 1024;
+	static float		RequiredMicroframeBytes(int32 width, int32 height,
+							float fps, bool isMjpeg);
+	static bool			FormatNeedsHighBandwidth(const VideoFormat& format);
+	// Largest-area format fitting in a single-transaction endpoint,
+	// or the smallest overall when none fits. NULL when no formats.
+	const VideoFormat*	BestFittingFormat() const;
+
 	// Audio capabilities
 	bool				SupportsAudio() const { return fSupportsAudio; }
 	float				AudioSampleRate() const { return fAudioSampleRate; }
