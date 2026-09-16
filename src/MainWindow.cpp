@@ -11,6 +11,7 @@
 #include "DriverInfoView.h"
 #include "DriverTestView.h"
 #include "USBPacketView.h"
+#include "ProbeTraceView.h"
 #include "SyslogView.h"
 #include "VUMeterView.h"
 #include "WebcamControlsView.h"
@@ -140,6 +141,7 @@ MainWindow::MainWindow()
 	fDriverInfo(NULL),
 	fDriverTestView(NULL),
 	fUSBPacketView(NULL),
+	fProbeTraceView(NULL),
 	fSyslogView(NULL),
 	fVUMeter(NULL),
 	fWebcamControls(NULL),
@@ -222,6 +224,7 @@ MainWindow::MainWindow()
 
 	// Start syslog monitoring
 	fSyslogView->StartMonitoring();
+	fProbeTraceView->StartMonitoring();
 
 	// Restore saved settings (window position, last device, etc.)
 	_LoadSettings();
@@ -238,6 +241,8 @@ MainWindow::~MainWindow()
 
 	if (fSyslogView != NULL)
 		fSyslogView->StopMonitoring();
+	if (fProbeTraceView != NULL)
+		fProbeTraceView->StopMonitoring();
 
 	_StopDeviceWatching();
 
@@ -2407,6 +2412,15 @@ MainWindow::_BuildTabView()
 	tabView->AddTab(fUSBPacketView, new BTab());
 	tabView->TabAt(3)->SetLabel("USB");
 
+	// Probe Trace tab
+	fProbeTraceView = new ProbeTraceView("probeTraceView");
+	fProbeTraceView->SetExplicitMinSize(BSize(200, 100));
+	fProbeTraceView->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNLIMITED));
+	BScrollView* probeScroll = new BScrollView("probeScroll",
+		fProbeTraceView, B_SUPPORTS_LAYOUT, false, true);
+	tabView->AddTab(probeScroll, new BTab());
+	tabView->TabAt(4)->SetLabel("Probe Trace");
+
 	return tabView;
 }
 
@@ -2669,74 +2683,20 @@ MainWindow::_CheckWatchdog()
 				"Try a lower resolution.");
 			fStatusBar->SetHighColor(200, 100, 0);
 
-			// Pick the largest resolution that fits a standard USB 2.0
-			// single-transaction endpoint instead of blindly dropping to
-			// the smallest (which may be unnecessarily tiny, e.g. 160x120
-			// when 352x288 would stream fine).
-			VideoFormat bestFit;
-			bool hasBestFit = false;
-			VideoFormat current;
-			bool hasCurrent = false;
-			{
-				BAutolock lock(fWebcamLock);
-				if (fCurrentWebcam != NULL) {
-					const VideoFormat* fit =
-						fCurrentWebcam->BestFittingFormat();
-					if (fit != NULL) {
-						bestFit = *fit;
-						hasBestFit = true;
-					}
-					current = fCurrentWebcam->CurrentFormat();
-					hasCurrent = current.width > 0 && current.height > 0;
-				}
-			}
-			bool currentNeedsHB = hasCurrent && WebcamDevice::FormatNeedsHighBandwidth(current);
-
-			BString retryLabel("Try Lower Resolution");
-			if (hasBestFit) {
-				retryLabel.SetToFormat("Try %dx%d",
-					(int)bestFit.width, (int)bestFit.height);
-			}
 			BString details;
 			details << "No video frames have been received from the webcam.\n\n"
 				"This is likely caused by insufficient USB bandwidth.\n"
 				"The driver may have selected a transfer mode that is\n"
 				"too slow for the current resolution.\n\n"
 				"Check the syslog for 'WaitFrame TIMEOUT' messages.\n\n";
-			if (currentNeedsHB && hasCurrent) {
-				BString hbNote;
-				hbNote.SetToFormat("Note: the current format %dx%d "
-					"needs a high-bandwidth USB endpoint, which the\n"
-					"driver only uses with WEBCAM_FORCE_HIGH_BANDWIDTH=1\n"
-					"set before (re)starting the media server.\n\n",
-					(int)current.width, (int)current.height);
-				details << hbNote;
-			}
 			details << "Suggested fixes:\n"
-				"  \xe2\x80\xa2 Try a lower resolution (fits USB bandwidth)\n"
-				"  \xe2\x80\xa2 Disconnect other USB devices\n"
-				"  \xe2\x80\xa2 Use a different USB port";
+				"  - Select a lower resolution from the Format menu\n"
+				"  - Disconnect other USB devices\n"
+				"  - Use a different USB port";
 			BAlert* alert = new BAlert("No Video Signal", details.String(),
-				"OK", retryLabel.String(), NULL,
+				"OK", NULL, NULL,
 				B_WIDTH_AS_USUAL, B_WARNING_ALERT);
-			int32 choice = alert->Go();
-			if (choice == 1) {
-				// Switch to the best-fitting resolution and retry
-				BAutolock lock(fWebcamLock);
-				if (fCurrentWebcam != NULL && hasBestFit) {
-					fCurrentWebcam->SetRequestedFormat(bestFit);
-					lock.Unlock();
-
-					// Restart preview with new format
-					_StopPreview();
-					_StartPreview();
-
-					BString msg;
-					msg.SetToFormat("Switched to %dx%d - retrying...",
-						(int)bestFit.width, (int)bestFit.height);
-					fStatusBar->SetText(msg.String());
-				}
-			}
+			alert->Go();
 			return;
 		}
 

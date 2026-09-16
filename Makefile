@@ -12,6 +12,7 @@ SRCS = \
 	src/views/DriverInfoView.cpp \
 	src/views/DriverTestView.cpp \
 	src/views/USBPacketView.cpp \
+	src/views/ProbeTraceView.cpp \
 	src/views/SyslogView.cpp \
 	src/views/VUMeterView.cpp \
 	src/views/WebcamControlsView.cpp \

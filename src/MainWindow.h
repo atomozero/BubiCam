@@ -29,6 +29,7 @@ class VideoPreviewView;
 class DriverInfoView;
 class DriverTestView;
 class USBPacketView;
+class ProbeTraceView;
 class SyslogView;
 class VUMeterView;
 class WebcamControlsView;
@@ -198,6 +199,7 @@ private:
 	DriverInfoView*		fDriverInfo;
 	DriverTestView*		fDriverTestView;
 	USBPacketView*		fUSBPacketView;
+	ProbeTraceView*		fProbeTraceView;
 	SyslogView*			fSyslogView;
 	VUMeterView*		fVUMeter;
 	WebcamControlsView*	fWebcamControls;
